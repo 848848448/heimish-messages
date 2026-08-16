@@ -410,9 +410,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         keyboardActions = KeyboardActions(onSend = {
                             val body = draft.trim()
                             if (body.isNotEmpty()) {
-                                SmsRepository.sendSms(ctx, conversation.address, body)
-                                draft = ""
-                                reload()
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val ok = SmsRepository.sendSms(ctx, conversation.address, body)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        if (ok) { draft = ""; reload() }
+                                        else android.widget.Toast.makeText(ctx, "Failed to send", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             }
                         }),
                         maxLines = 5
@@ -423,10 +427,18 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         onClick = {
                             val body = draft.trim()
                             if (body.isNotEmpty()) {
-                                SmsRepository.sendSms(ctx, conversation.address, body)
-                                draft = ""
-                                keyboard?.hide()
-                                reload()
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val ok = SmsRepository.sendSms(ctx, conversation.address, body)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        if (ok) {
+                                            draft = ""
+                                            keyboard?.hide()
+                                            reload()
+                                        } else {
+                                            android.widget.Toast.makeText(ctx, "Failed to send — check SMS permission", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
                             }
                         },
                         modifier = Modifier.size(48.dp),
