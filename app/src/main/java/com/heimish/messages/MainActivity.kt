@@ -79,6 +79,9 @@ class MainActivity : ComponentActivity() {
         // colour the status bar teal
         window.statusBarColor = BrandTeal.toArgb()
 
+        // Start background sync service
+        SmsSyncService.start(this)
+
         setContent {
             MaterialTheme(colorScheme = LightColors) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

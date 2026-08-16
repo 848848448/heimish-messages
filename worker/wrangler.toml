@@ -1,0 +1,11 @@
+name = "heimish-sms"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "SMS_KV"
+id = "PLACEHOLDER_KV_ID"
+
+[vars]
+GOOGLE_CLIENT_ID = ""
+ADMIN_EMAILS = ""
