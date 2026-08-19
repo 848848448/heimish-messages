@@ -41,6 +41,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -387,12 +393,27 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             )
         },
         bottomBar = {
+            val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                uri?.let {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val ok = SmsRepository.sendMms(ctx, conversation.address, it)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (ok) reload()
+                            else android.widget.Toast.makeText(ctx, "Failed to send image", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
             Surface(shadowElevation = 8.dp, color = Color(0xFFF0F2F5)) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)
                         .navigationBarsPadding().imePadding(),
                     verticalAlignment = Alignment.Bottom
                 ) {
+                    // Image attach button
+                    IconButton(onClick = { imagePicker.launch("image/*") }) {
+                        Icon(Icons.Default.Image, "Attach image", tint = TextMeta)
+                    }
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
@@ -502,6 +523,11 @@ fun DayHeader(label: String) {
 @Composable
 fun MessageBubble(m: Message) {
     val isIn = m.incoming
+    val shape = RoundedCornerShape(
+        topStart = if (isIn) 4.dp else 18.dp,
+        topEnd   = if (isIn) 18.dp else 4.dp,
+        bottomStart = 18.dp, bottomEnd = 18.dp
+    )
     Row(
         Modifier.fillMaxWidth().padding(vertical = 1.dp),
         horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
@@ -511,38 +537,40 @@ fun MessageBubble(m: Message) {
             Box(
                 Modifier
                     .widthIn(max = 280.dp)
-                    .shadow(1.dp, RoundedCornerShape(
-                        topStart = if (isIn) 4.dp else 18.dp,
-                        topEnd = if (isIn) 18.dp else 4.dp,
-                        bottomStart = 18.dp,
-                        bottomEnd = 18.dp
-                    ))
-                    .clip(RoundedCornerShape(
-                        topStart = if (isIn) 4.dp else 18.dp,
-                        topEnd = if (isIn) 18.dp else 4.dp,
-                        bottomStart = 18.dp,
-                        bottomEnd = 18.dp
-                    ))
+                    .shadow(1.dp, shape)
+                    .clip(shape)
                     .background(if (isIn) BubbleIn else BubbleOut)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Column {
-                    Text(m.body, color = TextBody, fontSize = 15.sp, lineHeight = 20.sp)
-                    Spacer(Modifier.height(2.dp))
+                    // MMS image
+                    if (m.imageUri != null) {
+                        AsyncImage(
+                            model = m.imageUri,
+                            contentDescription = "MMS image",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp)
+                                .clip(RoundedCornerShape(topStart = if (isIn) 4.dp else 18.dp, topEnd = if (isIn) 18.dp else 4.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    // Text body
+                    if (m.body.isNotBlank()) {
+                        Text(
+                            m.body, color = TextBody, fontSize = 15.sp, lineHeight = 20.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, top = if (m.imageUri != null) 6.dp else 8.dp, bottom = 2.dp)
+                        )
+                    }
+                    // Time + tick
                     Row(
                         horizontalArrangement = Arrangement.End,
-                        modifier = Modifier.align(Alignment.End)
+                        modifier = Modifier.padding(horizontal = 10.dp, bottom = 5.dp).fillMaxWidth()
                     ) {
-                        Text(
-                            msgTime(m.date), fontSize = 11.sp, color = TextMeta
-                        )
+                        Text(msgTime(m.date), fontSize = 11.sp, color = TextMeta)
                         if (!isIn) {
                             Spacer(Modifier.width(3.dp))
-                            Icon(
-                                Icons.Default.DoneAll, null,
-                                tint = Color(0xFF53BDEB),
-                                modifier = Modifier.size(14.dp).align(Alignment.CenterVertically)
-                            )
+                            Icon(Icons.Default.DoneAll, null, tint = Color(0xFF53BDEB),
+                                modifier = Modifier.size(14.dp).align(Alignment.CenterVertically))
                         }
                     }
                 }

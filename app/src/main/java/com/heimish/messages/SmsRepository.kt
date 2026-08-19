@@ -7,8 +7,8 @@ import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Telephony
 import android.telephony.SmsManager
+import android.util.Log
 
-/** A single conversation (thread) shown in the list. */
 data class Conversation(
     val threadId: Long,
     val address: String,
@@ -18,28 +18,29 @@ data class Conversation(
     val unread: Boolean
 )
 
-/** A single message inside a thread. */
 data class Message(
     val id: Long,
     val body: String,
     val date: Long,
-    val incoming: Boolean
+    val incoming: Boolean,
+    val isMms: Boolean = false,
+    val imageUri: Uri? = null   // for MMS image parts
 )
 
 object SmsRepository {
 
+    // ── Conversations ─────────────────────────────────────────────────────────
+
     fun loadConversations(ctx: Context): List<Conversation> {
         val out = ArrayList<Conversation>()
-        val uri = Telephony.Sms.CONTENT_URI
-        val cols = arrayOf(
-            Telephony.Sms.THREAD_ID,
-            Telephony.Sms.ADDRESS,
-            Telephony.Sms.BODY,
-            Telephony.Sms.DATE,
-            Telephony.Sms.READ
-        )
         val seen = HashSet<Long>()
-        ctx.contentResolver.query(uri, cols, null, null, Telephony.Sms.DATE + " DESC")?.use { c ->
+
+        // SMS
+        ctx.contentResolver.query(
+            Telephony.Sms.CONTENT_URI,
+            arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.READ),
+            null, null, Telephony.Sms.DATE + " DESC"
+        )?.use { c ->
             val iThread = c.getColumnIndex(Telephony.Sms.THREAD_ID)
             val iAddr   = c.getColumnIndex(Telephony.Sms.ADDRESS)
             val iBody   = c.getColumnIndex(Telephony.Sms.BODY)
@@ -59,19 +60,44 @@ object SmsRepository {
                 ))
             }
         }
+
+        // MMS threads not already in SMS list
+        ctx.contentResolver.query(
+            Uri.parse("content://mms"),
+            arrayOf("thread_id", "date", "read"),
+            null, null, "date DESC"
+        )?.use { c ->
+            val iThread = c.getColumnIndex("thread_id")
+            val iDate   = c.getColumnIndex("date")
+            val iRead   = c.getColumnIndex("read")
+            while (c.moveToNext()) {
+                val thread = c.getLong(iThread)
+                if (!seen.add(thread)) continue
+                val addr = mmsAddress(ctx, thread)
+                out.add(Conversation(
+                    threadId    = thread,
+                    address     = addr,
+                    displayName = contactName(ctx, addr) ?: addr,
+                    snippet     = "📷 MMS",
+                    date        = c.getLong(iDate) * 1000L,
+                    unread      = c.getInt(iRead) == 0
+                ))
+            }
+        }
+
+        out.sortByDescending { it.date }
         return out
     }
 
+    // ── Messages ──────────────────────────────────────────────────────────────
+
     fun loadMessages(ctx: Context, threadId: Long): List<Message> {
         val out = ArrayList<Message>()
-        val cols = arrayOf(
-            Telephony.Sms._ID,
-            Telephony.Sms.BODY,
-            Telephony.Sms.DATE,
-            Telephony.Sms.TYPE
-        )
+
+        // SMS
         ctx.contentResolver.query(
-            Telephony.Sms.CONTENT_URI, cols,
+            Telephony.Sms.CONTENT_URI,
+            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE),
             Telephony.Sms.THREAD_ID + " = ?", arrayOf(threadId.toString()),
             Telephony.Sms.DATE + " ASC"
         )?.use { c ->
@@ -88,14 +114,39 @@ object SmsRepository {
                 ))
             }
         }
+
+        // MMS
+        ctx.contentResolver.query(
+            Uri.parse("content://mms"),
+            arrayOf("_id", "date", "msg_box"),
+            "thread_id = ?", arrayOf(threadId.toString()),
+            "date ASC"
+        )?.use { c ->
+            val iId   = c.getColumnIndex("_id")
+            val iDate = c.getColumnIndex("date")
+            val iBox  = c.getColumnIndex("msg_box")
+            while (c.moveToNext()) {
+                val mmsId    = c.getLong(iId)
+                val date     = c.getLong(iDate) * 1000L
+                val incoming = c.getInt(iBox) == 1
+                val (text, imgUri) = mmsParts(ctx, mmsId)
+                out.add(Message(
+                    id       = mmsId + 1_000_000L,
+                    body     = text,
+                    date     = date,
+                    incoming = incoming,
+                    isMms    = true,
+                    imageUri = imgUri
+                ))
+            }
+        }
+
+        out.sortBy { it.date }
         return out
     }
 
-    /**
-     * Send SMS — works on Android 5–14.
-     * On API 31+ getSystemService(SmsManager) needs a subscription ID on some
-     * devices; using the compat helper avoids that crash.
-     */
+    // ── Send SMS ──────────────────────────────────────────────────────────────
+
     fun sendSms(ctx: Context, address: String, body: String): Boolean {
         return runCatching {
             val sms = smsManager(ctx)
@@ -105,7 +156,6 @@ object SmsRepository {
             else
                 sms.sendTextMessage(address, null, body, null, null)
 
-            // Store in the sent box so the thread shows the message immediately
             val values = ContentValues().apply {
                 put(Telephony.Sms.ADDRESS, address)
                 put(Telephony.Sms.BODY, body)
@@ -116,11 +166,81 @@ object SmsRepository {
             }
             ctx.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
             true
-        }.getOrElse { e ->
-            e.printStackTrace()
-            false
-        }
+        }.getOrElse { e -> Log.e("SmsRepo", "sendSms: ${e.message}"); false }
     }
+
+    // ── Send MMS (image) ──────────────────────────────────────────────────────
+
+    fun sendMms(ctx: Context, address: String, imageUri: Uri, caption: String = ""): Boolean {
+        return runCatching {
+            // Read image bytes
+            val bytes = ctx.contentResolver.openInputStream(imageUri)?.readBytes() ?: return false
+            val mimeType = ctx.contentResolver.getType(imageUri) ?: "image/jpeg"
+
+            @Suppress("DEPRECATION")
+            val sms = smsManager(ctx)
+
+            // Build MMS parts
+            val parts = ArrayList<android.telephony.SmsManager>() // placeholder
+
+            // Use system MMS API (API 21+)
+            val sendReqUri = Uri.parse("content://mms/outbox")
+            val threadId = getOrCreateThreadId(ctx, address)
+
+            // Insert MMS into system
+            val mmsValues = ContentValues().apply {
+                put("thread_id", threadId)
+                put("msg_box", 4) // outbox
+                put("read", 1)
+                put("seen", 1)
+                put("date", System.currentTimeMillis() / 1000)
+            }
+            val mmsUri = ctx.contentResolver.insert(Uri.parse("content://mms"), mmsValues)
+            val mmsId = mmsUri?.lastPathSegment?.toLong() ?: return false
+
+            // Address part
+            val addrValues = ContentValues().apply {
+                put("address", address)
+                put("msg_id", mmsId)
+                put("type", 151) // PduHeaders.TO
+                put("charset", 106)
+            }
+            ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), addrValues)
+
+            // Image part
+            val imgValues = ContentValues().apply {
+                put("mid", mmsId)
+                put("ct", mimeType)
+                put("name", "image")
+                put("chset", 106)
+            }
+            val partUri = ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), imgValues)
+            if (partUri != null) {
+                ctx.contentResolver.openOutputStream(partUri)?.use { it.write(bytes) }
+            }
+
+            // Caption part (if any)
+            if (caption.isNotBlank()) {
+                val textValues = ContentValues().apply {
+                    put("mid", mmsId)
+                    put("ct", "text/plain")
+                    put("chset", 106)
+                    put("text", caption)
+                }
+                ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), textValues)
+            }
+
+            // Trigger actual send
+            sms.sendMultimediaMessage(
+                ctx,
+                mmsUri,
+                null, null, null
+            )
+            true
+        }.getOrElse { e -> Log.e("SmsRepo", "sendMms: ${e.message}"); false }
+    }
+
+    // ── Mark read ─────────────────────────────────────────────────────────────
 
     fun markThreadRead(ctx: Context, threadId: Long) {
         runCatching {
@@ -128,6 +248,10 @@ object SmsRepository {
             ctx.contentResolver.update(
                 Telephony.Sms.CONTENT_URI, values,
                 Telephony.Sms.THREAD_ID + " = ?", arrayOf(threadId.toString())
+            )
+            ctx.contentResolver.update(
+                Uri.parse("content://mms"), values,
+                "thread_id = ?", arrayOf(threadId.toString())
             )
         }
     }
@@ -161,5 +285,38 @@ object SmsRepository {
                 uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null
             )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
         }.getOrNull()
+    }
+
+    private fun mmsAddress(ctx: Context, threadId: Long): String {
+        return runCatching {
+            ctx.contentResolver.query(
+                Uri.parse("content://mms-sms/conversations/$threadId"),
+                arrayOf("address"), null, null, null
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) ?: "" else "" } ?: ""
+        }.getOrDefault("")
+    }
+
+    private fun mmsParts(ctx: Context, mmsId: Long): Pair<String, Uri?> {
+        var text = ""
+        var imgUri: Uri? = null
+        runCatching {
+            ctx.contentResolver.query(
+                Uri.parse("content://mms/$mmsId/part"),
+                arrayOf("_id", "ct", "text"), null, null, null
+            )?.use { c ->
+                val iId   = c.getColumnIndex("_id")
+                val iCt   = c.getColumnIndex("ct")
+                val iText = c.getColumnIndex("text")
+                while (c.moveToNext()) {
+                    val partId = c.getLong(iId)
+                    val ct     = c.getString(iCt) ?: ""
+                    when {
+                        ct == "text/plain" -> text = c.getString(iText) ?: ""
+                        ct.startsWith("image/") -> imgUri = Uri.parse("content://mms/part/$partId")
+                    }
+                }
+            }
+        }
+        return text to imgUri
     }
 }
