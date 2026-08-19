@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heimish Messages — Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{background:#1a1a2e;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+
+/* Phone frame */
+.phone{width:393px;height:852px;background:#ece5dd;border-radius:44px;overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,.6),inset 0 0 0 2px #333;position:relative;display:flex;flex-direction:column}
+.phone-notch{background:#000;height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex-shrink:0}
+.phone-notch span{color:#fff;font-size:12px;font-weight:600}
+.status-icons{display:flex;gap:6px;align-items:center}
+.status-icons svg{width:14px;height:14px;fill:#fff}
+
+/* App */
+.screen{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* Top bar */
+.topbar{background:#128C7E;color:#fff;display:flex;align-items:center;padding:12px 16px;gap:10px;flex-shrink:0}
+.topbar .back{font-size:22px;cursor:pointer;opacity:.9;line-height:1}
+.topbar h1{font-size:19px;font-weight:700;flex:1}
+.topbar .avatar-sm{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;flex-shrink:0}
+.topbar-info{flex:1}
+.topbar-info h2{font-size:16px;font-weight:600;line-height:1.2}
+.topbar-info span{font-size:11px;opacity:.75}
+.topbar-actions{display:flex;gap:2px}
+.topbar-actions button{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:6px;border-radius:50%}
+.topbar-actions button:hover{background:rgba(255,255,255,.15)}
+
+/* Search bar */
+.searchbar{background:#f0f2f5;padding:8px 12px}
+.searchbar input{width:100%;padding:9px 16px;border-radius:22px;border:none;background:#fff;font-size:14px;outline:none;color:#111}
+.searchbar input::placeholder{color:#aaa}
+
+/* Conv list */
+.conv-list{flex:1;overflow-y:auto;background:#fff}
+.conv-item{display:flex;align-items:center;padding:12px 16px;gap:13px;cursor:pointer;border-bottom:1px solid #f5f5f5;transition:background .15s}
+.conv-item:hover,.conv-item.active{background:#f0f2f5}
+.avatar{width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#fff;flex-shrink:0}
+.conv-info{flex:1;min-width:0}
+.conv-name{font-weight:600;font-size:15.5px;color:#111b21;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-snippet{font-size:13.5px;color:#667781;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.conv-meta{text-align:right;flex-shrink:0}
+.conv-time{font-size:11.5px;color:#667781}
+.unread-badge{background:#25D366;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;display:flex;align-items:center;justify-content:center;margin-top:5px;margin-left:auto;font-weight:600}
+
+/* Chat */
+.chat-bg{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:2px;background:#ece5dd url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c8c0b4' fill-opacity='0.15'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
+.day-header{text-align:center;margin:8px 0}
+.day-header span{background:rgba(255,255,255,.85);padding:4px 14px;border-radius:10px;font-size:12px;color:#54656f;font-weight:500}
+.bubble-row{display:flex;margin:1px 0}
+.bubble-row.out{justify-content:flex-end}
+.bubble-row.in{justify-content:flex-start}
+.bubble{max-width:72%;padding:7px 12px 5px;border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.13);position:relative}
+.bubble.in{background:#fff;border-top-left-radius:2px}
+.bubble.out{background:#dcf8c6;border-top-right-radius:2px}
+.bubble-text{font-size:15px;color:#111b21;line-height:1.45;word-break:break-word}
+.bubble-footer{display:flex;align-items:center;justify-content:flex-end;gap:3px;margin-top:2px}
+.bubble-time{font-size:11px;color:#667781}
+.tick{color:#53bdeb;font-size:13px}
+
+/* Compose */
+.compose{background:#f0f2f5;padding:10px 10px 14px;display:flex;align-items:flex-end;gap:8px;flex-shrink:0}
+.compose-input{flex:1;background:#fff;border:none;border-radius:24px;padding:10px 16px;font-size:15px;outline:none;font-family:inherit;resize:none;max-height:120px;line-height:1.4}
+.compose-input::placeholder{color:#aaa}
+.send-btn{background:#128C7E;color:#fff;border:none;border-radius:50%;width:46px;height:46px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s}
+.send-btn:hover{background:#0e7268}
+.send-btn.active{background:#25D366}
+
+/* FAB */
+.fab{position:absolute;bottom:80px;right:16px;width:54px;height:54px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3);font-size:24px;color:#fff;z-index:10;transition:transform .2s}
+.fab:hover{transform:scale(1.08)}
+
+/* Side panel for desktop */
+.desktop-info{color:#aaa;max-width:300px;margin-left:40px;display:none}
+@media(min-width:800px){.desktop-info{display:block}}
+.desktop-info h2{color:#fff;font-size:22px;margin-bottom:12px}
+.desktop-info p{font-size:14px;line-height:1.7;margin-bottom:8px}
+.desktop-info .tag{display:inline-block;background:#25D366;color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;margin:3px 3px 3px 0}
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <!-- Status bar -->
+  <div class="phone-notch">
+    <span id="clock">9:41</span>
+    <div class="status-icons">
+      <svg viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+      <svg viewBox="0 0 24 24"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+    </div>
+  </div>
+
+  <!-- Screen content injected by JS -->
+  <div class="screen" id="screen"></div>
+</div>
+
+<div class="desktop-info">
+  <h2>Heimish Messages</h2>
+  <p>פֿרעגט וואָס צו פֿיקסן — ווען דו ביסט צופֿרידן מאַכן מיר APK.</p>
+  <p style="margin-top:16px;font-size:13px;color:#888">Features:</p>
+  <div>
+    <span class="tag">WhatsApp UI</span>
+    <span class="tag">Day headers</span>
+    <span class="tag">Double tick ✓✓</span>
+    <span class="tag">Search</span>
+    <span class="tag">Call button</span>
+    <span class="tag">Delete</span>
+    <span class="tag">Auto-refresh</span>
+  </div>
+  <p style="margin-top:20px;font-size:13px;color:#777">קלאַפּ אַ שמועס → זע די טשאַט → שיק אַ מעסעדזש</p>
+</div>
+
+<script>
+const COLORS = ['#1F6F5C','#2E5E8C','#8C4A2E','#6A2E8C','#8C2E5E','#2E8C7A','#8C7A2E','#1A237E'];
+function avatarColor(s){let h=0;for(let c of (s||''))h=(h*31+c.charCodeAt(0))>>>0;return COLORS[h%COLORS.length];}
+function initials(s){return((s||'?').trim()[0]||'?').toUpperCase();}
+
+// Clock
+function updateClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent=n.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+}
+updateClock(); setInterval(updateClock,10000);
+
+// Sample data
+const convs = [
+  {id:1, name:'אברהם פֿאַלאַטשעק', addr:'+13475551234', snippet:'Hey, wie geits?', date:Date.now()-2*60000, unread:true, msgs:[
+    {id:1,body:'Hey!',date:Date.now()-86400000*2,in:true},
+    {id:2,body:'Hey!',date:Date.now()-86400000*2+60000,in:false},
+    {id:3,body:'וואס מאכסטו?',date:Date.now()-86400000+1000,in:true},
+    {id:4,body:'גוט, א"ה, ווי ביסטו?',date:Date.now()-86400000+120000,in:false},
+    {id:5,body:'Hey, wie geits?',date:Date.now()-2*60000,in:true},
+  ]},
+  {id:2, name:'ישעי׳ מערץ', addr:'+13475559876', snippet:'וואס גייט פאר', date:Date.now()-16*60000, unread:false, msgs:[
+    {id:6,body:'שלום!',date:Date.now()-3*86400000,in:false},
+    {id:7,body:'שלום, ווי גייט?',date:Date.now()-3*86400000+5000,in:true},
+    {id:8,body:'ב"ה גוט',date:Date.now()-3*86400000+60000,in:false},
+    {id:9,body:'וואס גייט פאר',date:Date.now()-16*60000,in:true},
+  ]},
+  {id:3, name:'ליפֿא מאַרק', addr:'+13475553333', snippet:'Working SMS ✓', date:Date.now()-86400000, unread:false, msgs:[
+    {id:10,body:'טעסט מעסעדזש',date:Date.now()-86400000*5,in:false},
+    {id:11,body:'Working SMS ✓',date:Date.now()-86400000,in:true},
+  ]},
+  {id:4, name:'22000', addr:'22000', snippet:'Your verification code is 847291', date:Date.now()-2*86400000, unread:false, msgs:[
+    {id:12,body:'Your verification code is 847291. Do not share this with anyone.',date:Date.now()-2*86400000,in:true},
+  ]},
+  {id:5, name:'מענדל גרין', addr:'+13475557777', snippet:'קומ שוין!', date:Date.now()-3*86400000, unread:true, msgs:[
+    {id:13,body:'וואו ביסטו?',date:Date.now()-3*86400000-60000,in:true},
+    {id:14,body:'קום שוין!',date:Date.now()-3*86400000,in:true},
+  ]},
+];
+
+let activeConv = null;
+let myMessages = {};
+convs.forEach(c => { myMessages[c.id] = [...c.msgs]; });
+
+function shortTime(ms){
+  if(!ms)return'';
+  const d=new Date(ms),n=new Date();
+  if(d.toDateString()===n.toDateString())return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  return d.toLocaleDateString([],{month:'short',day:'numeric'});
+}
+function msgTime(ms){return ms?new Date(ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):''}
+function dayLabel(ms){
+  if(!ms)return'';
+  const d=new Date(ms),n=new Date();
+  if(d.toDateString()===n.toDateString())return'Today';
+  const y=new Date(n);y.setDate(y.getDate()-1);
+  if(d.toDateString()===y.toDateString())return'Yesterday';
+  return d.toLocaleDateString([],{month:'long',day:'numeric'});
+}
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+// ── List screen ───────────────────────────────────────────────────────────────
+function showList(filter=''){
+  const list = filter ? convs.filter(c=>c.name.toLowerCase().includes(filter.toLowerCase())||c.snippet.toLowerCase().includes(filter.toLowerCase())) : convs;
+  document.getElementById('screen').innerHTML = `
+    <div class="topbar">
+      <span style="font-size:22px">💬</span>
+      <h1>Heimish Messages</h1>
+      <span style="font-size:20px;cursor:pointer" onclick="toggleSearch()">🔍</span>
+    </div>
+    <div class="searchbar" id="searchbar" style="display:none">
+      <input type="text" placeholder="Search…" id="search-inp" oninput="showList(this.value)" autofocus>
+    </div>
+    <div class="conv-list" id="conv-list">
+      ${list.map(c=>`
+        <div class="conv-item${activeConv===c.id?' active':''}" onclick="showChat(${c.id})">
+          <div class="avatar" style="background:${avatarColor(c.addr)}">${initials(c.name)}</div>
+          <div class="conv-info">
+            <div class="conv-name">${esc(c.name)}</div>
+            <div class="conv-snippet">${esc(c.snippet)}</div>
+          </div>
+          <div class="conv-meta">
+            <div class="conv-time">${shortTime(c.date)}</div>
+            ${c.unread?'<div class="unread-badge">2</div>':''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="fab" onclick="alert('New message — coming in APK!')">✏️</div>
+  `;
+}
+
+function toggleSearch(){
+  const sb=document.getElementById('searchbar');
+  if(sb){sb.style.display=sb.style.display==='none'?'block':'none';if(sb.style.display==='block')sb.querySelector('input').focus();}
+}
+
+// ── Chat screen ───────────────────────────────────────────────────────────────
+function showChat(id){
+  activeConv = id;
+  const conv = convs.find(c=>c.id===id);
+  conv.unread = false;
+  renderChat(conv);
+}
+
+function renderChat(conv){
+  const msgs = myMessages[conv.id];
+  let lastDay='', msgsHtml='';
+  for(const m of msgs){
+    const day=dayLabel(m.date);
+    if(day!==lastDay){msgsHtml+=`<div class="day-header"><span>${day}</span></div>`;lastDay=day;}
+    msgsHtml+=`
+      <div class="bubble-row ${m.in?'in':'out'}">
+        <div class="bubble ${m.in?'in':'out'}">
+          <div class="bubble-text">${esc(m.body)}</div>
+          <div class="bubble-footer">
+            <span class="bubble-time">${msgTime(m.date)}</span>
+            ${!m.in?'<span class="tick">✓✓</span>':''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  document.getElementById('screen').innerHTML = `
+    <div class="topbar">
+      <span class="back" onclick="showList()">‹</span>
+      <div class="avatar-sm" style="background:${avatarColor(conv.addr)}">${initials(conv.name)}</div>
+      <div class="topbar-info">
+        <h2>${esc(conv.name)}</h2>
+        <span>${esc(conv.addr)}</span>
+      </div>
+      <div class="topbar-actions">
+        <button onclick="alert('Calling ${esc(conv.addr)}…')">📞</button>
+        <button onclick="alert('Delete conversation?')">🗑️</button>
+      </div>
+    </div>
+    <div class="chat-bg" id="chat-bg">${msgsHtml}</div>
+    <div class="compose">
+      <textarea class="compose-input" id="compose-inp" placeholder="Message…" rows="1"
+        onkeydown="handleKey(event,${conv.id})"
+        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';document.getElementById('send-btn').className='send-btn'+(this.value.trim()?'  active':'')"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendMsg(${conv.id})">➤</button>
+    </div>
+  `;
+  const bg=document.getElementById('chat-bg');
+  bg.scrollTop=bg.scrollHeight;
+  document.getElementById('compose-inp').focus();
+}
+
+function handleKey(e,id){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg(id);}}
+
+function sendMsg(id){
+  const inp=document.getElementById('compose-inp');
+  const body=inp.value.trim();
+  if(!body)return;
+  const conv=convs.find(c=>c.id===id);
+  const msg={id:Date.now(),body,date:Date.now(),in:false};
+  myMessages[id].push(msg);
+  conv.snippet=body;
+  conv.date=msg.date;
+  inp.value='';
+  inp.style.height='auto';
+  renderChat(conv);
+  // simulate reply after 1.5s
+  setTimeout(()=>{
+    const replies=['אָקעי!','פֿאַרשטאַנען','👍','יאָ, בסדר','שיין!','ב"ה'];
+    const reply={id:Date.now()+1,body:replies[Math.floor(Math.random()*replies.length)],date:Date.now(),in:true};
+    myMessages[id].push(reply);
+    conv.snippet=reply.body;
+    renderChat(conv);
+  },1500);
+}
+
+showList();
+</script>
+</body>
+</html>
