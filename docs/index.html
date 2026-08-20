@@ -202,12 +202,7 @@ body{font-family:'Google Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Robot
 #lb-media{max-width:100%;max-height:calc(100% - 80px);object-fit:contain;touch-action:none}
 #lb-vid{max-width:100%;max-height:calc(100% - 80px);outline:none}
 #lb-x{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:50%;width:42px;height:42px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-#lb-nav-l,#lb-nav-r{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:50%;width:44px;height:44px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);transition:background .15s}
-#lb-nav-l{left:10px}
-#lb-nav-r{right:10px}
-#lb-nav-l:hover,#lb-nav-r:hover{background:rgba(255,255,255,.25)}
-#lb-counter{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.7);font-size:13px;font-weight:500}
-#lb-dots{position:absolute;bottom:36px;left:50%;transform:translateX(-50%);display:flex;gap:6px}
+
 .lb-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.4);transition:background .2s,transform .2s}
 .lb-dot.on{background:#fff;transform:scale(1.3)}
 #toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(32,33,36,.9);color:#fff;padding:10px 22px;border-radius:20px;font-size:14px;font-weight:500;opacity:0;transition:opacity .28s;pointer-events:none;z-index:400;white-space:nowrap}
@@ -281,13 +276,36 @@ body{font-family:'Google Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Robot
 <div id="ctx"></div>
 <div id="ov"></div>
 <div id="lb">
-  <button id="lb-x" onclick="closeLb()"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
-  <button id="lb-nav-l" onclick="lbNav(-1)"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg></button>
-  <img id="lb-media" src="" style="display:none">
-  <video id="lb-vid" controls playsinline style="display:none"></video>
-  <button id="lb-nav-r" onclick="lbNav(1)"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></button>
-  <div id="lb-dots"></div>
-  <div id="lb-counter"></div>
+  <!-- Header -->
+  <div id="lb-hdr" style="position:absolute;top:0;left:0;right:0;display:flex;align-items:center;padding:8px 4px;background:linear-gradient(rgba(0,0,0,.6),transparent);z-index:10">
+    <button onclick="closeLb()" style="background:none;border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    <div style="flex:1;padding:0 4px">
+      <div id="lb-name" style="font-size:16px;font-weight:600;color:#fff;line-height:1.3"></div>
+      <div id="lb-time" style="font-size:12px;color:rgba(255,255,255,.7)"></div>
+    </div>
+    <button onclick="lbDownload()" style="background:none;border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg></button>
+    <button onclick="lbDelete()" style="background:none;border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+    <button onclick="toggleLbMenu()" id="lb-more-btn" style="background:none;border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+      <div id="lb-menu" style="display:none;position:absolute;top:44px;right:0;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.3);min-width:160px;padding:6px 0;z-index:20">
+        <div onclick="T('Forward');toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Forward</div>
+        <div onclick="lbShare();toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Share</div>
+        <div onclick="T('Starred');toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Star</div>
+        <div onclick="T('View details');toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">View details</div>
+      </div>
+    </button>
+  </div>
+  <!-- Nav buttons -->
+  <button id="lb-nav-l" onclick="lbNav(-1)" style="position:absolute;left:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.3);border:none;color:#fff;width:44px;height:60px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:0 8px 8px 0"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg></button>
+  <!-- Media -->
+  <img id="lb-media" src="" style="display:none;max-width:100%;max-height:calc(100% - 80px);object-fit:contain;touch-action:none">
+  <video id="lb-vid" controls playsinline style="display:none;max-width:100%;max-height:calc(100% - 80px)"></video>
+  <button id="lb-nav-r" onclick="lbNav(1)" style="position:absolute;right:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.3);border:none;color:#fff;width:44px;height:60px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:8px 0 0 8px"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></button>
+  <!-- Footer -->
+  <div style="position:absolute;bottom:0;left:0;right:0;padding:12px;background:linear-gradient(transparent,rgba(0,0,0,.5));display:flex;flex-direction:column;align-items:center;gap:6px">
+    <div id="lb-dots" style="display:flex;gap:6px"></div>
+    <div id="lb-counter" style="font-size:13px;color:rgba(255,255,255,.7);font-weight:500"></div>
+  </div>
 </div>
 <div id="toast"></div>
 
@@ -854,9 +872,13 @@ function lbShow(i){
   } else dots.innerHTML='';
   // counter
   document.getElementById('lb-counter').textContent=lbItems.length>1?(lbIdx+1)+' / '+lbItems.length:'';
-  // show/hide nav
+  // nav visibility
   document.getElementById('lb-nav-l').style.opacity=lbIdx>0?'1':'0';
   document.getElementById('lb-nav-r').style.opacity=lbIdx<lbItems.length-1?'1':'0';
+  // header info
+  if(aid){const c=convs.find(x=>x.id===aid);if(c){document.getElementById('lb-name').textContent=c.name;}}
+  const m=(allMsgs[aid]||[]).find(x=>x.img===item.src);
+  document.getElementById('lb-time').textContent=m?fmtMsg(m.date):'';
 }
 
 function lbNav(dir){
@@ -988,6 +1010,10 @@ function lbSwipe(){
   lb._sd=[ts,tm,te,dtap];
 }
 
+function toggleLbMenu(){const m=document.getElementById('lb-menu');m.style.display=m.style.display==='block'?'none':'block';if(m.style.display==='block')setTimeout(()=>document.addEventListener('click',()=>{m.style.display='none';},{once:true}),10);}
+function lbDownload(){const img=document.getElementById('lb-media');if(!img.src)return;const a=document.createElement('a');a.href=img.src;a.download='image.jpg';a.click();T('Downloading...');}
+function lbShare(){if(navigator.share&&document.getElementById('lb-media').src){T('Sharing...');}else T('Share - coming soon!');}
+function lbDelete(){if(!confirm('Delete this image?'))return;const item=lbItems[lbIdx];if(item&&aid){allMsgs[aid]=(allMsgs[aid]||[]).map(m=>{if(m.img===item.src)m.img=null;return m;});lbItems.splice(lbIdx,1);if(!lbItems.length){closeLb();}else{lbIdx=Math.min(lbIdx,lbItems.length-1);lbShow(lbIdx);}renderMsgs(aid);}}
 function closeLb(){
   const lb=document.getElementById('lb');
   const vid=document.getElementById('lb-vid');
