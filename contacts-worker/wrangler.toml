@@ -1,0 +1,11 @@
+name = "heimish-contacts"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "CONTACTS"
+id = "PLACEHOLDER"
+
+[vars]
+ADMIN_EMAIL = "avrumy5872877@gmail.com"
+ADMIN_TOKEN = "hm_admin_avrumy_2024"
