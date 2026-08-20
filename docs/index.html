@@ -336,6 +336,11 @@ body{font-family:'Google Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Robot
 <div id="toast"></div>
 
 <script>
+// Global action registry - fixes arrow fn onclick in innerHTML
+window._A={};
+window._AI=0;
+function _reg(fn){const k='a'+(++_AI);_A[k]=fn;return k;}
+
 const PAL=['#1F6F5C','#2E5E8C','#8C4A2E','#6A2E8C','#8C2E5E','#2E8C7A','#8C7A2E','#1A237E'];
 const avc=s=>{let h=0;for(const c of(s||''))h=(h*31+c.charCodeAt(0))>>>0;return PAL[h%PAL.length]};
 const ini=s=>((s||'?').trim()[0]||'?').toUpperCase();
@@ -789,8 +794,11 @@ function showOv(mode){
     {lb:'Help & feedback',fn:()=>T('Help')},
   ];
   const ov=document.getElementById('ov');
-  ov.innerHTML=items.map(it=>it==='sep'?'<div class="ov-sep"></div>'
-    :'<div class="ovi'+(it.red?' red':'')+'" onclick="closeOv();('+it.fn+')()">'+it.lb+'</div>').join('');
+  ov.innerHTML=items.map(it=>{
+    if(it==='sep')return '<div class="ov-sep"></div>';
+    const k=_reg(()=>{closeOv();it.fn();});
+    return '<div class="ovi'+(it.red?' red':'')+'" onclick="_A.'+k+'()">'+it.lb+'</div>';
+  }).join('');
   ov.style.display='block';
   setTimeout(()=>document.addEventListener('click',closeOv,{once:true}),10);
 }
@@ -859,14 +867,8 @@ function closeProfile(){document.getElementById('pmenu').style.display='none';}
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
 function setRow(icoPath,title,sub,fn){
-  let onclick='';
-  if(fn){
-    const k='ma'+(++_menuIdx);
-    _menuActions[k]=fn;
-    onclick=' onclick="_menuActions.'+k+'()"';
-  } else {
-    onclick=' onclick="T(\''+title+'\')"';
-  }
+  const k=fn?_reg(fn):null;
+  const onclick=k?' onclick="_A.'+k+'()"':' onclick="T(\''+title+'\')"';
   return '<div class="set-r"'+onclick+'>'
     +'<div class="set-r-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+icoPath+'"/></svg></div>'
     +'<div class="set-r-b"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div></div>';
