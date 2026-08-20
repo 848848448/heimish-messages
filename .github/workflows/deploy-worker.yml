@@ -23,39 +23,21 @@ jobs:
           node-version: '20'
 
       - name: Install Wrangler
-        run: npm install -g wrangler@latest
+        run: npm install -g wrangler@3
 
-      - name: Create KV namespace & get ID
-        id: kv
+      - name: Show wrangler version
+        run: wrangler --version
+
+      - name: Show config
+        run: cat contacts-worker/wrangler.toml
+
+      - name: Deploy Worker (verbose)
         run: |
           cd contacts-worker
-          # Try to list existing namespaces
-          wrangler kv namespace list > /tmp/kv_list.txt 2>&1 || true
-          cat /tmp/kv_list.txt
-          
-          # Extract ID if exists
-          KV_ID=$(cat /tmp/kv_list.txt | grep -A2 'heimish-contacts' | grep '"id"' | head -1 | grep -oE '"[a-f0-9]{32}"' | tr -d '"' || echo "")
-          
-          if [ -z "$KV_ID" ]; then
-            # Create new namespace
-            wrangler kv namespace create "heimish-contacts" > /tmp/kv_create.txt 2>&1 || true
-            cat /tmp/kv_create.txt
-            KV_ID=$(cat /tmp/kv_create.txt | grep -oE '[a-f0-9]{32}' | head -1 || echo "")
-          fi
-          
-          echo "KV_ID=$KV_ID"
-          echo "KV_ID=$KV_ID" >> $GITHUB_ENV
+          wrangler deploy --verbose 2>&1
+        continue-on-error: true
 
-      - name: Update wrangler.toml
+      - name: Deploy Worker (retry without verbose)
         run: |
-          if [ -z "$KV_ID" ]; then
-            echo "No KV ID found, removing KV binding..."
-            sed -i '/\[\[kv_namespaces\]\]/,/^$/d' contacts-worker/wrangler.toml
-          else
-            sed -i "s/PLACEHOLDER/$KV_ID/" contacts-worker/wrangler.toml
-          fi
-          cat contacts-worker/wrangler.toml
-
-      - name: Deploy Worker
-        run: wrangler deploy
-        working-directory: contacts-worker
+          cd contacts-worker
+          wrangler deploy 2>&1
