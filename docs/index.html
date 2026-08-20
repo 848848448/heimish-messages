@@ -207,6 +207,9 @@ body{font-family:'Google Sans','Roboto',sans-serif;background:var(--list)}
 .pmenu-av{width:72px;height:72px;border-radius:50%;background:#1a73e8;display:flex;align-items:center;justify-content:center;font-size:28px;color:#fff;margin:0 auto 10px}
 .pmenu-name{font-size:18px;font-weight:600;color:var(--text);text-align:center}
 
+/* swipe down to close chat */
+#S-chat{touch-action:pan-y}
+
 /* lightbox */
 #lb{position:fixed;inset:0;background:#000;z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center}
 #lb img{max-width:100%;max-height:100%;object-fit:contain}
@@ -426,10 +429,69 @@ function openChat(id){
     +callBtn+videoBtn
     +'<button class="ib" onclick="showOv(\'chat\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>';
   renderMsgs(id);
+
+  // swipe down to go back
+  const chat = document.getElementById('S-chat');
+  let sd0=null, sdY0=null, sdScrollTop=null;
+  chat._swipeHandler = function(e){
+    const cbg = document.getElementById('cbg');
+    // only start swipe if at top of scroll
+    if(e.touches.length!==1)return;
+    const t=e.touches[0];
+    sd0=t.clientX; sdY0=t.clientY; sdScrollTop=cbg.scrollTop;
+  };
+  chat._swipeMoveHandler = function(e){
+    if(sd0===null)return;
+    const t=e.touches[0];
+    const dy=t.clientY-sdY0;
+    const dx=Math.abs(t.clientX-sd0);
+    // only swipe down when scroll is at top and movement is mostly vertical
+    if(sdScrollTop>10){sd0=null;return;}
+    if(dy>0 && dx<60){
+      e.preventDefault();
+      const prog=Math.min(dy/300,1);
+      chat.style.transition='none';
+      chat.style.transform='translateY('+dy+'px)';
+      chat.style.opacity=1-prog*0.3;
+    }
+  };
+  chat._swipeEndHandler = function(e){
+    if(sd0===null)return;
+    const dy=e.changedTouches[0].clientY-sdY0;
+    chat.style.transition='transform .3s cubic-bezier(.4,0,.2,1), opacity .3s';
+    if(dy>100){
+      // complete the swipe - go back
+      chat.style.transform='translateY(100%)';
+      chat.style.opacity='0';
+      setTimeout(()=>{
+        chat.style.transform='';chat.style.opacity='';chat.style.transition='';
+        backToList(id);
+      },300);
+    } else {
+      // snap back
+      chat.style.transform='';chat.style.opacity='';
+      setTimeout(()=>chat.style.transition='',300);
+    }
+    sd0=null;sdY0=null;
+  };
+  // remove old listeners first
+  if(chat._oldSwipe){chat.removeEventListener('touchstart',chat._oldSwipe[0]);chat.removeEventListener('touchmove',chat._oldSwipe[1]);chat.removeEventListener('touchend',chat._oldSwipe[2]);}
+  chat.addEventListener('touchstart',chat._swipeHandler,{passive:true});
+  chat.addEventListener('touchmove',chat._swipeMoveHandler,{passive:false});
+  chat.addEventListener('touchend',chat._swipeEndHandler,{passive:true});
+  chat._oldSwipe=[chat._swipeHandler,chat._swipeMoveHandler,chat._swipeEndHandler];
 }
-function backToList(){
+function backToList(scrollToId){
+  const id=scrollToId||aid;
   document.getElementById('S-list').classList.remove('left');
   document.getElementById('S-chat').classList.add('right');
+  // scroll conv list to show the conversation we just left
+  if(id){
+    setTimeout(()=>{
+      const el=document.getElementById('ci'+id);
+      if(el)el.scrollIntoView({block:'center',behavior:'smooth'});
+    },320);
+  }
   aid=null;clearReply();clearImg();closeEmoji();closeOv();
 }
 
