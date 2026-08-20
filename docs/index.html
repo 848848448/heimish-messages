@@ -355,11 +355,11 @@ const convs=[
 ];
 const allMsgs={
   1:[
-    {id:1,body:'Hey!',date:Date.now()-86400000*2,in:true},
+    {id:1,body:'Hey!',date:Date.now()-86400000*2,in:true,_read:true},
     {id:2,body:'Hey!',date:Date.now()-86400000*2+60000,in:false},
     {id:3,body:'וואס מאכסטו?',date:Date.now()-86400000+1000,in:true},
     {id:4,body:'גוט, ווי ביסטו?',date:Date.now()-86400000+120000,in:false},
-    {id:5,body:'Hey, wie geits?',date:Date.now()-2*60000,in:true},
+    {id:5,body:'Hey, wie geits?',date:Date.now()-2*60000,in:true,_read:false},
   ],
   2:[
     {id:6,body:'שלום!',date:Date.now()-3*86400000,in:false},
@@ -375,8 +375,8 @@ const allMsgs={
   ],
   4:[{id:14,body:'Your verification code is 847291. Do not share this code.',date:Date.now()-2*86400000,in:true}],
   5:[
-    {id:15,body:'וואו ביסטו?',date:Date.now()-3*86400000-60000,in:true},
-    {id:16,body:'קומ שוין!',date:Date.now()-3*86400000,in:true},
+    {id:15,body:'וואו ביסטו?',date:Date.now()-3*86400000-60000,in:true,_read:false},
+    {id:16,body:'קומ שוין!',date:Date.now()-3*86400000,in:true,_read:false},
   ],
   6:[
     {id:17,sys:'You created this group MMS with (347) 675-7590 and 18 others',date:Date.now()-4*86400000},
@@ -433,7 +433,15 @@ function ciCtx(e,id){e.preventDefault();showCtxList(e,id);}
 // ── OPEN CHAT ─────────────────────────────────────────────────────────────────
 function openChat(id){
   aid=id;
-  const c=convs.find(x=>x.id===id);c.unread=0;renderList(convs);
+  const c=convs.find(x=>x.id===id);
+  // store unread state before clearing
+  const msgs=allMsgs[id]||[];
+  const firstUnread=msgs.find(m=>m.in&&!m._read);
+  c._wasUnread=c.unread>0;
+  c._firstUnreadId=firstUnread?firstUnread.id:null;
+  // mark all as read
+  msgs.forEach(m=>m._read=true);
+  c.unread=0;renderList(convs);
   document.getElementById('S-list').classList.add('left');
   document.getElementById('S-chat').classList.remove('right');
 
@@ -547,6 +555,10 @@ function addSwipeDown(elId, closeFn){
 function renderMsgs(id){
   const list=allMsgs[id]||[];
   let lastDay='',html='';
+  // find first unread incoming message index
+  const conv=convs.find(x=>x.id===id);
+  const hadUnread=conv&&conv._wasUnread;
+  let unreadInserted=false;
   for(const m of list){
     if(m.sys){
       const day=fmtDay(m.date);
@@ -556,6 +568,11 @@ function renderMsgs(id){
     const day=fmtDay(m.date);
     if(day!==lastDay){html+='<div class="dh"><span>'+fmtDayTime(m.date)+'</span></div>';lastDay=day;}
     if(m.warn)html+=warnCard();
+    // insert "Unread" divider before first unread incoming message
+    if(!unreadInserted&&hadUnread&&m.in&&m.id>=(conv._firstUnreadId||0)){
+      html+='<div id="unread-marker" style="display:flex;align-items:center;gap:10px;margin:10px 4px"><div style="flex:1;height:.5px;background:#1a73e8"></div><span style="font-size:12px;color:#1a73e8;font-weight:600;white-space:nowrap">Unread</span><div style="flex:1;height:.5px;background:#1a73e8"></div></div>';
+      unreadInserted=true;
+    }
     const rq=m.replyTo?'<div class="rqb"><b>'+esc(m.replyTo.from)+'</b><span>'+esc(m.replyTo.text)+'</span></div>':'';
     let inner='';
     if(m.img)inner+='<img src="'+m.img+'" onclick="openLb(\''+m.img+'\')" onerror="this.style.display=\'none\'" style="cursor:zoom-in">';
