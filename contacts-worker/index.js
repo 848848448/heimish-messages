@@ -1,9 +1,7 @@
 /**
  * Heimish Messages — Contacts Worker
- * Admin can store contacts → all devices can look them up
- * Devices report if a number exists in their SMS
+ * Cross-device contact sync for admin
  */
-
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
@@ -16,60 +14,51 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const auth = request.headers.get('Authorization') || '';
-    const isAdmin = auth === 'Bearer ' + (env.ADMIN_TOKEN || 'hm_admin_avrumy_2024');
+    const token = env.ADMIN_TOKEN || 'hm_admin_avrumy_2024';
+    const isAdmin = auth === 'Bearer ' + token;
 
-    // ── GET /contacts — list all admin contacts (public, for all devices)
+    if (path === '/ping') return json({ ok: true, time: new Date().toISOString() });
+
     if (path === '/contacts' && request.method === 'GET') {
-      const data = await env.CONTACTS.get('contacts');
-      return json(JSON.parse(data || '[]'));
+      const data = (await env.CONTACTS?.get('contacts')) || '[]';
+      return json(JSON.parse(data));
     }
-
-    // ── POST /contacts — add a contact (admin only)
     if (path === '/contacts' && request.method === 'POST') {
       if (!isAdmin) return json({ error: 'Unauthorized' }, 401);
       const { name, addr } = await request.json();
       if (!addr) return json({ error: 'addr required' }, 400);
-      const contacts = JSON.parse(await env.CONTACTS.get('contacts') || '[]');
-      const existing = contacts.findIndex(c => c.addr === addr);
+      const contacts = JSON.parse((await env.CONTACTS?.get('contacts')) || '[]');
+      const idx = contacts.findIndex(c => c.addr === addr);
       const contact = { name: name || addr, addr, added: new Date().toISOString() };
-      if (existing >= 0) contacts[existing] = contact;
+      if (idx >= 0) contacts[idx] = contact;
       else contacts.push(contact);
-      await env.CONTACTS.put('contacts', JSON.stringify(contacts));
+      await env.CONTACTS?.put('contacts', JSON.stringify(contacts));
       return json({ ok: true, contact });
     }
-
-    // ── DELETE /contacts/:addr — remove a contact (admin only)
     if (path.startsWith('/contacts/') && request.method === 'DELETE') {
       if (!isAdmin) return json({ error: 'Unauthorized' }, 401);
       const addr = decodeURIComponent(path.slice(10));
-      const contacts = JSON.parse(await env.CONTACTS.get('contacts') || '[]');
-      const filtered = contacts.filter(c => c.addr !== addr);
-      await env.CONTACTS.put('contacts', JSON.stringify(filtered));
+      const contacts = JSON.parse((await env.CONTACTS?.get('contacts')) || '[]');
+      await env.CONTACTS?.put('contacts', JSON.stringify(contacts.filter(c => c.addr !== addr)));
       return json({ ok: true });
     }
-
-    // ── POST /report — device reports if a number exists in its SMS
     if (path === '/report' && request.method === 'POST') {
       const { deviceId, addr, found, lastSeen } = await request.json();
-      if (!addr || !deviceId) return json({ error: 'missing fields' }, 400);
-      const key = 'report:' + addr;
-      const reports = JSON.parse(await env.CONTACTS.get(key) || '[]');
+      if (!addr || !deviceId) return json({ error: 'missing' }, 400);
+      const key = 'rpt:' + addr.replace(/[^0-9+]/g,'');
+      const reports = JSON.parse((await env.CONTACTS?.get(key)) || '[]');
       const idx = reports.findIndex(r => r.deviceId === deviceId);
-      const report = { deviceId, found: !!found, lastSeen: lastSeen || null, time: new Date().toISOString() };
-      if (idx >= 0) reports[idx] = report;
-      else reports.push(report);
-      await env.CONTACTS.put(key, JSON.stringify(reports), { expirationTtl: 86400 * 30 });
+      const rep = { deviceId, found: !!found, lastSeen: lastSeen||null, time: new Date().toISOString() };
+      if (idx >= 0) reports[idx] = rep; else reports.push(rep);
+      await env.CONTACTS?.put(key, JSON.stringify(reports), { expirationTtl: 2592000 });
       return json({ ok: true });
     }
-
-    // ── GET /reports/:addr — get all device reports for a number (admin only)
     if (path.startsWith('/reports/') && request.method === 'GET') {
       if (!isAdmin) return json({ error: 'Unauthorized' }, 401);
       const addr = decodeURIComponent(path.slice(9));
-      const reports = JSON.parse(await env.CONTACTS.get('report:' + addr) || '[]');
-      return json(reports);
+      const key = 'rpt:' + addr.replace(/[^0-9+]/g,'');
+      return json(JSON.parse((await env.CONTACTS?.get(key)) || '[]'));
     }
-
     return json({ error: 'Not found' }, 404);
   }
 };

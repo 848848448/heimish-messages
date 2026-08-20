@@ -13,9 +13,11 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -23,67 +25,37 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler@latest
 
-      - name: Get or Create KV namespace
+      - name: Create KV namespace & get ID
         id: kv
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
           cd contacts-worker
-          LIST=$(wrangler kv namespace list 2>/dev/null || echo "[]")
-          echo "Namespace list: $LIST"
-          EXISTING=$(echo "$LIST" | python3 -c "
-import sys,json,re
-try:
-  data=sys.stdin.read()
-  # strip ANSI codes
-  clean=re.sub(r'\x1b\[[0-9;]*m','',data)
-  # find JSON array
-  m=re.search(r'\[.*\]',clean,re.DOTALL)
-  if m:
-    ns=json.loads(m.group())
-    found=next((n['id'] for n in ns if n.get('title')=='heimish-contacts'),None)
-    print(found or '')
-  else: print('')
-except Exception as e:
-  print('',file=sys.stderr)
-  print('')
-" 2>/dev/null || echo "")
+          # Try to list existing namespaces
+          wrangler kv namespace list > /tmp/kv_list.txt 2>&1 || true
+          cat /tmp/kv_list.txt
           
-          if [ -n "$EXISTING" ]; then
-            echo "Found KV: $EXISTING"
-            KV_ID="$EXISTING"
-          else
-            echo "Creating KV namespace..."
-            CREATE=$(wrangler kv namespace create "heimish-contacts" 2>&1 || true)
-            echo "$CREATE"
-            KV_ID=$(echo "$CREATE" | python3 -c "
-import sys,re,json
-data=sys.stdin.read()
-clean=re.sub(r'\x1b\[[0-9;]*m','',data)
-m=re.search(r'id\s*=\s*[\"'\'']\s*([a-f0-9]+)\s*[\"'\'']',clean)
-if m: print(m.group(1))
-else:
-  m2=re.search(r'\"id\":\s*\"([a-f0-9]+)\"',clean)
-  if m2: print(m2.group(1))
-  else: print('')
-" 2>/dev/null || echo "")
+          # Extract ID if exists
+          KV_ID=$(cat /tmp/kv_list.txt | grep -A2 'heimish-contacts' | grep '"id"' | head -1 | grep -oE '"[a-f0-9]{32}"' | tr -d '"' || echo "")
+          
+          if [ -z "$KV_ID" ]; then
+            # Create new namespace
+            wrangler kv namespace create "heimish-contacts" > /tmp/kv_create.txt 2>&1 || true
+            cat /tmp/kv_create.txt
+            KV_ID=$(cat /tmp/kv_create.txt | grep -oE '[a-f0-9]{32}' | head -1 || echo "")
           fi
           
+          echo "KV_ID=$KV_ID"
           echo "KV_ID=$KV_ID" >> $GITHUB_ENV
-          echo "kv_id=$KV_ID" >> $GITHUB_OUTPUT
 
-      - name: Patch wrangler.toml
+      - name: Update wrangler.toml
         run: |
-          echo "KV ID is: $KV_ID"
-          if [ -z "$KV_ID" ]; then echo "No KV ID!"; exit 1; fi
-          sed -i "s/PLACEHOLDER/$KV_ID/" contacts-worker/wrangler.toml
+          if [ -z "$KV_ID" ]; then
+            echo "No KV ID found, removing KV binding..."
+            sed -i '/\[\[kv_namespaces\]\]/,/^$/d' contacts-worker/wrangler.toml
+          else
+            sed -i "s/PLACEHOLDER/$KV_ID/" contacts-worker/wrangler.toml
+          fi
           cat contacts-worker/wrangler.toml
 
-      - name: Deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: |
-          cd contacts-worker
-          wrangler deploy
+      - name: Deploy Worker
+        run: wrangler deploy
+        working-directory: contacts-worker
