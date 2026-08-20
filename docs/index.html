@@ -430,56 +430,46 @@ function openChat(id){
     +'<button class="ib" onclick="showOv(\'chat\')"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>';
   renderMsgs(id);
 
-  // swipe down to go back
-  const chat = document.getElementById('S-chat');
-  let sd0=null, sdY0=null, sdScrollTop=null;
-  chat._swipeHandler = function(e){
-    const cbg = document.getElementById('cbg');
-    // only start swipe if at top of scroll
+  // swipe down ONLY from the header topbar — strictly vertical
+  const chat=document.getElementById('S-chat');
+  const tb=document.getElementById('chat-tb');
+  let _y0=null,_x0=null,_active=false;
+  function _ts(e){
     if(e.touches.length!==1)return;
-    const t=e.touches[0];
-    sd0=t.clientX; sdY0=t.clientY; sdScrollTop=cbg.scrollTop;
-  };
-  chat._swipeMoveHandler = function(e){
-    if(sd0===null)return;
-    const t=e.touches[0];
-    const dy=t.clientY-sdY0;
-    const dx=Math.abs(t.clientX-sd0);
-    // only swipe down when scroll is at top and movement is mostly vertical
-    if(sdScrollTop>10){sd0=null;return;}
-    if(dy>0 && dx<60){
+    _y0=e.touches[0].clientY;_x0=e.touches[0].clientX;_active=false;
+    chat.style.transition='none';
+  }
+  function _tm(e){
+    if(_y0===null)return;
+    const dy=e.touches[0].clientY-_y0;
+    const dx=Math.abs(e.touches[0].clientX-_x0);
+    // cancel if moving sideways more than 20px
+    if(!_active&&dx>20){_y0=null;chat.style.transition='';return;}
+    if(dy>0&&dx<20){
+      _active=true;
       e.preventDefault();
-      const prog=Math.min(dy/300,1);
-      chat.style.transition='none';
       chat.style.transform='translateY('+dy+'px)';
-      chat.style.opacity=1-prog*0.3;
+      chat.style.opacity=String(1-Math.min(dy/280,1)*0.35);
     }
-  };
-  chat._swipeEndHandler = function(e){
-    if(sd0===null)return;
-    const dy=e.changedTouches[0].clientY-sdY0;
-    chat.style.transition='transform .3s cubic-bezier(.4,0,.2,1), opacity .3s';
-    if(dy>100){
-      // complete the swipe - go back
-      chat.style.transform='translateY(100%)';
-      chat.style.opacity='0';
-      setTimeout(()=>{
-        chat.style.transform='';chat.style.opacity='';chat.style.transition='';
-        backToList(id);
-      },300);
+  }
+  function _te(e){
+    if(_y0===null)return;
+    const dy=e.changedTouches[0].clientY-_y0;
+    chat.style.transition='transform .28s cubic-bezier(.4,0,.2,1),opacity .28s';
+    if(_active&&dy>100){
+      chat.style.transform='translateY(100%)';chat.style.opacity='0';
+      setTimeout(()=>{chat.style.transform='';chat.style.opacity='';chat.style.transition='';backToList(id);},280);
     } else {
-      // snap back
       chat.style.transform='';chat.style.opacity='';
       setTimeout(()=>chat.style.transition='',300);
     }
-    sd0=null;sdY0=null;
-  };
-  // remove old listeners first
-  if(chat._oldSwipe){chat.removeEventListener('touchstart',chat._oldSwipe[0]);chat.removeEventListener('touchmove',chat._oldSwipe[1]);chat.removeEventListener('touchend',chat._oldSwipe[2]);}
-  chat.addEventListener('touchstart',chat._swipeHandler,{passive:true});
-  chat.addEventListener('touchmove',chat._swipeMoveHandler,{passive:false});
-  chat.addEventListener('touchend',chat._swipeEndHandler,{passive:true});
-  chat._oldSwipe=[chat._swipeHandler,chat._swipeMoveHandler,chat._swipeEndHandler];
+    _y0=null;_x0=null;_active=false;
+  }
+  if(tb._sd){tb.removeEventListener('touchstart',tb._sd[0]);tb.removeEventListener('touchmove',tb._sd[1]);tb.removeEventListener('touchend',tb._sd[2]);}
+  tb.addEventListener('touchstart',_ts,{passive:true});
+  tb.addEventListener('touchmove',_tm,{passive:false});
+  tb.addEventListener('touchend',_te,{passive:true});
+  tb._sd=[_ts,_tm,_te];
 }
 function backToList(scrollToId){
   const id=scrollToId||aid;
@@ -497,33 +487,32 @@ function backToList(scrollToId){
 
 // ── SWIPE DOWN HELPER ────────────────────────────────────────────────────────
 function addSwipeDown(elId, closeFn){
+  // attach to the topbar inside the element so only header drag triggers it
   const el=document.getElementById(elId);
   if(!el)return;
-  let y0=null;
-  function ts(e){if(e.touches.length===1){y0=e.touches[0].clientY;el.style.transition='none';}}
+  // find topbar inside (first .tb or .dtb child)
+  const handle=el.querySelector('.tb,.dtb,.pmenu-hdr')||el;
+  let y0=null,x0=null,act=false;
+  function ts(e){if(e.touches.length!==1)return;y0=e.touches[0].clientY;x0=e.touches[0].clientX;act=false;el.style.transition='none';}
   function tm(e){
     if(y0===null)return;
-    const dy=e.touches[0].clientY-y0;
-    if(dy>0){e.preventDefault();el.style.transform='translateY('+dy+'px)';el.style.opacity=1-Math.min(dy/300,1)*0.4;}
+    const dy=e.touches[0].clientY-y0,dx=Math.abs(e.touches[0].clientX-x0);
+    if(!act&&dx>20){y0=null;el.style.transition='';return;}
+    if(dy>0&&dx<20){act=true;e.preventDefault();el.style.transform='translateY('+dy+'px)';el.style.opacity=String(1-Math.min(dy/300,1)*0.4);}
   }
   function te(e){
     if(y0===null)return;
     const dy=e.changedTouches[0].clientY-y0;
-    el.style.transition='transform .28s cubic-bezier(.4,0,.2,1), opacity .28s';
-    if(dy>90){
-      el.style.transform='translateY(100%)';el.style.opacity='0';
-      setTimeout(()=>{el.style.transform='';el.style.opacity='';el.style.transition='';closeFn();},280);
-    } else {
-      el.style.transform='';el.style.opacity='';setTimeout(()=>el.style.transition='',300);
-    }
-    y0=null;
+    el.style.transition='transform .28s cubic-bezier(.4,0,.2,1),opacity .28s';
+    if(act&&dy>90){el.style.transform='translateY(100%)';el.style.opacity='0';setTimeout(()=>{el.style.transform='';el.style.opacity='';el.style.transition='';closeFn();},280);}
+    else{el.style.transform='';el.style.opacity='';setTimeout(()=>el.style.transition='',300);}
+    y0=null;x0=null;act=false;
   }
-  // remove old if exists
-  if(el._sd){el.removeEventListener('touchstart',el._sd[0]);el.removeEventListener('touchmove',el._sd[1]);el.removeEventListener('touchend',el._sd[2]);}
-  el.addEventListener('touchstart',ts,{passive:true});
-  el.addEventListener('touchmove',tm,{passive:false});
-  el.addEventListener('touchend',te,{passive:true});
-  el._sd=[ts,tm,te];
+  if(handle._sd){handle.removeEventListener('touchstart',handle._sd[0]);handle.removeEventListener('touchmove',handle._sd[1]);handle.removeEventListener('touchend',handle._sd[2]);}
+  handle.addEventListener('touchstart',ts,{passive:true});
+  handle.addEventListener('touchmove',tm,{passive:false});
+  handle.addEventListener('touchend',te,{passive:true});
+  handle._sd=[ts,tm,te];
 }
 
 // ── MESSAGES ──────────────────────────────────────────────────────────────────
