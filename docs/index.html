@@ -800,7 +800,7 @@ function showOv(mode){
     return '<div class="ovi'+(it.red?' red':'')+'" onclick="_A.'+k+'()">'+it.lb+'</div>';
   }).join('');
   ov.style.display='block';
-  setTimeout(()=>document.addEventListener('click',closeOv,{once:true}),10);
+  // Don't add global close listener - handled in init click handler
 }
 function closeOv(){document.getElementById('ov').style.display='none';}
 
@@ -1354,8 +1354,14 @@ function saveContactsToStorage(){
 loadSavedContacts();
 renderList(convs);
 document.addEventListener('click',e=>{
-  if(document.getElementById('ctx').style.display!=='none'&&!document.getElementById('ctx').contains(e.target))closeCtx();
-  if(document.getElementById('ov').style.display!=='none'&&!document.getElementById('ov').contains(e.target))closeOv();
+  const ctx=document.getElementById('ctx');
+  const ov=document.getElementById('ov');
+  // Close ctx/ov when clicking outside them
+  // Use requestAnimationFrame to let the onclick handler fire first
+  requestAnimationFrame(()=>{
+    if(ctx&&ctx.style.display!=='none'&&!ctx.contains(e.target))closeCtx();
+    if(ov&&ov.style.display!=='none'&&!ov.contains(e.target))closeOv();
+  });
 });
 </script>
 </body>
