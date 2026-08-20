@@ -8,72 +8,87 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type,Authorization',
 }
 
+// Simple in-memory store (resets on worker restart - will add KV later)
+let memContacts = []
+let memReports = {}
+
 async function handleRequest(request) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { headers: CORS })
-  }
+  if (request.method === 'OPTIONS') return new Response(null, { headers: CORS })
   
   const url = new URL(request.url)
   const path = url.pathname
   const auth = request.headers.get('Authorization') || ''
   const isAdmin = auth === 'Bearer hm_admin_avrumy_2024'
 
-  try {
-    if (path === '/ping') {
-      return json({ ok: true, time: new Date().toISOString() })
-    }
+  if (path === '/ping') return json({ ok: true })
 
-    if (path === '/contacts' && request.method === 'GET') {
-      const data = (await CONTACTS.get('contacts')) || '[]'
-      return json(JSON.parse(data))
-    }
+  // Try KV if available, fallback to memory
+  const store = typeof CONTACTS !== 'undefined' ? CONTACTS : null
 
-    if (path === '/contacts' && request.method === 'POST') {
-      if (!isAdmin) return json({ error: 'Unauthorized' }, 401)
-      const { name, addr } = await request.json()
-      if (!addr) return json({ error: 'addr required' }, 400)
-      const contacts = JSON.parse((await CONTACTS.get('contacts')) || '[]')
-      const idx = contacts.findIndex(c => c.addr === addr)
-      const contact = { name: name || addr, addr, added: new Date().toISOString() }
-      if (idx >= 0) contacts[idx] = contact
-      else contacts.push(contact)
-      await CONTACTS.put('contacts', JSON.stringify(contacts))
-      return json({ ok: true, contact })
+  if (path === '/contacts' && request.method === 'GET') {
+    if (store) {
+      const data = await store.get('contacts')
+      return json(data ? JSON.parse(data) : [])
     }
-
-    if (path.startsWith('/contacts/') && request.method === 'DELETE') {
-      if (!isAdmin) return json({ error: 'Unauthorized' }, 401)
-      const addr = decodeURIComponent(path.slice(10))
-      const contacts = JSON.parse((await CONTACTS.get('contacts')) || '[]')
-      await CONTACTS.put('contacts', JSON.stringify(contacts.filter(c => c.addr !== addr)))
-      return json({ ok: true })
-    }
-
-    if (path === '/report' && request.method === 'POST') {
-      const body = await request.json()
-      const { deviceId, addr, found, lastSeen } = body
-      if (!addr || !deviceId) return json({ error: 'missing fields' }, 400)
-      const key = 'rpt:' + addr.replace(/[^0-9+]/g, '')
-      const reports = JSON.parse((await CONTACTS.get(key)) || '[]')
-      const idx = reports.findIndex(r => r.deviceId === deviceId)
-      const rep = { deviceId, found: !!found, lastSeen: lastSeen || null, time: new Date().toISOString() }
-      if (idx >= 0) reports[idx] = rep
-      else reports.push(rep)
-      await CONTACTS.put(key, JSON.stringify(reports), { expirationTtl: 2592000 })
-      return json({ ok: true })
-    }
-
-    if (path.startsWith('/reports/') && request.method === 'GET') {
-      if (!isAdmin) return json({ error: 'Unauthorized' }, 401)
-      const addr = decodeURIComponent(path.slice(9))
-      const key = 'rpt:' + addr.replace(/[^0-9+]/g, '')
-      return json(JSON.parse((await CONTACTS.get(key)) || '[]'))
-    }
-
-    return json({ error: 'Not found' }, 404)
-  } catch (e) {
-    return json({ error: e.message }, 500)
+    return json(memContacts)
   }
+
+  if (path === '/contacts' && request.method === 'POST') {
+    if (!isAdmin) return json({ error: 'Unauthorized' }, 401)
+    const { name, addr } = await request.json()
+    if (!addr) return json({ error: 'addr required' }, 400)
+    const contact = { name: name || addr, addr, added: new Date().toISOString() }
+    if (store) {
+      const contacts = JSON.parse((await store.get('contacts')) || '[]')
+      const idx = contacts.findIndex(c => c.addr === addr)
+      if (idx >= 0) contacts[idx] = contact; else contacts.push(contact)
+      await store.put('contacts', JSON.stringify(contacts))
+    } else {
+      const idx = memContacts.findIndex(c => c.addr === addr)
+      if (idx >= 0) memContacts[idx] = contact; else memContacts.push(contact)
+    }
+    return json({ ok: true, contact })
+  }
+
+  if (path.startsWith('/contacts/') && request.method === 'DELETE') {
+    if (!isAdmin) return json({ error: 'Unauthorized' }, 401)
+    const addr = decodeURIComponent(path.slice(10))
+    if (store) {
+      const contacts = JSON.parse((await store.get('contacts')) || '[]')
+      await store.put('contacts', JSON.stringify(contacts.filter(c => c.addr !== addr)))
+    } else {
+      memContacts = memContacts.filter(c => c.addr !== addr)
+    }
+    return json({ ok: true })
+  }
+
+  if (path === '/report' && request.method === 'POST') {
+    const { deviceId, addr, found, lastSeen } = await request.json()
+    if (!addr || !deviceId) return json({ error: 'missing' }, 400)
+    const key = 'rpt:' + addr.replace(/\D/g, '')
+    const rep = { deviceId, found: !!found, lastSeen: lastSeen || null, time: new Date().toISOString() }
+    if (store) {
+      const reports = JSON.parse((await store.get(key)) || '[]')
+      const idx = reports.findIndex(r => r.deviceId === deviceId)
+      if (idx >= 0) reports[idx] = rep; else reports.push(rep)
+      await store.put(key, JSON.stringify(reports), { expirationTtl: 2592000 })
+    } else {
+      if (!memReports[key]) memReports[key] = []
+      const idx = memReports[key].findIndex(r => r.deviceId === deviceId)
+      if (idx >= 0) memReports[key][idx] = rep; else memReports[key].push(rep)
+    }
+    return json({ ok: true })
+  }
+
+  if (path.startsWith('/reports/') && request.method === 'GET') {
+    if (!isAdmin) return json({ error: 'Unauthorized' }, 401)
+    const addr = decodeURIComponent(path.slice(9))
+    const key = 'rpt:' + addr.replace(/\D/g, '')
+    if (store) return json(JSON.parse((await store.get(key)) || '[]'))
+    return json(memReports[key] || [])
+  }
+
+  return json({ error: 'Not found' }, 404)
 }
 
 function json(data, status) {
