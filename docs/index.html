@@ -404,7 +404,7 @@ function toggleSbar(){const s=document.getElementById('sbar');const on=s.style.d
 
 // swipe to archive (touch)
 let swX0=null,swId=null,swEl=null;
-function ciTouchStart(e,id){swX0=e.touches[0].clientX;swId=id;swEl=document.getElementById('ci'+id);}
+function ciTouchStart(e,id){swX0=e.touches[0].clientX;swId=id;swEl=document.getElementById('ci'+id);if(swEl)swEl._swY0=e.touches[0].clientY;}
 function ciTouchEnd(){
   if(swEl&&swX0!==null){
     const dx=swEl._swdx||0;
@@ -414,15 +414,17 @@ function ciTouchEnd(){
   swX0=null;swEl=null;swId=null;
 }
 document.addEventListener('touchmove',e=>{
-  if(swEl&&swX0!==null){
-    const dx=e.touches[0].clientX-swX0;
-    swEl._swdx=dx;
-    if(dx<0){
-      swEl.style.transition='none';
-      swEl.style.transform='translateX('+Math.max(dx,-80)+'px)';
-      const arch=document.getElementById('arch'+swId);
-      if(arch)arch.style.opacity=Math.min(1,Math.abs(dx)/60);
-    }
+  if(!swEl||swX0===null)return;
+  const dx=e.touches[0].clientX-swX0;
+  const dy=Math.abs(e.touches[0].clientY-(swEl._swY0||0));
+  // cancel if moving vertically
+  if(dy>30&&Math.abs(dx)<20){swEl=null;return;}
+  swEl._swdx=dx;
+  if(dx<0){
+    swEl.style.transition='none';
+    swEl.style.transform='translateX('+Math.max(dx,-80)+'px)';
+    const arch=document.getElementById('arch'+swId);
+    if(arch)arch.style.opacity=Math.min(1,Math.abs(dx)/60);
   }
 },{passive:true});
 function archiveConv(id){const i=convs.findIndex(x=>x.id===id);if(i>-1)convs.splice(i,1);renderList(convs);T('Conversation archived');}
@@ -1037,6 +1039,7 @@ function T(msg){const t=document.getElementById('toast');t.textContent=msg;t.cla
 
 // ── TYPING INDICATOR ─────────────────────────────────────────────────────────
 function showTyping(){
+  hideTyping(); // remove any existing indicator first
   const bg=document.getElementById('cbg');
   if(!bg)return;
   const div=document.createElement('div');
@@ -1054,11 +1057,11 @@ function detectLinks(body){
   const m=body.match(/https?:\/\/[^\s]+/);
   if(!m)return '';
   const domain=m[0].replace(/https?:\/\/(www\.)?/,'').split('/')[0];
-  const div=document.createElement('div');
-  div.className='link-prev';
-  div.onclick=function(){T('Opening link');};
-  div.innerHTML='<div class="lp-bar"></div><div class="lp-body"><div class="lp-title">'+esc(domain)+'</div><div class="lp-url">'+esc(m[0])+'</div></div>';
-  return div.outerHTML;
+  return '<div class="link-prev" onclick="T(\'Opening link\')">'
+    +'<div class="lp-bar"></div><div class="lp-body">'
+    +'<div class="lp-title">'+esc(domain)+'</div>'
+    +'<div class="lp-url">'+esc(m[0])+'</div>'
+    +'</div></div>';
 }
 
 // ── PINNED MESSAGE ────────────────────────────────────────────────────────────
