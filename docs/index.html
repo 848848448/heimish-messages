@@ -869,16 +869,22 @@ function closeProfile(){document.getElementById('pmenu').style.display='none';}
 
 // \u2500\u2500 SETTINGS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function setRow(icoPath,title,sub,fn){
-  const k=fn?_reg(fn):null;
-  const onclick=k?' onclick="window._A.'+k+'()"':' onclick="T(\''+title+'\')"';
-  return '<div class="set-r"'+onclick+'>'
+  const f=fn||function(){T(title);};
+  const k=_reg(f);
+  return '<div class="set-r" onclick="window._A.'+k+'()">'
     +'<div class="set-r-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+icoPath+'"/></svg></div>'
-    +'<div class="set-r-b"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div></div>';
+    +'<div class="set-r-b"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div>'
+    +'<svg width="18" height="18" viewBox="0 0 24 24" fill="var(--meta)" style="flex-shrink:0"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>'
+    +'</div>';
 }
 function setToggle(icoPath,title,sub,on){
-  return '<div class="set-r"><div class="set-r-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+icoPath+'"/></svg></div>'
+  const k=_reg(function(e){
+    const tog=(e.currentTarget||e.target).querySelector('.tog');
+    if(tog)tog.classList.toggle('off');
+  });
+  return '<div class="set-r" onclick="window._A.'+k+'(event)"><div class="set-r-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+icoPath+'"/></svg></div>'
     +'<div class="set-r-b"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div>'
-    +'<button class="tog'+(on?'':' off')+'" onclick="this.classList.toggle(\'off\')"></button></div>';
+    +'<div class="tog'+(on?'':' off')+'" onclick="event.stopPropagation();this.classList.toggle(\'off\')"></div></div>';
 }
 function showSett(){
   const s=document.getElementById('sett');s.style.display='flex';
