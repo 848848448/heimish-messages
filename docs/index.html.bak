@@ -42,8 +42,9 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 .dh{text-align:center;margin:8px 0}
 .dh span{background:#fff;padding:4px 12px;border-radius:10px;font-size:12px;color:#5f6368;font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.1)}
 .brow{display:flex}
-.brow.out{justify-content:flex-end;padding-left:60px}
+.brow.out{justify-content:flex-end}
 .brow.in{justify-content:flex-start;padding-right:60px}
+.brow.out{padding-left:60px}
 .bub{max-width:100%;border-radius:18px;overflow:hidden;font-size:15px;line-height:1.5}
 .bub.in{background:#e9e9eb;border-bottom-left-radius:4px}
 .bub.out{background:#c2e7ff;border-bottom-right-radius:4px}
@@ -124,7 +125,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     <button class="ib" id="btn-search"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
     <button class="ib" id="btn-list-more"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>
   </div>
-  <div id="sbar"><div class="sw"><svg width="18" height="18" viewBox="0 0 24 24" fill="#9aa0a6"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><input id="sinp" placeholder="Search conversations..."></div></div>
+  <div id="sbar"><div class="sw"><svg width="18" height="18" viewBox="0 0 24 24" fill="#9aa0a6"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><input id="sinp" placeholder="Search conversations..." oninput="filterList(this.value)"></div></div>
   <div id="clist"></div>
   <button id="fab">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
@@ -248,6 +249,7 @@ function openChat(id){
   renderList(convs);
   document.getElementById('S-list').classList.add('hide-left');
   document.getElementById('S-chat').classList.remove('hide-right');
+  // build toolbar
   var tb=document.getElementById('chat-tb');
   tb.innerHTML='<button class="ib" id="btn-back"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>'
     +mkAv(c,40)
@@ -273,7 +275,7 @@ function renderMsgs(id){
     if(day!==lastDay){html+='<div class="dh"><span>'+day+'</span></div>';lastDay=day;}
     if(m.unread&&!hasUnread){html+='<div class="dh" id="unread-mark"><span style="color:#1a73e8;font-weight:600">Unread</span></div>';hasUnread=true;}
     var inner='';
-    if(m.img)inner+='<img src="'+m.img+'" data-src="'+m.img+'">';
+    if(m.img)inner+='<img src="'+m.img+'" data-src="'+m.img+'" onclick="openLb(this.dataset.src)">';
     if(m.b)inner+='<div class="bt">'+esc(m.b)+'</div>';
     var tick=m.in?'':'<span style="color:#1a73e8;font-size:10px">\u2713\u2713</span> ';
     inner+='<div class="bf">'+tick+fmtT(m.t)+(m.in?'':' \u2022 SMS')+'</div>';
@@ -283,10 +285,6 @@ function renderMsgs(id){
   if(!html)html='<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;color:#9aa0a6">No messages yet</div>';
   var bg=document.getElementById('cbg');
   bg.innerHTML=html;
-  // image clicks -> lightbox (no inline onclick)
-  bg.querySelectorAll('.bub img[data-src]').forEach(function(img){
-    img.addEventListener('click',function(){openLb(this.dataset.src);});
-  });
   var um=bg.querySelector('#unread-mark');
   if(um)um.scrollIntoView({block:'center'});
   else bg.scrollTop=bg.scrollHeight;
@@ -300,8 +298,6 @@ function renderMsgs(id){
 }
 
 // ── SEND ──────────────────────────────────────────────────────────────────────
-var MIC_D='M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z';
-var SEND_D='M2.01 21L23 12 2.01 3 2 10l15 2-15 2z';
 function sendMsg(){
   var inp=document.getElementById('cinp');
   var b=inp.value.trim();
@@ -312,10 +308,10 @@ function sendMsg(){
   if(!msgs[aid])msgs[aid]=[];
   msgs[aid].push(m);
   var c=convs.find(function(x){return x.id===aid;});
-  if(c){c.snip=b||(pendImg?'Photo':'');c.date=m.t;}
+  if(c){c.snip=b||(pendImg?'Photo':'');c.date=m.date;}
   inp.value='';inp.style.height='auto';
   clearReply();clearImg();
-  document.getElementById('send-ico').setAttribute('d',MIC_D);
+  document.getElementById('send-ico').setAttribute('d','M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z');
   renderMsgs(aid);renderList(convs);
   var _aid=aid;
   setTimeout(function(){
@@ -334,21 +330,6 @@ function clearImg(){pendImg=null;document.getElementById('iprev').style.display=
 // ── PANELS ────────────────────────────────────────────────────────────────────
 function openPanel(id){document.getElementById(id).classList.add('open');}
 function closePanel(id){document.getElementById(id).classList.remove('open');}
-
-function srow(title,sub,ico){
-  return '<div class="sr" data-sr-title="'+esc(title)+'">'
-    +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+ico+'"/></svg></div>'
-    +'<div class="sr-txt"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div>'
-    +'<div class="arr"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div>'
-    +'</div>';
-}
-function stog(title,sub,ico,on){
-  return '<div class="sr">'
-    +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+ico+'"/></svg></div>'
-    +'<div class="sr-txt"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div>'
-    +'<button class="tog'+(on?'':' off')+'"></button>'
-    +'</div>';
-}
 
 function buildSett(){
   var html='<div style="background:#fff;margin-bottom:8px">';
@@ -373,9 +354,9 @@ function buildSett(){
   document.getElementById('sett-body').querySelectorAll('.tog').forEach(function(t){
     t.addEventListener('click',function(){this.classList.toggle('off');});
   });
-  // attach row click events
-  document.getElementById('sett-body').querySelectorAll('.sr[data-sr-title]').forEach(function(r){
-    r.addEventListener('click',function(){T(this.dataset.srTitle);});
+  // attach row events
+  document.getElementById('sett-body').querySelectorAll('.sr').forEach(function(r){
+    r.addEventListener('click',function(){T(this.querySelector('h3').textContent);});
   });
 }
 
@@ -385,55 +366,53 @@ function buildProf(){
     +'<svg width="36" height="36" viewBox="0 0 24 24" fill="#fff"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>'
     +'<div style="font-size:18px;font-weight:700;color:#202124">avrumy</div>'
     +'<div style="font-size:13px;color:#5f6368;margin-top:4px">avrumy5872877@gmail.com</div>'
-    +'<button id="btn-manage-google" style="margin-top:12px;background:none;border:1px solid #e0e0e0;border-radius:20px;padding:8px 18px;font-size:14px;color:#1a73e8;cursor:pointer;font-family:inherit">Manage your Google Account</button>'
+    +'<button onclick="T(\'Manage Google Account\')" style="margin-top:12px;background:none;border:1px solid #e0e0e0;border-radius:20px;padding:8px 18px;font-size:14px;color:#1a73e8;cursor:pointer;font-family:inherit">Manage your Google Account</button>'
     +'</div>';
-  // build rows with data attributes for actions
-  var rows=[
-    {t:'Your profile',ico:'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',act:'toast'},
-    {t:'Archived',ico:'M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5z',act:'toast'},
-    {t:'Spam & blocked',ico:'M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4l5 2.18V11c0 3.5-2.33 6.79-5 7.93-2.67-1.14-5-4.43-5-7.93V7.18L12 5z',act:'toast'},
-    {t:'Mark all as read',ico:'M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z',act:'markread'},
-    {t:'Device pairing',ico:'M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z',act:'toast'},
-  ];
   html+='<div style="background:#fff;margin-top:8px">';
-  rows.forEach(function(r){
-    html+='<div class="sr" data-pact="'+r.act+'" data-pt="'+esc(r.t)+'">'
-      +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+r.ico+'"/></svg></div>'
-      +'<div class="sr-txt"><h3>'+r.t+'</h3></div>'
-      +'<div class="arr"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div></div>';
-  });
+  html+=prow('Your profile','M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',function(){T('Your profile');});
+  html+=prow('Archived','M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5z',function(){T('Archived');});
+  html+=prow('Spam & blocked','M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4l5 2.18V11c0 3.5-2.33 6.79-5 7.93-2.67-1.14-5-4.43-5-7.93V7.18L12 5z',function(){T('Spam & blocked');});
+  html+=prow('Mark all as read','M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z',function(){convs.forEach(function(c){c.unread=0;});renderList(convs);T('All marked as read');closePanel('P-prof');});
+  html+=prow('Device pairing','M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z',function(){T('Device pairing - coming soon!');});
   html+='</div><div style="background:#fff;margin-top:8px">';
-  var rows2=[
-    {t:'Your data in Messages',ico:'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',act:'toast'},
-    {t:'Messages settings',ico:'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',act:'settings'},
-    {t:'Help & feedback',ico:'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z',act:'toast'},
-  ];
-  rows2.forEach(function(r){
-    html+='<div class="sr" data-pact="'+r.act+'" data-pt="'+esc(r.t)+'">'
-      +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+r.ico+'"/></svg></div>'
-      +'<div class="sr-txt"><h3>'+r.t+'</h3></div>'
-      +'<div class="arr"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div></div>';
-  });
+  html+=prow('Your data in Messages','M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',function(){T('Your data in Messages');});
+  html+=prow('Messages settings','M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',function(){closePanel('P-prof');buildSett();openPanel('P-sett');});
+  html+=prow('Help & feedback','M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z',function(){T('Help & feedback');});
   html+='</div><div style="background:#fff;margin-top:8px">';
-  html+='<div class="sr" data-pact="admin" data-pt="Admin Panel">'
-    +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#d93025"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg></div>'
-    +'<div class="sr-txt"><h3 style="color:#d93025">Admin Panel</h3></div>'
-    +'<div class="arr"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div></div>';
+  html+=prow('Admin Panel','M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z',function(){closePanel('P-prof');showAdmin();},true);
   html+='</div>';
   var el=document.getElementById('prof-body');
   el.innerHTML=html;
-  // wire events
-  document.getElementById('btn-manage-google').addEventListener('click',function(){T('Manage Google Account');});
-  el.querySelectorAll('.sr[data-pact]').forEach(function(r){
-    r.addEventListener('click',function(){
-      var act=this.dataset.pact;
-      var pt=this.dataset.pt;
-      if(act==='toast'){T(pt);}
-      else if(act==='markread'){convs.forEach(function(c){c.unread=0;});renderList(convs);T('All marked as read');closePanel('P-prof');}
-      else if(act==='settings'){closePanel('P-prof');buildSett();openPanel('P-sett');}
-      else if(act==='admin'){closePanel('P-prof');showAdmin();}
-    });
+  // attach events
+  el.querySelectorAll('.sr[data-fn]').forEach(function(r){
+    r.addEventListener('click',window['_pfn_'+r.dataset.fn]);
   });
+}
+
+// Profile row helper - use data-fn index
+var _pfns=[];
+function prow(title,ico,fn,red){
+  var idx=_pfns.length;
+  _pfns.push(fn);
+  return '<div class="sr" data-fn="'+idx+'">'
+    +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="'+(red?'#d93025':'currentColor')+'"><path d="'+ico+'"/></svg></div>'
+    +'<div class="sr-txt"><h3 style="'+(red?'color:#d93025':'')+'">'+title+'</h3></div>'
+    +'<div class="arr"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div>'
+    +'</div>';
+}
+function srow(title,sub,ico){
+  return '<div class="sr" onclick="T(\''+title+'\')">'
+    +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+ico+'"/></svg></div>'
+    +'<div class="sr-txt"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div>'
+    +'<div class="arr"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div>'
+    +'</div>';
+}
+function stog(title,sub,ico,on){
+  return '<div class="sr">'
+    +'<div class="sr-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+ico+'"/></svg></div>'
+    +'<div class="sr-txt"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div>'
+    +'<button class="tog'+(on?'':' off')+'"></button>'
+    +'</div>';
 }
 
 function buildDet(id){
@@ -445,20 +424,11 @@ function buildDet(id){
     +'<div style="font-size:14px;color:#5f6368">'+esc(c.addr)+'</div>'
     +'</div>'
     +'<div style="display:flex;border-bottom:1px solid #e0e0e0;background:#fff">'
-    +'<button class="det-act" data-act="call" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;background:none;border:none;cursor:pointer"><div style="width:48px;height:48px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#1a73e8"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg></div><span style="font-size:12px;color:#1a73e8;font-weight:500">Call</span></button>'
-    +'<button class="det-act" data-act="video" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;background:none;border:none;cursor:pointer"><div style="width:48px;height:48px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#1a73e8"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div><span style="font-size:12px;color:#1a73e8;font-weight:500">Video</span></button>'
-    +'<button class="det-act" data-act="search" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;background:none;border:none;cursor:pointer"><div style="width:48px;height:48px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#1a73e8"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></div><span style="font-size:12px;color:#1a73e8;font-weight:500">Search</span></button>'
+    +'<button onclick="T(\'Calling...\')" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;background:none;border:none;cursor:pointer"><div style="width:48px;height:48px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#1a73e8"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg></div><span style="font-size:12px;color:#1a73e8;font-weight:500">Call</span></button>'
+    +'<button onclick="T(\'Video - coming in APK!\')" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;background:none;border:none;cursor:pointer"><div style="width:48px;height:48px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#1a73e8"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div><span style="font-size:12px;color:#1a73e8;font-weight:500">Video</span></button>'
+    +'<button onclick="T(\'Search in chat\')" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;background:none;border:none;cursor:pointer"><div style="width:48px;height:48px;border-radius:50%;background:#e8f0fe;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#1a73e8"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></div><span style="font-size:12px;color:#1a73e8;font-weight:500">Search</span></button>'
     +'</div>';
-  var el=document.getElementById('det-body');
-  el.innerHTML=html;
-  el.querySelectorAll('.det-act').forEach(function(btn){
-    btn.addEventListener('click',function(){
-      var a=this.dataset.act;
-      if(a==='call')T('Calling...');
-      else if(a==='video')T('Video - coming in APK!');
-      else if(a==='search')T('Search in chat');
-    });
-  });
+  document.getElementById('det-body').innerHTML=html;
 }
 
 // ── MENUS ─────────────────────────────────────────────────────────────────────
@@ -551,6 +521,7 @@ function showAttach(){
   });
   document.getElementById('agrid').innerHTML=html;
   document.getElementById('asheet').style.display='block';
+  // attach click events
   document.getElementById('agrid').querySelectorAll('.ach').forEach(function(el,i){
     el.addEventListener('click',function(){items[i].fn();document.getElementById('asheet').style.display='none';});
   });
@@ -573,22 +544,14 @@ function showAdmin(){
     +'<div style="background:#fff;border-radius:12px;padding:16px">'
     +'<div style="font-size:13px;font-weight:600;color:#5f6368;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Device Log</div>'
     +installs.map(function(d,i){return '<div style="padding:10px 0;border-bottom:.5px solid #f0f0f0"><div style="font-size:14px;font-weight:500">Device '+(i+1)+'</div><div style="font-size:12px;color:#5f6368;margin-top:2px">'+d.t+'</div></div>';}).join('')
-    +'<button id="btn-clear-log" style="margin-top:12px;background:#fce8e6;color:#d93025;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Clear Log</button>'
+    +'<button onclick="localStorage.removeItem(\'hm_i\');T(\'Log cleared\')" style="margin-top:12px;background:#fce8e6;color:#d93025;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Clear Log</button>'
     +'</div></div>';
   var p=document.createElement('div');
   p.className='panel';
   p.id='P-admin';
-  p.innerHTML='<div class="tb"><button class="ib" id="btn-close-admin" style="color:#5f6368"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button><span class="tb-title">Admin Panel</span></div><div class="panel-body">'+html+'</div>';
+  p.innerHTML='<div class="tb"><button class="ib" onclick="this.closest(\'.panel\').remove()" style="color:#5f6368"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button><span class="tb-title">Admin Panel</span></div><div class="panel-body">'+html+'</div>';
   document.body.appendChild(p);
   requestAnimationFrame(function(){p.classList.add('open');});
-  // wire close and clear buttons
-  document.getElementById('btn-close-admin').addEventListener('click',function(){
-    p.classList.remove('open');
-    setTimeout(function(){p.remove();},300);
-  });
-  document.getElementById('btn-clear-log').addEventListener('click',function(){
-    localStorage.removeItem('hm_i');T('Log cleared');
-  });
 }
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
@@ -604,9 +567,6 @@ document.getElementById('btn-search').addEventListener('click',function(){var s=
 document.getElementById('btn-list-more').addEventListener('click',function(e){e.stopPropagation();openMenu('menu-list',e);});
 document.getElementById('fab').addEventListener('click',function(){T('New conversation - coming soon!');});
 
-// Search input (no inline oninput)
-document.getElementById('sinp').addEventListener('input',function(){filterList(this.value);});
-
 // List item clicks
 document.getElementById('clist').addEventListener('click',function(e){
   var ci=e.target.closest('.ci');
@@ -617,7 +577,7 @@ document.getElementById('clist').addEventListener('click',function(e){
 document.getElementById('cinp').addEventListener('input',function(){
   this.style.height='auto';this.style.height=Math.min(this.scrollHeight,130)+'px';
   var has=this.value.trim()||pendImg;
-  document.getElementById('send-ico').setAttribute('d',has?SEND_D:MIC_D);
+  document.getElementById('send-ico').setAttribute('d',has?'M2.01 21L23 12 2.01 3 2 10l15 2-15 2z':'M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z');
 });
 document.getElementById('cinp').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}});
 document.getElementById('btn-send').addEventListener('click',sendMsg);
