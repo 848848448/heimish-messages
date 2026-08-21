@@ -606,12 +606,14 @@ function doSend(){
   renderMsgs(aid);renderList(convs);
   // mark as sent after short delay
   setTimeout(()=>{m.sending=false;renderMsgs(aid);},800);
+  const _replyAid=aid;
   setTimeout(()=>{
+    if(aid!==_replyAid)return;
     const rs=['\u05d0\u05b8\u05e7\u05e2\u05d9!','\ud83d\udc4d','\u05e4\u05bc\u05d0\u05e8\u05e9\u05d8\u05d0\u05e0\u05e2\u05df','\u05d9\u05d0\u05b8!','\u05e9\u05d9\u05d9\u05df!','\ud83d\udc4c','\ud83d\ude0a','\u05d1\u05e1\u05d3\u05e8!'];
     const r={id:Date.now()+1,body:rs[Math.floor(Math.random()*rs.length)],date:Date.now(),in:true};
-    allMsgs[aid].push(r);const cv=convs.find(x=>x.id===aid);
+    allMsgs[_replyAid].push(r);const cv=convs.find(x=>x.id===_replyAid);
     if(cv){cv.snip=r.body;cv.date=r.date;}
-    renderMsgs(aid);renderList(convs);
+    renderMsgs(_replyAid);renderList(convs);
   },1500);
 }
 
@@ -894,6 +896,7 @@ function lbShow(i){
 function lbNav(dir){
   const newIdx=lbIdx+dir;
   if(newIdx<0||newIdx>=lbItems.length)return;
+  document.getElementById('lb-menu').style.display='none';
   const img=document.getElementById('lb-media');
   img.style.transition='transform .22s,opacity .22s';
   img.style.transform='translateX('+(dir<0?'60px':'-60px')+')';
