@@ -796,8 +796,9 @@ function showOv(mode){
   const ov=document.getElementById('ov');
   ov.innerHTML=items.map(it=>{
     if(it==='sep')return '<div class="ov-sep"></div>';
-    const k=_reg(()=>{closeOv();it.fn();});
-    return '<div class="ovi'+(it.red?' red':'')+'" onclick="_A.'+k+'()">'+it.lb+'</div>';
+    const fn=it.fn;
+    const k=_reg(()=>{closeOv();fn();});
+    return '<div class="ovi'+(it.red?' red':'')+'" onclick="window._A.'+k+'()">'+it.lb+'</div>';
   }).join('');
   ov.style.display='block';
   // Don't add global close listener - handled in init click handler
@@ -869,7 +870,7 @@ function closeProfile(){document.getElementById('pmenu').style.display='none';}
 // \u2500\u2500 SETTINGS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function setRow(icoPath,title,sub,fn){
   const k=fn?_reg(fn):null;
-  const onclick=k?' onclick="_A.'+k+'()"':' onclick="T(\''+title+'\')"';
+  const onclick=k?' onclick="window._A.'+k+'()"':' onclick="T(\''+title+'\')"';
   return '<div class="set-r"'+onclick+'>'
     +'<div class="set-r-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+icoPath+'"/></svg></div>'
     +'<div class="set-r-b"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div></div>';
