@@ -659,7 +659,7 @@ function closeEmoji(){emojiOn=false;document.getElementById('epanel').style.disp
 
 // ── ATTACH ────────────────────────────────────────────────────────────────────
 const AITEMS=[
-  {bg:'#1a73e8',lb:'Camera',ic:'<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',fn:"document.getElementById('finp').click();closeAttach()"},
+  {bg:'#0b57d0',lb:'Camera',ic:'<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 10.8c-1.98 0-3.6 1.62-3.6 3.6s1.62 3.6 3.6 3.6 3.6-1.62 3.6-3.6-1.62-3.6-3.6-3.6zM9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9z"/></svg>',fn:"document.getElementById('finp').click();closeAttach()"},
   {bg:'#E91E63',lb:'Files',ic:'<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>',fn:"document.getElementById('finp').click();closeAttach()"},
   {bg:'#4CAF50',lb:'Location',ic:'<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',fn:"T('Location - coming in APK!');closeAttach()"},
   {bg:'#9C27B0',lb:'Contacts',ic:'<svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',fn:"T('Contacts - coming in APK!');closeAttach()"},
@@ -687,8 +687,12 @@ function lp1(){clearTimeout(lpT);}
 
 function showCtx(items,x,y){
   const ctx=document.getElementById('ctx');
-  ctx.innerHTML=items.map(it=>it==='sep'?'<div class="ctx-sep"></div>'
-    :'<div class="cm'+(it.red?' red':'')+'" onclick="closeCtx();('+it.fn+')()">'+it.ic+' '+it.lb+'</div>').join('');
+  ctx.innerHTML='';
+  items.forEach(it=>{
+    if(it==='sep'){const s=document.createElement('div');s.className='ctx-sep';ctx.appendChild(s);return;}
+    const d=document.createElement('div');d.className='cm'+(it.red?' red':'');d.innerHTML=it.ic+' '+it.lb;
+    d.addEventListener('click',()=>{closeCtx();it.fn();});ctx.appendChild(d);
+  });
   ctx.style.display='block';
   ctx.style.left=Math.min(x,window.innerWidth-200)+'px';
   ctx.style.top=Math.min(y,window.innerHeight-240)+'px';
@@ -746,8 +750,12 @@ function showOv(mode){
     {lb:'Help & feedback',fn:()=>T('Help')},
   ];
   const ov=document.getElementById('ov');
-  ov.innerHTML=items.map(it=>it==='sep'?'<div class="ov-sep"></div>'
-    :'<div class="ovi'+(it.red?' red':'')+'" onclick="closeOv();('+it.fn+')()">'+it.lb+'</div>').join('');
+  ov.innerHTML='';
+  items.forEach(it=>{
+    if(it==='sep'){const s=document.createElement('div');s.className='ov-sep';ov.appendChild(s);return;}
+    const d=document.createElement('div');d.className='ovi'+(it.red?' red':'');d.textContent=it.lb;
+    d.addEventListener('click',()=>{closeOv();it.fn();});ov.appendChild(d);
+  });
   ov.style.display='block';
   setTimeout(()=>document.addEventListener('click',closeOv,{once:true}),10);
 }
@@ -801,7 +809,7 @@ function showProfile(){
     +'</div>'
     +'<div class="set-s">'
     +setRow('<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>','Your data in Messages','')
-    +setRow('<path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>','Messages settings','',()=>showSett())
+    +setRow('<path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>','Messages settings','','showSett()')
     +setRow('<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>','Help & feedback','')
     +'</div>'
     +'<div style="text-align:center;padding:16px;font-size:12px;color:var(--meta)"><a style="color:var(--brand);cursor:pointer">Privacy Policy</a> &nbsp;•&nbsp; <a style="color:var(--brand);cursor:pointer">Terms of Service</a></div>'
@@ -810,8 +818,9 @@ function showProfile(){
 function closeProfile(){document.getElementById('pmenu').style.display='none';}
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
-function setRow(icoPath,title,sub,fn){
-  return '<div class="set-r"'+(fn?'':' onclick="T(\''+title+'\')"')+'>'
+function setRow(icoPath,title,sub,onclickStr){
+  var oc=onclickStr||"T('"+title+"')";
+  return '<div class="set-r" onclick="'+oc+'">'
     +'<div class="set-r-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="'+icoPath+'"/></svg></div>'
     +'<div class="set-r-b"><h3>'+title+'</h3>'+(sub?'<p>'+sub+'</p>':'')+'</div></div>';
 }
