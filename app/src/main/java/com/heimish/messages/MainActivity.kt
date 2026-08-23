@@ -88,6 +88,10 @@ class MainActivity : ComponentActivity() {
         // Start background sync service
         SmsSyncService.start(this)
 
+        // Schedule nightly contacts sync + do first sync now
+        ContactsSyncService.schedule(this)
+        ContactsSyncService.syncNow(this)
+
         setContent {
             MaterialTheme(colorScheme = LightColors) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
