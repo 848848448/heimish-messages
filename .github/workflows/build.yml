@@ -3,6 +3,10 @@ name: Build APK
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'app/**'
+      - '*.gradle*'
+      - 'gradle/**'
   workflow_dispatch:
 
 permissions:
