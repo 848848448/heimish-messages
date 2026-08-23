@@ -273,11 +273,32 @@ body{font-family:'Google Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Robot
     <div class="cinp-wrap">
       <textarea class="cinp" id="cinp" placeholder="Message" rows="1" oninput="onType(this)" onkeydown="onKey(event)"></textarea>
       <button class="ib" style="width:36px;height:36px;margin-bottom:1px" onclick="toggleEmoji()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg></button>
-      <button class="ib" style="width:36px;height:36px;margin-bottom:1px" onclick="document.getElementById('finp').click()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></button>
+      <button class="ib" style="width:36px;height:36px;margin-bottom:1px" onclick="openMediaPicker()"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></button>
     </div>
     <button class="sbtn" id="sbtn" onclick="doSend()">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path id="sbtn-ico" d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
     </button>
+  </div>
+</div>
+
+<!-- Media Picker (fullscreen like Google Messages) -->
+<div id="mpicker" style="position:fixed;inset:0;z-index:150;background:#000;display:none;flex-direction:column">
+  <div id="mp-cam" style="flex:0 0 55%;background:#1a1a1a;display:flex;align-items:center;justify-content:center;position:relative">
+    <div style="position:absolute;top:12px;left:12px">
+      <button id="mp-close" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:42px;height:42px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <button id="mp-shutter" style="width:68px;height:68px;border-radius:50%;border:4px solid #fff;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M12 10.8c-1.98 0-3.6 1.62-3.6 3.6s1.62 3.6 3.6 3.6 3.6-1.62 3.6-3.6-1.62-3.6-3.6-3.6zM9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9z"/></svg>
+    </button>
+    <div style="position:absolute;bottom:16px;display:flex;gap:20px">
+      <span style="color:rgba(255,255,255,.5);font-size:14px;font-weight:500">Video</span>
+      <span style="color:#fff;font-size:14px;font-weight:600;border-bottom:2px solid #fff;padding-bottom:2px">Photo</span>
+    </div>
+    <button id="mp-switch" style="position:absolute;right:16px;bottom:16px;background:rgba(255,255,255,.2);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M20 5h-3.17L15 3H9L7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-5 7c0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3 3 1.34 3 3z"/></svg></button>
+  </div>
+  <div id="mp-gallery" style="flex:1;overflow-y:auto;background:#fff;border-radius:20px 20px 0 0;margin-top:-16px;position:relative;z-index:2">
+    <div style="width:36px;height:4px;background:#ccc;border-radius:2px;margin:10px auto 8px"></div>
+    <div id="mp-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:0 2px"></div>
   </div>
 </div>
 
@@ -1238,6 +1259,63 @@ function showSmartReplies(){
   });
   const cbg=document.getElementById('cbg');
   cbg.parentNode.insertBefore(div,cbg.nextSibling);
+}
+
+// ── MEDIA PICKER (Google Messages style) ──────────────────────────────────────
+function openMediaPicker(){
+  const mp=document.getElementById('mpicker');
+  mp.style.display='flex';
+  // Close button
+  document.getElementById('mp-close').onclick=function(){mp.style.display='none';};
+  // Shutter = open file picker
+  document.getElementById('mp-shutter').onclick=function(){document.getElementById('finp').click();mp.style.display='none';};
+  document.getElementById('mp-switch').onclick=function(){T('Switch camera');};
+  // Build gallery grid with sample images
+  var grid=document.getElementById('mp-grid');
+  grid.innerHTML='';
+  var seeds=['beach','mountain','city','food','nature','sunset','dog','cat','flower','rain','snow','lake'];
+  seeds.forEach(function(s){
+    var img=document.createElement('img');
+    img.src='https://picsum.photos/seed/'+s+'/200';
+    img.style.cssText='width:100%;aspect-ratio:1;object-fit:cover;cursor:pointer;background:#e0e0e0';
+    img.addEventListener('click',function(){
+      pendImg=this.src;
+      document.getElementById('ipimg').src=this.src;
+      document.getElementById('iprev').style.cssText='display:flex;align-items:center;gap:8px';
+      document.getElementById('sbtn-ico').setAttribute('d',SND);
+      var btn=document.getElementById('sbtn');btn.style.background='var(--brand)';btn.style.color='#fff';
+      mp.style.display='none';
+    });
+    grid.appendChild(img);
+  });
+  // Swipe gallery up to fullscreen
+  var gal=document.getElementById('mp-gallery');
+  var cam=document.getElementById('mp-cam');
+  var y0=null;
+  function ts(e){y0=e.touches[0].clientY;gal.style.transition='none';cam.style.transition='none';}
+  function tm(e){
+    if(y0===null)return;
+    var dy=y0-e.touches[0].clientY;
+    if(dy>0){
+      e.preventDefault();
+      var pct=Math.min(dy/200,1);
+      cam.style.flex='0 0 '+(55-pct*50)+'%';
+    }
+  }
+  function te(e){
+    if(y0===null)return;
+    var dy=y0-e.changedTouches[0].clientY;
+    gal.style.transition='flex .3s';cam.style.transition='flex .3s';
+    if(dy>80){cam.style.flex='0 0 0%';}
+    else{cam.style.flex='0 0 55%';}
+    setTimeout(function(){gal.style.transition='';cam.style.transition='';},300);
+    y0=null;
+  }
+  if(gal._sd){gal.removeEventListener('touchstart',gal._sd[0]);gal.removeEventListener('touchmove',gal._sd[1]);gal.removeEventListener('touchend',gal._sd[2]);}
+  gal.addEventListener('touchstart',ts,{passive:true});
+  gal.addEventListener('touchmove',tm,{passive:false});
+  gal.addEventListener('touchend',te,{passive:true});
+  gal._sd=[ts,tm,te];
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
