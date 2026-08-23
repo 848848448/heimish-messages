@@ -1065,6 +1065,7 @@ function showProfile(){
     +setRow('<path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/>','Device pairing','','showPairing()')
     +'</div>'
     +'<div class="set-s">'
+    +setRow('<path d="M20 0H4v2h16V0zM4 24h16v-2H4v2zM20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 2.75c1.24 0 2.25 1.01 2.25 2.25s-1.01 2.25-2.25 2.25S9.75 10.24 9.75 9s1.01-2.25 2.25-2.25zM17 17H7v-1.5c0-1.67 3.33-2.5 5-2.5s5 .83 5 2.5V17z"/>','Contacts','Import, add and manage','viewContacts()')
     +setRow('<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>','Your data in Messages','','setDataUsage()')
     +setRow('<path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>','Messages settings','','showSett()')
     +setRow('<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>','Help & feedback','','setHelp()')
@@ -2355,21 +2356,132 @@ function shareContact(){
 }
 
 // ── CONTACTS / NEW CONVERSATION / GROUPS ──────────────────────────────────────
-const CONTACTS=[
-  {name:'אברהם פֿאַלאַטשעק',addr:'+13475551234'},
-  {name:"ישעי' מערץ",addr:'+13475559876'},
-  {name:'ליפֿא מאַרק',addr:'+18455378946',photo:'https://i.pravatar.cc/80?img=12'},
-  {name:'מענדל גרין',addr:'+13475557777'},
-  {name:'שמואל וויס',addr:'+18455551122'},
-  {name:'יואל בערגער',addr:'+18455553344'},
-  {name:'חיים שטערן',addr:'+13475556677'},
-  {name:'משה קליין',addr:'+18455558899'},
-  {name:'נפתלי גרוס',addr:'+13475552211'},
-  {name:'זלמן ראטה',addr:'+18455554455'},
-];
+// Contacts: loaded from phone via Contact Picker API, saved in localStorage
+var CONTACTS=JSON.parse(localStorage.getItem('hm_contacts')||'[]');
+function saveContacts(){localStorage.setItem('hm_contacts',JSON.stringify(CONTACTS));}
+
+// Import contacts from phone using Contact Picker API
+function importContacts(){
+  if(!('contacts' in navigator && 'ContactsManager' in window)){
+    // Fallback: manual add
+    manualAddContact();
+    return;
+  }
+  navigator.contacts.select(['name','tel'],{multiple:true}).then(function(results){
+    if(!results||!results.length){T('No contacts selected');return;}
+    var added=0;
+    results.forEach(function(c){
+      var name=(c.name&&c.name[0])||'';
+      var tel=(c.tel&&c.tel[0])||'';
+      if(!tel)return;
+      // skip duplicates
+      if(CONTACTS.some(function(x){return x.addr===tel;}))return;
+      CONTACTS.push({name:name||tel,addr:tel});
+      added++;
+    });
+    saveContacts();
+    T(added+' contacts imported');
+  }).catch(function(e){
+    // Contact Picker not supported or denied — fallback
+    manualAddContact();
+  });
+}
+
+// Manual add single contact
+function manualAddContact(){
+  var h='<div style="padding:24px 20px">'
+    +'<div style="font-size:13px;color:var(--meta);margin-bottom:4px">Name</div>'
+    +'<input id="mc-name" placeholder="Contact name" style="width:100%;border:none;border-bottom:2px solid var(--brand);background:none;font-size:17px;padding:8px 2px;outline:none;font-family:inherit;color:var(--text);margin-bottom:20px">'
+    +'<div style="font-size:13px;color:var(--meta);margin-bottom:4px">Phone number</div>'
+    +'<input id="mc-num" placeholder="+1 (347) 555-1234" type="tel" style="width:100%;border:none;border-bottom:2px solid var(--brand);background:none;font-size:17px;padding:8px 2px;outline:none;font-family:inherit;color:var(--text);margin-bottom:28px">'
+    +'<button id="mc-save" style="width:100%;background:var(--brand);color:#fff;border:none;border-radius:24px;padding:14px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit">Save contact</button>'
+    +'<div style="margin-top:16px;text-align:center"><button id="mc-import" style="background:none;border:none;color:var(--brand);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;padding:10px">Import from phone</button></div>'
+    +'</div>';
+  var p=subPage('Add contact',h);
+  p.querySelector('#mc-save').addEventListener('click',function(){
+    var name=p.querySelector('#mc-name').value.trim();
+    var num=p.querySelector('#mc-num').value.trim();
+    if(!num){T('Enter a phone number');return;}
+    if(!name)name=num;
+    if(CONTACTS.some(function(x){return x.addr===num;})){T('Contact already exists');p.remove();return;}
+    CONTACTS.push({name:name,addr:num});
+    saveContacts();
+    p.remove();T(name+' saved');
+  });
+  p.querySelector('#mc-import').addEventListener('click',function(){
+    p.remove();
+    if('contacts' in navigator && 'ContactsManager' in window){
+      importContacts();
+    } else {
+      T('Contact Picker not supported on this browser — add contacts manually');
+    }
+  });
+}
+
+// Delete a contact
+function deleteContact(addr){
+  CONTACTS=CONTACTS.filter(function(c){return c.addr!==addr;});
+  saveContacts();
+}
+
+// Edit a contact
+function editContact(addr){
+  var c=CONTACTS.find(function(x){return x.addr===addr;});
+  if(!c)return;
+  var h='<div style="padding:24px 20px">'
+    +'<div style="font-size:13px;color:var(--meta);margin-bottom:4px">Name</div>'
+    +'<input id="ec-name" value="'+esc(c.name)+'" style="width:100%;border:none;border-bottom:2px solid var(--brand);background:none;font-size:17px;padding:8px 2px;outline:none;font-family:inherit;color:var(--text);margin-bottom:20px">'
+    +'<div style="font-size:13px;color:var(--meta);margin-bottom:4px">Phone number</div>'
+    +'<input id="ec-num" value="'+esc(c.addr)+'" type="tel" style="width:100%;border:none;border-bottom:2px solid var(--brand);background:none;font-size:17px;padding:8px 2px;outline:none;font-family:inherit;color:var(--text);margin-bottom:28px">'
+    +'<button id="ec-save" style="width:100%;background:var(--brand);color:#fff;border:none;border-radius:24px;padding:14px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit">Save</button>'
+    +'<button id="ec-del" style="width:100%;margin-top:12px;background:var(--red-lt,#f9dedc);color:var(--red);border:none;border-radius:24px;padding:14px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit">Delete contact</button>'
+    +'</div>';
+  var p=subPage('Edit contact',h);
+  p.querySelector('#ec-save').addEventListener('click',function(){
+    var name=p.querySelector('#ec-name').value.trim();
+    var num=p.querySelector('#ec-num').value.trim();
+    if(!num){T('Enter a phone number');return;}
+    c.name=name||num;c.addr=num;
+    saveContacts();p.remove();T('Contact updated');
+    // update conversation name if it matches
+    convs.forEach(function(cv){if(cv.addr===addr){cv.name=c.name;cv.addr=c.addr;}});
+    renderList(convs);
+  });
+  p.querySelector('#ec-del').addEventListener('click',function(){
+    if(!confirm('Delete '+c.name+'?'))return;
+    deleteContact(addr);p.remove();T('Contact deleted');
+  });
+}
+
+// View all contacts
+function viewContacts(){
+  var sorted=CONTACTS.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
+  var h='<div style="padding:8px 14px"><button id="vc-import" style="width:100%;background:var(--brand);color:#fff;border:none;border-radius:24px;padding:12px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;margin-bottom:4px">Import contacts from phone</button>'
+    +'<button id="vc-add" style="width:100%;background:var(--brand-lt);color:var(--brand);border:none;border-radius:24px;padding:12px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;margin-bottom:12px">Add manually</button></div>'
+    +(sorted.length
+      ? '<div class="set-s">'+sorted.map(function(c){
+          return '<div class="set-r" data-addr="'+esc(c.addr)+'" style="cursor:pointer">'
+            +mkAv({name:c.name,addr:c.addr,photo:c.photo},44)
+            +'<div class="set-r-b" style="margin-left:12px"><h3>'+esc(c.name)+'</h3><p>'+esc(c.addr)+'</p></div>'
+            +'<div class="arr"><svg width="18" height="18" viewBox="0 0 24 24" fill="var(--meta-lt)"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></div></div>';
+        }).join('')+'</div>'
+      : '<div style="padding:32px;text-align:center;color:var(--meta-lt)">No contacts yet</div>')
+    +'<div style="padding:16px;text-align:center;font-size:12px;color:var(--meta)">'+CONTACTS.length+' contacts</div>';
+  var p=subPage('Contacts ('+CONTACTS.length+')',h);
+  p.querySelector('#vc-import').addEventListener('click',function(){p.remove();importContacts();setTimeout(function(){viewContacts();},500);});
+  p.querySelector('#vc-add').addEventListener('click',function(){p.remove();manualAddContact();});
+  p.querySelectorAll('[data-addr]').forEach(function(r){
+    r.addEventListener('click',function(){p.remove();editContact(this.dataset.addr);});
+  });
+}
 let ncGroupMode=false, ncSelected=[];
 
 function openNewConv(){
+  // if no contacts, prompt import first
+  if(!CONTACTS.length){
+    importContacts();
+    // still open the screen after
+  }
   ncGroupMode=false; ncSelected=[];
   document.getElementById('nc-title').textContent='New conversation';
   document.getElementById('nc-done').style.display='none';
