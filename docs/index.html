@@ -600,11 +600,11 @@ function renderMsgs(id){
       const dx=e.touches[0].clientX-sx;
       const dy=Math.abs(e.touches[0].clientY-sy);
       if(dy>20&&!swiping){sx=null;row.style.transform='';return;}
-      // swipe right to reply (for both in and out messages)
-      if(dx>10){
+      // swipe left to reply (drag from right to left)
+      if(dx<-10){
         swiping=true;
         e.preventDefault();
-        row.style.transform='translateX('+Math.min(dx*.5,60)+'px)';
+        row.style.transform='translateX('+Math.max(dx*.5,-60)+'px)';
       }
     },{passive:false});
     row.addEventListener('touchend',e=>{
@@ -612,7 +612,7 @@ function renderMsgs(id){
       const dx=e.changedTouches[0].clientX-sx;
       row.style.transition='transform .2s';
       row.style.transform='';
-      if(swiping&&dx>50){
+      if(swiping&&dx<-50){
         const mid=+row.dataset.id;
         if(mid)setReply(mid);
         document.getElementById('cinp').focus();
