@@ -1401,56 +1401,152 @@ function openMediaGrid(kind){
 // ── SELFIE GIF (burst capture from front camera) ──────────────────────────────
 function openSelfieGif(){
   if(!aid){T('Open a chat first');return;}
-  var h='<div style="padding:0"><div style="position:relative;background:#000;aspect-ratio:1;overflow:hidden">'
-    +'<video id="sg-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></video>'
-    +'<div id="sg-count" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:72px;font-weight:700;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.6)"></div>'
+  var ov=document.createElement('div');
+  ov.id='sgv';
+  ov.style.cssText='position:fixed;inset:0;z-index:200;background:rgba(255,255,255,.93);display:flex;flex-direction:column;align-items:center;backdrop-filter:blur(2px)';
+  ov.innerHTML=
+     '<button id="sg-x" style="position:absolute;top:14px;left:14px;background:none;border:none;cursor:pointer;padding:8px;color:#1f1f1f"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>'
+    +'<div style="font-size:44px;margin-top:76px;line-height:1">\uD83D\uDCF8</div>'
+    +'<div id="sg-hint" style="font-size:30px;font-weight:400;color:#1f1f1f;margin-top:18px;text-align:center;padding:0 24px">Get ready\u2026</div>'
+    +'<div id="sg-ring" style="position:relative;width:270px;height:270px;margin-top:26px;border-radius:50%">'
+      +'<svg id="sg-svg" width="270" height="270" style="position:absolute;inset:0;transform:rotate(-90deg)">'
+        +'<circle id="sg-prog" cx="135" cy="135" r="129" fill="none" stroke="url(#sgGrad)" stroke-width="12" stroke-linecap="round" stroke-dasharray="810" stroke-dashoffset="810"/>'
+        +'<defs><linearGradient id="sgGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#e8543f"/><stop offset="100%" stop-color="#f9a03f"/></linearGradient></defs>'
+      +'</svg>'
+      +'<video id="sg-video" autoplay playsinline muted style="position:absolute;top:12px;left:12px;width:246px;height:246px;border-radius:50%;object-fit:cover;transform:scaleX(-1);background:#ddd"></video>'
+      +'<img id="sg-play" style="position:absolute;top:12px;left:12px;width:246px;height:246px;border-radius:50%;object-fit:cover;display:none">'
     +'</div>'
-    +'<div style="padding:20px;text-align:center">'
-    +'<div id="sg-hint" style="font-size:14px;color:var(--meta);margin-bottom:18px">Tap to capture a 4-frame selfie GIF</div>'
-    +'<button id="sg-shoot" style="width:72px;height:72px;border-radius:50%;background:var(--brand);border:4px solid var(--brand-lt);cursor:pointer;display:flex;align-items:center;justify-content:center;margin:0 auto">'
-    +'<svg width="30" height="30" viewBox="0 0 24 24" fill="#fff"><path d="M12 10.8c-1.98 0-3.6 1.62-3.6 3.6s1.62 3.6 3.6 3.6 3.6-1.62 3.6-3.6-1.62-3.6-3.6-3.6zM9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9z"/></svg></button>'
-    +'<div id="sg-frames" style="display:flex;gap:6px;justify-content:center;margin-top:20px"></div>'
-    +'</div></div>';
-  var p=subPage('Selfie GIF',h);
-  var video=p.querySelector('#sg-video'), stream=null, frames=[];
-  if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
-    navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false})
-      .then(function(s){stream=s;video.srcObject=s;})
-      .catch(function(){p.querySelector('#sg-hint').textContent='Camera not available';});
+    +'<div id="sg-ctrls" style="display:flex;align-items:center;gap:26px;margin-top:34px">'
+      +'<button id="sg-shoot" style="width:78px;height:78px;border-radius:50%;background:#ea3323;border:4px solid #fff;box-shadow:0 0 0 2px #e0e0e0;cursor:pointer"></button>'
+      +'<button id="sg-flip" style="width:52px;height:52px;border-radius:50%;background:#8a8a8a;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M16 7h-1l-1-1h-4L9 7H8c-1.1 0-2 .9-2 2v6c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zm-4 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/><path d="M20 5l-2.5-2.5v1.75C13.9 4.25 11 4 9 5l1.5 1.5C12 6 14.5 6 17.5 6.5V8L20 5zM4 19l2.5 2.5v-1.75c3.6 0 6.5.25 8.5-.75L13.5 17.5C12 18 9.5 18 6.5 17.5V16L4 19z"/></svg></button>'
+    +'</div>'
+    +'<div id="sg-done" style="display:none;position:absolute;bottom:26px;left:0;right:0;padding:0 16px;align-items:flex-end;gap:12px">'
+      +'<div style="position:relative;flex-shrink:0">'
+        +'<div style="background:#fff;border-radius:10px;padding:6px;box-shadow:0 2px 10px rgba(0,0,0,.2);width:108px">'
+          +'<img id="sg-thumb" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:50%">'
+        +'</div>'
+        +'<button id="sg-discard" style="position:absolute;top:-8px;right:-8px;width:26px;height:26px;border-radius:50%;background:#fff;border:none;box-shadow:0 1px 5px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="#5f6368"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>'
+      +'</div>'
+      +'<div style="flex:1;display:flex;gap:10px;justify-content:flex-end;background:#f1f3f4;border-radius:14px;padding:10px">'
+        +'<button id="sg-share" style="display:flex;align-items:center;gap:8px;background:#fff;border:none;border-radius:22px;padding:11px 20px;font-size:15px;font-weight:600;color:#0b57d0;cursor:pointer;font-family:inherit"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0b57d0"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.8.43-.8.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>Share</button>'
+        +'<button id="sg-edit" style="display:flex;align-items:center;gap:8px;background:#fff;border:none;border-radius:22px;padding:11px 20px;font-size:15px;font-weight:600;color:#0b57d0;cursor:pointer;font-family:inherit"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0b57d0"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>Edit</button>'
+      +'</div>'
+    +'</div>';
+  document.body.appendChild(ov);
+
+  var video=ov.querySelector('#sg-video'), stream=null, facing='user', frames=[], playIv=null;
+  var prog=ov.querySelector('#sg-prog'), hint=ov.querySelector('#sg-hint');
+  var CIRC=810;
+
+  function start(){
+    if(stream)stream.getTracks().forEach(function(t){t.stop();});
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){hint.textContent='Camera not available';return;}
+    navigator.mediaDevices.getUserMedia({video:{facingMode:facing},audio:false})
+      .then(function(s){stream=s;video.srcObject=s;video.style.transform=facing==='user'?'scaleX(-1)':'none';})
+      .catch(function(){hint.textContent='Camera not available';});
   }
-  p.querySelector('.sp-back').addEventListener('click',function(){if(stream)stream.getTracks().forEach(function(t){t.stop();});});
-  p.querySelector('#sg-shoot').addEventListener('click',function(){
+  start();
+
+  function cleanup(){
+    if(stream)stream.getTracks().forEach(function(t){t.stop();});
+    if(playIv)clearInterval(playIv);
+  }
+  ov.querySelector('#sg-x').addEventListener('click',function(){cleanup();ov.remove();});
+  ov.querySelector('#sg-flip').addEventListener('click',function(){facing=facing==='user'?'environment':'user';start();});
+
+  ov.querySelector('#sg-shoot').addEventListener('click',function(){
     if(!stream){T('Camera not available');return;}
     frames=[];
-    var fw=p.querySelector('#sg-frames');fw.innerHTML='';
-    var cd=p.querySelector('#sg-count');
-    var n=0;
-    cd.style.display='flex';
+    hint.textContent='Strike your pose!';
+    ov.querySelector('#sg-shoot').disabled=true;
+    var total=8,n=0;
     var iv=setInterval(function(){
       n++;
-      cd.textContent=n;
-      var cv=document.createElement('canvas');
-      cv.width=320;cv.height=320;
+      prog.style.transition='stroke-dashoffset .12s linear';
+      prog.style.strokeDashoffset=CIRC-(CIRC*n/total);
+      var cv=document.createElement('canvas');cv.width=360;cv.height=360;
       var ctx=cv.getContext('2d');
-      ctx.translate(320,0);ctx.scale(-1,1);
-      ctx.drawImage(video,0,0,320,320);
-      var d=cv.toDataURL('image/jpeg',0.8);
-      frames.push(d);
-      var th=document.createElement('img');
-      th.src=d;th.style.cssText='width:52px;height:52px;object-fit:cover;border-radius:8px';
-      fw.appendChild(th);
-      if(n>=4){
-        clearInterval(iv);cd.style.display='none';
-        // animate through frames as the "GIF"
-        var m={id:Date.now(),body:'',date:Date.now(),in:false,img:frames[0],frames:frames,mms:true,kind:'selfiegif'};
-        if(!allMsgs[aid])allMsgs[aid]=[];
-        allMsgs[aid].push(m);
-        var c=convs.find(function(x){return x.id===aid;});
-        if(c){c.snip='Selfie GIF';c.date=m.date;}
-        if(stream)stream.getTracks().forEach(function(t){t.stop();});
-        setTimeout(function(){p.remove();renderMsgs(aid);renderList(convs);T('Selfie GIF sent');},400);
-      }
-    },600);
+      if(facing==='user'){ctx.translate(360,0);ctx.scale(-1,1);}
+      var vw=video.videoWidth||360, vh=video.videoHeight||360, s=Math.min(vw,vh);
+      ctx.drawImage(video,(vw-s)/2,(vh-s)/2,s,s,0,0,360,360);
+      frames.push(cv.toDataURL('image/jpeg',0.82));
+      if(n>=total){clearInterval(iv);finish();}
+    },230);
+  });
+
+  function finish(){
+    cleanup();
+    hint.textContent='Nice one!';
+    video.style.display='none';
+    var play=ov.querySelector('#sg-play');
+    play.style.display='block';play.src=frames[0];
+    ov.querySelector('#sg-ctrls').style.display='none';
+    ov.querySelector('#sg-done').style.display='flex';
+    ov.querySelector('#sg-thumb').src=frames[0];
+    var i=0;
+    playIv=setInterval(function(){
+      i=(i+1)%frames.length;
+      play.src=frames[i];
+      ov.querySelector('#sg-thumb').src=frames[i];
+    },180);
+  }
+
+  ov.querySelector('#sg-discard').addEventListener('click',function(){
+    if(playIv)clearInterval(playIv);
+    frames=[];
+    ov.querySelector('#sg-play').style.display='none';
+    ov.querySelector('#sg-done').style.display='none';
+    ov.querySelector('#sg-ctrls').style.display='flex';
+    ov.querySelector('#sg-shoot').disabled=false;
+    video.style.display='block';
+    prog.style.transition='none';prog.style.strokeDashoffset=CIRC;
+    hint.textContent='Get ready\u2026';
+    start();
+  });
+
+  ov.querySelector('#sg-share').addEventListener('click',function(){
+    if(!frames.length)return;
+    var m={id:Date.now(),body:'',date:Date.now(),in:false,img:frames[0],frames:frames,mms:true,kind:'selfiegif'};
+    if(!allMsgs[aid])allMsgs[aid]=[];
+    allMsgs[aid].push(m);
+    var c=convs.find(function(x){return x.id===aid;});
+    if(c){c.snip='Selfie GIF';c.date=m.date;}
+    if(playIv)clearInterval(playIv);
+    ov.remove();renderMsgs(aid);renderList(convs);T('Selfie GIF sent');
+  });
+
+  ov.querySelector('#sg-edit').addEventListener('click',function(){
+    if(!frames.length)return;
+    if(playIv)clearInterval(playIv);
+    var speeds=[{lb:'Slow',ms:320},{lb:'Normal',ms:180},{lb:'Fast',ms:90}];
+    var cur=1;
+    var ed=document.createElement('div');
+    ed.style.cssText='position:absolute;inset:0;background:rgba(255,255,255,.97);display:flex;flex-direction:column;align-items:center;padding-top:70px;z-index:5';
+    ed.innerHTML='<div style="font-size:22px;font-weight:600;color:#1f1f1f;margin-bottom:22px">Edit GIF</div>'
+      +'<img id="ed-prev" style="width:246px;height:246px;border-radius:50%;object-fit:cover">'
+      +'<div style="display:flex;gap:10px;margin-top:26px">'+speeds.map(function(s,i){return '<button class="ed-sp" data-i="'+i+'" style="background:'+(i===1?'#0b57d0':'#f1f3f4')+';color:'+(i===1?'#fff':'#1f1f1f')+';border:none;border-radius:20px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">'+s.lb+'</button>';}).join('')+'</div>'
+      +'<div style="display:flex;gap:10px;margin-top:16px">'
+      +'<button id="ed-rev" style="background:#f1f3f4;border:none;border-radius:20px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Reverse</button>'
+      +'<button id="ed-back" style="background:#f1f3f4;border:none;border-radius:20px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Done</button>'
+      +'</div>';
+    ov.appendChild(ed);
+    var pv=ed.querySelector('#ed-prev'),j=0,iv2=null;
+    function run(){if(iv2)clearInterval(iv2);iv2=setInterval(function(){j=(j+1)%frames.length;pv.src=frames[j];},speeds[cur].ms);}
+    pv.src=frames[0];run();
+    ed.querySelectorAll('.ed-sp').forEach(function(b){
+      b.addEventListener('click',function(){
+        cur=+this.dataset.i;
+        ed.querySelectorAll('.ed-sp').forEach(function(x){x.style.background='#f1f3f4';x.style.color='#1f1f1f';});
+        this.style.background='#0b57d0';this.style.color='#fff';
+        run();
+      });
+    });
+    ed.querySelector('#ed-rev').addEventListener('click',function(){frames.reverse();T('Reversed');});
+    ed.querySelector('#ed-back').addEventListener('click',function(){
+      clearInterval(iv2);ed.remove();
+      var play=ov.querySelector('#sg-play');var i2=0;
+      playIv=setInterval(function(){i2=(i2+1)%frames.length;play.src=frames[i2];ov.querySelector('#sg-thumb').src=frames[i2];},speeds[cur].ms);
+    });
   });
 }
 
