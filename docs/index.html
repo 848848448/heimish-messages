@@ -595,7 +595,7 @@ function renderMsgs(id){
       +(reactHtml?'<div class="msg-react" style="'+(m.in?'':'justify-content:flex-end')+'">'+reactHtml+'</div>':'');
   }
   if(!html)html='<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px"><span style="color:var(--meta);font-size:14px">No messages yet</span></div>';
-  const bg=document.getElementById('cbg');bg.innerHTML=html;bg.scrollTop=bg.scrollHeight;renderPinned();showSmartReplies();
+  const bg=document.getElementById('cbg');bg.innerHTML=html;bg.scrollTop=bg.scrollHeight;renderPinned();
 }
 
 function warnCard(){
@@ -637,7 +637,7 @@ function doSend(){
     const r={id:Date.now()+1,body:rs[Math.floor(Math.random()*rs.length)],date:Date.now(),in:true};
     allMsgs[_replyAid].push(r);const cv=convs.find(x=>x.id===_replyAid);
     if(cv){cv.snip=r.body;cv.date=r.date;}
-    renderMsgs(_replyAid);renderList(convs);
+    renderMsgs(_replyAid);renderList(convs);showSmartReplies();
   },1500);
 }
 
