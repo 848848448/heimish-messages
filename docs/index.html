@@ -370,10 +370,10 @@ body{font-family:'Google Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Robot
     <button onclick="toggleLbMenu()" id="lb-more-btn" style="background:none;border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
       <div id="lb-menu" style="display:none;position:absolute;top:44px;right:0;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.3);min-width:160px;padding:6px 0;z-index:20">
-        <div onclick="T('Forward');toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Forward</div>
+        <div onclick="lbForward();toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Forward</div>
         <div onclick="lbShare();toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Share</div>
-        <div onclick="T('Starred');toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Star</div>
-        <div onclick="T('View details');toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">View details</div>
+        <div onclick="lbStar();toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">Star</div>
+        <div onclick="lbDetails();toggleLbMenu()" style="padding:13px 18px;font-size:15px;color:#202124;cursor:pointer">View details</div>
       </div>
     </button>
   </div>
@@ -538,7 +538,7 @@ function openChat(id){
 
   const av=mkAv(c,40,'showDet('+id+')');
   const callBtn=c.group?''
-    :'<button class="ib" onclick="T(\'Calling...\')" title="Call"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg></button>';
+    :'<button class="ib" onclick="doVoiceCall()" title="Call"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg></button>';
   const videoBtn='<button class="ib" onclick="doVideoCall()" title="Video"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></button>';
 
   document.getElementById('chat-tb').innerHTML=
@@ -673,9 +673,10 @@ function renderMsgs(id){
     const tick=m.in?'':m.sending
       ?'<span style="font-size:11px;color:rgba(255,255,255,.6)">Sending...</span>'
       :'<svg width="16" height="11" viewBox="0 0 18 11" fill="rgba(255,255,255,.85)"><path d="M17.394 1.557a.75.75 0 0 0-1.06-1.06L9.45 7.38 6.88 4.806a.75.75 0 1 0-1.06 1.06l3.103 3.103a.75.75 0 0 0 1.06 0l7.41-7.412zM13.311 1.557a.75.75 0 0 0-1.06-1.06l-3.972 3.97-1.237-1.236a.75.75 0 0 0-1.061 1.06l1.768 1.768a.75.75 0 0 0 1.06 0l4.502-4.502z"/></svg>';
+    const starHtml=m.starred?'<svg width="13" height="13" viewBox="0 0 24 24" fill="#f9ab00" style="margin-right:4px;vertical-align:-1px"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>':'';
     const reactHtml=m.reactions?Object.keys(m.reactions).map(em=>'<span class="msg-react-pill">'+em+'</span>').join(''):'';
     html+='<div class="brow '+(m.in?'in':'out')+'" data-id="'+m.id+'" oncontextmenu="showCtxMsg(event,'+m.id+')" ontouchstart="lp0(event,'+m.id+')" ontouchend="lp1()">'
-      +'<div class="bub '+(m.in?'in':'out')+'">'+rq+inner+'<div class="bf"><span class="btime">'+fmtMsg(m.date)+(m.in?'':' \u2022 '+(m.mms?'MMS':'SMS'))+'</span>'+tick+'</div></div></div>'
+      +'<div class="bub '+(m.in?'in':'out')+'">'+rq+inner+'<div class="bf"><span class="btime">'+starHtml+fmtMsg(m.date)+(m.in?'':' \u2022 '+(m.mms?'MMS':'SMS'))+'</span>'+tick+'</div></div></div>'
       +(reactHtml?'<div class="msg-react" style="'+(m.in?'':'justify-content:flex-end')+'">'+reactHtml+'</div>':'');
   }
   if(!html)html='<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px"><span style="color:var(--meta);font-size:14px">No messages yet</span></div>';
@@ -729,8 +730,8 @@ function renderMsgs(id){
 function warnCard(){
   return '<div class="warn"><div class="warn-h"><svg width="22" height="22" viewBox="0 0 24 24" fill="#f29900"><path d="M12 2L1 21h22L12 2zm0 3.5L20.5 19h-17L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg><b>Unknown sender added you</b></div>'
     +'<ul><li>(845) 717-9201 (United States)</li><li>19 other people in this group</li><li>7 in contacts</li></ul>'
-    +'<div class="warn-link" onclick="T(\'Safety tips\')">Get group safety tips</div>'
-    +'<div class="warn-btns"><button class="wb spam" onclick="T(\'Reported\');this.closest(\'.warn\').remove()">Report spam</button><button class="wb stay" onclick="this.closest(\'.warn\').remove()">Stay in group</button></div></div>';
+    +'<div class="warn-link" onclick="setProtection()">Get group safety tips</div>'
+    +'<div class="warn-btns"><button class="wb spam" onclick="reportSpam(this)">Report spam</button><button class="wb stay" onclick="this.closest(\'.warn\').remove()">Stay in group</button></div></div>';
 }
 
 // ── SEND ──────────────────────────────────────────────────────────────────────
@@ -963,7 +964,7 @@ function showCtxMsg(e,id){
   showCtx([
     {ic:ico('<path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/>'),lb:'Reply',fn:()=>setReply(id)},
     {ic:ico('<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>'),lb:'Copy',fn:()=>{try{navigator.clipboard.writeText(m.body||'');}catch(x){}T('Copied');}},
-    {ic:ico('<path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>'),lb:'Star',fn:()=>T('Starred')},
+    {ic:ico('<path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>'),lb:'Star',fn:()=>toggleStar(id)},
     {ic:ico('<path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/>'),lb:'Pin',fn:()=>pinMsg(id)},
     {ic:ico('<path d="M12 8V4l8 8-8 8v-4H4V8z"/>'),lb:'Forward',fn:()=>openForward(id)},
     'sep',
@@ -977,7 +978,7 @@ function showCtxList(e,id){
   showCtx([
     {ic:ico('<path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5z"/>'),lb:'Archive',fn:()=>archiveConv(id)},
     {ic:ico('<path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>'),lb:'Mark as read',fn:()=>{const c=convs.find(x=>x.id===id);if(c)c.unread=0;renderList(convs);}},
-    {ic:ico('<path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>'),lb:'Block',red:true,fn:()=>T('Blocked')},
+    {ic:ico('<path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>'),lb:'Block',red:true,fn:()=>blockConv(id)},
     {ic:ico('<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>'),lb:'Delete',red:true,fn:()=>{if(confirm('Delete conversation?')){const i=convs.findIndex(x=>x.id===id);if(i>-1)convs.splice(i,1);delete allMsgs[id];renderList(convs);}}},
   ],e.clientX||100,e.clientY||200);
 }
@@ -987,23 +988,23 @@ function showOv(mode){
   const items=mode==='chat'?[
     {lb:'Add people',fn:()=>addPeopleToChat()},
     {lb:'Details',fn:()=>showDet(aid)},
-    {lb:'Starred messages',fn:()=>T('Starred messages')},
-    {lb:'Search',fn:()=>T('Search in chat')},
+    {lb:'Starred messages',fn:()=>showStarred()},
+    {lb:'Search',fn:()=>searchInChat()},
     {lb:'Archive',fn:()=>{backToList();T('Archived');}},
     'sep',
     {lb:'Video call',fn:()=>{const c=convs.find(x=>x.id===aid);if(c&&c.addr&&c.addr!=='group')location.href='tel:'+c.addr;else T('Video call needs the APK');}},
-    {lb:'Show subject field',fn:()=>T('Subject field')},
-    {lb:'Block & report spam',red:true,fn:()=>T('Blocked')},
+    {lb:'Show subject field',fn:()=>toggleSubject()},
+    {lb:'Block & report spam',red:true,fn:()=>blockConv(aid)},
     {lb:'Delete',red:true,fn:()=>{if(confirm('Delete conversation?')){const i=convs.findIndex(x=>x.id===aid);if(i>-1)convs.splice(i,1);delete allMsgs[aid];backToList();renderList(convs);}}},
   ]:[
     {lb:'Your profile',fn:()=>showProfile()},
-    {lb:'Archived',fn:()=>T('Archived')},
-    {lb:'Spam & blocked',fn:()=>T('Spam & blocked')},
+    {lb:'Archived',fn:()=>showArchived()},
+    {lb:'Spam & blocked',fn:()=>setProtection()},
     {lb:'Mark all as read',fn:()=>{convs.forEach(c=>c.unread=0);renderList(convs);T('All marked as read');}},
     {lb:'Device pairing',fn:()=>showPairing()},
     'sep',
     {lb:'Settings',fn:()=>showSett()},
-    {lb:'Help & feedback',fn:()=>T('Help')},
+    {lb:'Help & feedback',fn:()=>setHelp()},
   ];
   const ov=document.getElementById('ov');
   ov.innerHTML='';
@@ -1024,7 +1025,7 @@ function showDet(id){
   const d=document.getElementById('det');d.style.display='flex';addSwipeDown('det',closeDet);
   const av=mkAv(c,84);
   const callBtn=c.group?''
-    :'<button class="da" onclick="T(\'Calling...\')"><div class="da-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#0b57d0"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg></div><span>Call</span></button>';
+    :'<button class="da" onclick="doVoiceCall()"><div class="da-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#0b57d0"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg></div><span>Call</span></button>';
   const ico=p=>'<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">'+p+'</svg>';
   d.innerHTML='<div style="display:flex;flex-direction:column;height:100dvh">'
     +'<div class="dtb"><button class="ib" onclick="closeDet()"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button><h2>'+(c.group?'Group info':'Contact info')+'</h2></div>'
@@ -1032,14 +1033,14 @@ function showDet(id){
     +'<div class="det-hero">'+av+'<div class="det-name">'+esc(c.name)+'</div><div class="det-num">'+esc(c.addr)+'</div></div>'
     +'<div class="det-acts">'+callBtn
     +'<button class="da" onclick="doVideoCall()"><div class="da-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#0b57d0"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg></div><span>Video</span></button>'
-    +'<button class="da" onclick="T(\'Contact info\')"><div class="da-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#0b57d0"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div><span>Contact</span></button>'
-    +'<button class="da" onclick="T(\'Search\')"><div class="da-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#0b57d0"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></div><span>Search</span></button>'
+    +'<button class="da" onclick="showContactInfo()"><div class="da-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#0b57d0"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div><span>Contact</span></button>'
+    +'<button class="da" onclick="searchInChat()"><div class="da-ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="#0b57d0"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></div><span>Search</span></button>'
     +'</div>'
-    +(imgs.length?'<div style="padding:12px 16px;border-bottom:1px solid var(--div)"><div style="display:flex;justify-content:space-between;margin-bottom:10px"><span style="font-size:14px;font-weight:600;color:var(--meta)">IMAGES</span><span style="color:var(--brand);font-size:14px;cursor:pointer" onclick="T(\'All images\')">See all ('+imgs.length+')</span></div><div class="igrid">'+imgs.map(m=>'<img src="'+m.img+'" onclick="openLb(\''+m.img+'\')" onerror="this.remove()">').join('')+'</div></div>':'')
-    +'<div class="det-row" onclick="T(\'Snooze\')"><div class="det-row-ic">'+ico('<path d="M7.88 3.39L6.6 1.86 2 5.71l1.29 1.53 4.59-3.85zM22 5.72l-4.6-3.86-1.29 1.53 4.6 3.86L22 5.72zM12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 16c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/>')+'</div><h3>Snooze chat</h3></div>'
-    +'<div class="det-row" onclick="T(\'Notifications\')"><div class="det-row-ic">'+ico('<path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>')+'</div><h3>Notifications</h3></div>'
-    +'<div class="det-row" onclick="T(\'Archived\')"><div class="det-row-ic">'+ico('<path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5z"/>')+'</div><h3>Archive</h3></div>'
-    +'<div class="det-row red" onclick="T(\'Blocked\')"><div class="det-row-ic">'+ico('<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/>')+'</div><h3>Block &amp; report spam</h3></div>'
+    +(imgs.length?'<div style="padding:12px 16px;border-bottom:1px solid var(--div)"><div style="display:flex;justify-content:space-between;margin-bottom:10px"><span style="font-size:14px;font-weight:600;color:var(--meta)">IMAGES</span><span style="color:var(--brand);font-size:14px;cursor:pointer" onclick="showAllMedia()">See all ('+imgs.length+')</span></div><div class="igrid">'+imgs.map(m=>'<img src="'+m.img+'" onclick="openLb(\''+m.img+'\')" onerror="this.remove()">').join('')+'</div></div>':'')
+    +'<div class="det-row" onclick="snoozeChat()"><div class="det-row-ic">'+ico('<path d="M7.88 3.39L6.6 1.86 2 5.71l1.29 1.53 4.59-3.85zM22 5.72l-4.6-3.86-1.29 1.53 4.6 3.86L22 5.72zM12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 16c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/>')+'</div><h3>Snooze chat</h3></div>'
+    +'<div class="det-row" onclick="setNotifications()"><div class="det-row-ic">'+ico('<path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>')+'</div><h3>Notifications</h3></div>'
+    +'<div class="det-row" onclick="archiveConv(aid)"><div class="det-row-ic">'+ico('<path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5z"/>')+'</div><h3>Archive</h3></div>'
+    +'<div class="det-row red" onclick="blockConv(aid)"><div class="det-row-ic">'+ico('<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/>')+'</div><h3>Block &amp; report spam</h3></div>'
     +'</div></div>';
 }
 function closeDet(){document.getElementById('det').style.display='none';}
@@ -1054,7 +1055,7 @@ function showProfile(){
     +'<div class="pmenu-av"><svg width="36" height="36" viewBox="0 0 24 24" fill="#fff"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>'
     +'<div class="pmenu-name">avrumy</div>'
     +'<div class="pmenu-email">avrumy5872877@gmail.com</div>'
-    +'<button style="background:none;border:1px solid var(--div);border-radius:20px;padding:8px 20px;font-size:14px;color:var(--brand);cursor:pointer;font-family:inherit;margin-bottom:8px" onclick="T(\'Manage Google Account\')">Manage your Google Account</button>'
+    +'<button style="background:none;border:1px solid var(--div);border-radius:20px;padding:8px 20px;font-size:14px;color:var(--brand);cursor:pointer;font-family:inherit;margin-bottom:8px" onclick="editProfile()">Manage your Google Account</button>'
     +'</div>'
     +'<div class="set-s" style="margin-top:8px">'
     +setRow('<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>','Your profile','','editProfile()')
@@ -1073,6 +1074,200 @@ function showProfile(){
 }
 function closeProfile(){document.getElementById('pmenu').style.display='none';}
 
+// ── DETAILS / CHAT ACTIONS (real implementations) ─────────────────────────────
+function doVoiceCall(){
+  var c=convs.find(function(x){return x.id===aid;});
+  if(!c){T('Open a chat first');return;}
+  if(c.group){T('Group calls need the native app');return;}
+  var h='<div style="text-align:center;padding:48px 20px">'
+    +mkAv(c,110)
+    +'<div style="font-size:22px;font-weight:600;color:var(--text);margin-top:20px">'+esc(c.name)+'</div>'
+    +'<div style="font-size:14px;color:var(--meta);margin-top:4px">'+esc(c.addr)+'</div>'
+    +'<div id="vo-status" style="font-size:14px;color:var(--brand);margin-top:10px">Calling...</div>'
+    +'<div style="display:flex;gap:20px;justify-content:center;margin-top:44px">'
+    +'<button id="vo-dial" style="width:60px;height:60px;border-radius:50%;background:var(--green,#146c2e);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg></button>'
+    +'<button id="vo-end" style="width:60px;height:60px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg></button>'
+    +'</div>'
+    +'<div style="font-size:12px;color:var(--meta);margin-top:24px">Tap the green button to dial with your phone</div>'
+    +'</div>';
+  var p=subPage('Call',h);
+  p.querySelector('#vo-dial').addEventListener('click',function(){location.href='tel:'+c.addr;});
+  p.querySelector('#vo-end').addEventListener('click',function(){p.remove();T('Call ended');});
+}
+function showContactInfo(){
+  var c=convs.find(function(x){return x.id===aid;});
+  if(!c){T('Open a chat first');return;}
+  var msgs=allMsgs[aid]||[];
+  var first=msgs.length?fmtDay(msgs[0].date):'—';
+  var media=msgs.filter(function(m){return m.img||m.video;}).length;
+  var h='<div style="text-align:center;padding:28px 20px 20px">'+mkAv(c,96)
+    +'<div style="font-size:22px;font-weight:700;color:var(--text);margin-top:16px">'+esc(c.name)+'</div>'
+    +'<div style="font-size:14px;color:var(--meta);margin-top:4px">'+esc(c.addr)+'</div></div>'
+    +'<div class="set-s">'
+    +'<div class="set-r"><div class="set-r-b"><h3>Phone</h3><p>'+esc(c.addr)+'</p></div></div>'
+    +'<div class="set-r"><div class="set-r-b"><h3>Messages</h3><p>'+msgs.length+' in this conversation</p></div></div>'
+    +'<div class="set-r"><div class="set-r-b"><h3>Media shared</h3><p>'+media+' photos & videos</p></div></div>'
+    +'<div class="set-r"><div class="set-r-b"><h3>First message</h3><p>'+first+'</p></div></div>'
+    +(c.group?'<div class="set-r"><div class="set-r-b"><h3>Members</h3><p>'+((c.members||[]).length||'?')+' people</p></div></div>':'')
+    +'</div>'
+    +'<div class="set-s"><div class="set-r" id="ci-copy"><div class="set-r-b"><h3 style="color:var(--brand)">Copy number</h3></div></div></div>';
+  var p=subPage('Contact info',h);
+  p.querySelector('#ci-copy').addEventListener('click',function(){
+    if(navigator.clipboard)navigator.clipboard.writeText(c.addr).then(function(){T('Number copied');});
+    else T('Copy not supported');
+  });
+}
+function searchInChat(){
+  if(!aid){T('Open a chat first');return;}
+  var h='<div style="padding:12px 14px"><div class="sw"><svg width="18" height="18" viewBox="0 0 24 24" fill="var(--meta)"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><input id="sic-inp" placeholder="Search in this conversation" autofocus></div></div>'
+    +'<div id="sic-res"></div>';
+  var p=subPage('Search',h);
+  var res=p.querySelector('#sic-res');
+  p.querySelector('#sic-inp').addEventListener('input',function(){
+    var q=this.value.toLowerCase().trim();
+    if(!q){res.innerHTML='';return;}
+    var hits=(allMsgs[aid]||[]).filter(function(m){return (m.body||'').toLowerCase().indexOf(q)>-1;});
+    if(!hits.length){res.innerHTML='<div style="padding:32px;text-align:center;color:var(--meta-lt)">No results</div>';return;}
+    res.innerHTML='<div style="padding:8px 16px;font-size:12px;color:var(--meta)">'+hits.length+' result'+(hits.length>1?'s':'')+'</div>'
+      +'<div class="set-s">'+hits.map(function(m){
+        var b=esc(m.body);
+        var re=new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig');
+        return '<div class="set-r" data-mid="'+m.id+'"><div class="set-r-b"><h3 style="font-weight:400">'+b.replace(re,'<mark style="background:var(--brand-lt);color:var(--brand)">$1</mark>')+'</h3><p>'+(m.in?'Them':'You')+' • '+fmtDay(m.date)+' '+fmtMsg(m.date)+'</p></div></div>';
+      }).join('')+'</div>';
+    res.querySelectorAll('[data-mid]').forEach(function(r){
+      r.addEventListener('click',function(){
+        var mid=+this.dataset.mid;
+        p.remove();
+        var el=document.querySelector('.brow[data-id="'+mid+'"]');
+        if(el){el.scrollIntoView({block:'center',behavior:'smooth'});
+          el.style.transition='background .3s';el.style.background='var(--brand-lt)';
+          setTimeout(function(){el.style.background='';},1400);}
+      });
+    });
+  });
+}
+function showAllMedia(){
+  if(!aid){T('Open a chat first');return;}
+  var media=(allMsgs[aid]||[]).filter(function(m){return m.img||m.video;});
+  var h = media.length
+    ? '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:3px">'
+      +media.map(function(m){
+        return m.video
+          ? '<div data-src="'+m.video+'" data-vid="1" style="position:relative;aspect-ratio:1;background:#000;cursor:pointer"><video src="'+m.video+'" muted style="width:100%;height:100%;object-fit:cover"></video><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff" style="position:absolute;inset:0;margin:auto"><path d="M8 5v14l11-7z"/></svg></div>'
+          : '<img data-src="'+m.img+'" src="'+m.img+'" style="width:100%;aspect-ratio:1;object-fit:cover;cursor:pointer;background:var(--surf2)">';
+      }).join('')+'</div>'
+    : '<div style="padding:48px 20px;text-align:center;color:var(--meta-lt)">'
+      +'<svg width="56" height="56" viewBox="0 0 24 24" fill="var(--div)"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>'
+      +'<div style="margin-top:12px">No media in this conversation</div></div>';
+  var p=subPage('All media ('+media.length+')',h);
+  p.querySelectorAll('[data-src]').forEach(function(el){
+    el.addEventListener('click',function(){p.remove();openLb(this.dataset.src);});
+  });
+}
+function snoozeChat(){
+  if(!aid){T('Open a chat first');return;}
+  var opts=[{lb:'1 hour',ms:3600000},{lb:'8 hours',ms:288e5},{lb:'24 hours',ms:864e5},{lb:'Until I turn it back on',ms:0}];
+  var c=convs.find(function(x){return x.id===aid;});
+  var h='<div class="set-s">'+opts.map(function(o,i){
+    return '<div class="set-r" data-i="'+i+'"><div class="set-r-b"><h3>'+o.lb+'</h3></div></div>';
+  }).join('')+'</div>'
+  +(c&&c.snoozedUntil?'<div class="set-s"><div class="set-r" id="unsnooze"><div class="set-r-b"><h3 style="color:var(--brand)">Turn notifications back on</h3></div></div></div>':'');
+  var p=subPage('Snooze notifications',h);
+  p.querySelectorAll('[data-i]').forEach(function(r){
+    r.addEventListener('click',function(){
+      var o=opts[+this.dataset.i];
+      if(c){c.snoozedUntil=o.ms?Date.now()+o.ms:Infinity;}
+      renderList(convs);p.remove();T('Snoozed for '+o.lb.toLowerCase());
+    });
+  });
+  var un=p.querySelector('#unsnooze');
+  if(un)un.addEventListener('click',function(){if(c)delete c.snoozedUntil;renderList(convs);p.remove();T('Notifications on');});
+}
+function blockConv(id){
+  var c=convs.find(function(x){return x.id===id;});
+  if(!c){T('Open a chat first');return;}
+  if(!confirm('Block '+c.name+' and report spam?'))return;
+  var blocked=JSON.parse(localStorage.getItem('hm_blocked')||'[]');
+  if(blocked.indexOf(c.addr)<0)blocked.push(c.addr);
+  localStorage.setItem('hm_blocked',JSON.stringify(blocked));
+  var i=convs.findIndex(function(x){return x.id===id;});
+  if(i>-1)convs.splice(i,1);
+  delete allMsgs[id];
+  backToList();renderList(convs);T('Blocked & reported');
+}
+
+// ── STARRED MESSAGES ──────────────────────────────────────────────────────────
+function toggleStar(msgId){
+  var m=(allMsgs[aid]||[]).find(function(x){return x.id===msgId;});
+  if(!m)return;
+  m.starred=!m.starred;
+  renderMsgs(aid);
+  T(m.starred?'Message starred':'Star removed');
+}
+function showStarred(){
+  var all=[];
+  Object.keys(allMsgs).forEach(function(k){
+    (allMsgs[k]||[]).forEach(function(m){
+      if(m.starred)all.push({m:m,cid:+k});
+    });
+  });
+  all.sort(function(a,b){return b.m.date-a.m.date;});
+  var h = all.length
+    ? '<div class="set-s">'+all.map(function(x){
+        var c=convs.find(function(y){return y.id===x.cid;});
+        return '<div class="set-r" data-cid="'+x.cid+'" data-mid="'+x.m.id+'">'
+          +'<div class="set-r-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="#f9ab00"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></div>'
+          +'<div class="set-r-b"><h3 style="font-weight:400">'+esc(x.m.body||(x.m.video?'Video':'Photo'))+'</h3>'
+          +'<p>'+esc(c?c.name:'Unknown')+' • '+fmtDay(x.m.date)+'</p></div></div>';
+      }).join('')+'</div>'
+    : '<div style="padding:48px 20px;text-align:center;color:var(--meta-lt)">'
+      +'<svg width="56" height="56" viewBox="0 0 24 24" fill="var(--div)"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>'
+      +'<div style="margin-top:12px">No starred messages</div>'
+      +'<div style="font-size:13px;margin-top:6px">Long-press a message and tap Star</div></div>';
+  var p=subPage('Starred messages',h);
+  p.querySelectorAll('[data-cid]').forEach(function(r){
+    r.addEventListener('click',function(){
+      var cid=+this.dataset.cid, mid=+this.dataset.mid;
+      p.remove();closeProfile();
+      openChat(cid);
+      setTimeout(function(){
+        var el=document.querySelector('.brow[data-id="'+mid+'"]');
+        if(el){el.scrollIntoView({block:'center'});
+          el.style.transition='background .3s';el.style.background='var(--brand-lt)';
+          setTimeout(function(){el.style.background='';},1400);}
+      },350);
+    });
+  });
+}
+
+// ── SUBJECT FIELD ─────────────────────────────────────────────────────────────
+function toggleSubject(){
+  var ex=document.getElementById('subj-wrap');
+  if(ex){ex.remove();T('Subject field hidden');return;}
+  var w=document.createElement('div');
+  w.id='subj-wrap';
+  w.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surf);border-bottom:1px solid var(--div2)';
+  w.innerHTML='<input id="subj-inp" placeholder="Subject" style="flex:1;border:none;background:none;font-size:14px;outline:none;font-family:inherit;color:var(--text)">'
+    +'<button class="ib" id="subj-x" style="width:32px;height:32px"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>';
+  var comp=document.querySelector('.compose');
+  comp.parentNode.insertBefore(w,comp);
+  w.querySelector('#subj-x').addEventListener('click',function(){w.remove();});
+  w.querySelector('#subj-inp').focus();
+  T('Subject field shown');
+}
+
+// ── LINKS ─────────────────────────────────────────────────────────────────────
+function openLink(el){
+  var url=el.dataset.url||el.getAttribute('data-url')||'';
+  if(!url){T('No link');return;}
+  if(!/^https?:\/\//i.test(url))url='https://'+url;
+  if(setGet('linkWarn',true)){
+    if(!confirm('Open this link?\n\n'+url))return;
+  }
+  window.open(url,'_blank','noopener');
+}
+
+// ── DETAILS / CHAT ACTIONS end ────────────────────────────────────────────────
 function doVideoCall(){
   var c=convs.find(function(x){return x.id===aid;});
   if(!c){T('Open a chat first');return;}
@@ -1784,6 +1979,57 @@ function lbSwipe(){
 
 function toggleLbMenu(){const m=document.getElementById('lb-menu');m.style.display=m.style.display==='block'?'none':'block';if(m.style.display==='block')setTimeout(()=>document.addEventListener('click',()=>{m.style.display='none';},{once:true}),10);}
 function lbDownload(){const img=document.getElementById('lb-media');if(!img.src)return;const a=document.createElement('a');a.href=img.src;a.download='image.jpg';a.click();T('Downloading...');}
+function lbCurMsg(){
+  var src=(lbItems[lbIdx]||{}).src;
+  if(!src)return null;
+  var found=null;
+  Object.keys(allMsgs).forEach(function(k){
+    (allMsgs[k]||[]).forEach(function(m){if((m.img===src||m.video===src)&&!found)found={m:m,cid:+k};});
+  });
+  return found;
+}
+function lbForward(){
+  var f=lbCurMsg();
+  if(!f){T('Nothing to forward');return;}
+  closeLb();
+  var prevAid=aid; aid=f.cid;
+  openForward(f.m.id);
+  aid=prevAid;
+}
+function lbStar(){
+  var f=lbCurMsg();
+  if(!f){T('Nothing to star');return;}
+  f.m.starred=!f.m.starred;
+  T(f.m.starred?'Starred':'Star removed');
+  if(aid===f.cid)renderMsgs(aid);
+}
+function lbDetails(){
+  var f=lbCurMsg();
+  var src=(lbItems[lbIdx]||{}).src||'';
+  var kb=src.indexOf('data:')===0?Math.round(src.length*0.75/1024)+' KB':'Remote image';
+  var c=f?convs.find(function(x){return x.id===f.cid;}):null;
+  closeLb();
+  var h='<div class="set-s">'
+    +'<div class="set-r"><div class="set-r-b"><h3>Type</h3><p>'+((f&&f.m.video)?'Video':'Image')+'</p></div></div>'
+    +'<div class="set-r"><div class="set-r-b"><h3>Size</h3><p>'+kb+'</p></div></div>'
+    +(f?'<div class="set-r"><div class="set-r-b"><h3>From</h3><p>'+esc(f.m.in?(c?c.name:'Them'):'You')+'</p></div></div>':'')
+    +(f?'<div class="set-r"><div class="set-r-b"><h3>Sent</h3><p>'+fmtDay(f.m.date)+' '+fmtMsg(f.m.date)+'</p></div></div>':'')
+    +(c?'<div class="set-r"><div class="set-r-b"><h3>Conversation</h3><p>'+esc(c.name)+'</p></div></div>':'')
+    +'<div class="set-r"><div class="set-r-b"><h3>Position</h3><p>'+(lbIdx+1)+' of '+lbItems.length+'</p></div></div>'
+    +'</div>';
+  subPage('Details',h);
+}
+function reportSpam(btn){
+  var card=btn.closest('.warn');
+  var c=convs.find(function(x){return x.id===aid;});
+  if(c){
+    var blocked=JSON.parse(localStorage.getItem('hm_blocked')||'[]');
+    if(blocked.indexOf(c.addr)<0)blocked.push(c.addr);
+    localStorage.setItem('hm_blocked',JSON.stringify(blocked));
+  }
+  if(card)card.remove();
+  T('Reported as spam & blocked');
+}
 function lbShare(){
   const src=document.getElementById('lb-media').src;
   if(!src){T('Nothing to share');return;}
@@ -1828,7 +2074,7 @@ function detectLinks_orig(body){
   const m=body.match(/https?:\/\/[^\s]+/);
   if(!m)return '';
   const domain=m[0].replace(/https?:\/\/(www\.)?/,'').split('/')[0];
-  return '<div class="link-prev" onclick="T(\'Opening link\')">'
+  return '<div class="link-prev" data-url="'+esc(m[0])+'" onclick="openLink(this)">'
     +'<div class="lp-bar"></div><div class="lp-body">'
     +'<div class="lp-title">'+esc(domain)+'</div>'
     +'<div class="lp-url">'+esc(m[0])+'</div>'
