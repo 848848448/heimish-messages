@@ -587,6 +587,40 @@ function renderMsgs(id){
   }
   if(!html)html='<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px"><span style="color:var(--meta);font-size:14px">No messages yet</span></div>';
   const bg=document.getElementById('cbg');bg.innerHTML=html;bg.scrollTop=bg.scrollHeight;renderPinned();
+  // Swipe-to-reply on messages
+  bg.querySelectorAll('.brow').forEach(row=>{
+    let sx=null,sy=null,swiping=false;
+    row.addEventListener('touchstart',e=>{
+      if(e.touches.length!==1)return;
+      sx=e.touches[0].clientX;sy=e.touches[0].clientY;swiping=false;
+      row.style.transition='none';
+    },{passive:true});
+    row.addEventListener('touchmove',e=>{
+      if(sx===null)return;
+      const dx=e.touches[0].clientX-sx;
+      const dy=Math.abs(e.touches[0].clientY-sy);
+      if(dy>20&&!swiping){sx=null;row.style.transform='';return;}
+      // swipe right to reply (for both in and out messages)
+      if(dx>10){
+        swiping=true;
+        e.preventDefault();
+        row.style.transform='translateX('+Math.min(dx*.5,60)+'px)';
+      }
+    },{passive:false});
+    row.addEventListener('touchend',e=>{
+      if(sx===null)return;
+      const dx=e.changedTouches[0].clientX-sx;
+      row.style.transition='transform .2s';
+      row.style.transform='';
+      if(swiping&&dx>50){
+        const mid=+row.dataset.id;
+        if(mid)setReply(mid);
+        document.getElementById('cinp').focus();
+      }
+      setTimeout(()=>{row.style.transition='';},200);
+      sx=null;swiping=false;
+    },{passive:true});
+  });
 }
 
 function warnCard(){
@@ -1163,17 +1197,38 @@ function showSmartReplies(){
   const list=allMsgs[aid]||[];
   if(!list.length)return;
   const last=list[list.length-1];
-  if(!last.in)return; // only show for incoming
+  if(!last.in)return;
   const existing=document.getElementById('smart-replies');
   if(existing)existing.remove();
-  const replies=['👍','OK','Thanks!','😂','Sure!','Yes','No'];
+  // Context-aware replies based on last message
+  var replies;
+  var b=(last.body||'').toLowerCase();
+  if(b.includes('wie geits')||b.includes('וואס מאכסטו')||b.includes('ווי גייט'))
+    replies=['גוט ב״ה','שלום עליכם','וואס הערט זיך?','👍'];
+  else if(b.includes('קומ')||b.includes('ביסטו'))
+    replies=['בין שוין אונטערוועגס','5 מינוט','איך קום','👍'];
+  else if(b.includes('שלום')||b.includes('היי')||b.includes('hey'))
+    replies=['שלום!','וואס גייט?','היי!','👋'];
+  else if(b.includes('?'))
+    replies=['יא','ניין','אפשר','👍'];
+  else if(b.includes('דאנק')||b.includes('thank'))
+    replies=['בבקשה!','גערן געשען','👍','😊'];
+  else if(b.match(/[😀-🙏🤣😂😊😎👍👌❤️]/u))
+    replies=['😂','👍','❤️','😊'];
+  else
+    replies=['אקעי','👍','פארשטאנען','😊'];
   const div=document.createElement('div');div.id='smart-replies';div.className='smart-replies';
-  replies.slice(0,4).forEach(r=>{
+  replies.forEach(r=>{
     const btn=document.createElement('button');btn.className='smart-reply';btn.textContent=r;
     btn.addEventListener('click',()=>{
-      document.getElementById('cinp').value=r;
-      onType(document.getElementById('cinp'));
+      // Auto-send immediately
+      const m={id:Date.now(),body:r,date:Date.now(),in:false};
+      if(!allMsgs[aid])allMsgs[aid]=[];
+      allMsgs[aid].push(m);
+      const c=convs.find(x=>x.id===aid);
+      if(c){c.snip=r;c.date=m.date;}
       div.remove();
+      renderMsgs(aid);renderList(convs);
     });
     div.appendChild(btn);
   });
