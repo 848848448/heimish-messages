@@ -1,7 +1,7 @@
 name: Build APK
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths: ['app/**', '*.gradle*', 'gradle/**']
   workflow_dispatch:
 permissions:
@@ -19,19 +19,30 @@ jobs:
       - name: Build
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug 2>&1 | tee build.log || true
+          if [ ! -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            echo "BUILD FAILED - errors:"
+            grep -E "^e:|error:|FAILURE|ERROR" build.log | head -50
+            # Create issue with errors
+            BODY=$(grep -E "^e:|error:|FAILURE|ERROR" build.log | head -50)
+            curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/issues" \
+              -d "$(python3 -c "import json; print(json.dumps({'title':'Build errors','body':'''$BODY'''}))")" || true
+            exit 1
+          fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: heimish-messages-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 90
-      - name: Release APK
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.4-b${{ github.run_number }}
-          name: "Heimish Messages v1.4 (build ${{ github.run_number }})"
-          body: "📱 Tap **app-debug.apk** below to download and install."
+          tag_name: v1.5-b${{ github.run_number }}
+          name: "Heimish Messages v1.5"
+          body: "📱 Tap **app-debug.apk** to download."
           files: app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
         env:
