@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  issues: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,25 +17,31 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - name: Build
+        id: build
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug
-      - name: Upload
+          ./gradlew assembleDebug 2>&1 | tee build.log
+        continue-on-error: true
+      - name: Post errors on failure
+        if: steps.build.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          APK=$(find app/build -name "*.apk" | head -1)
-          echo "Found: $APK"
-          echo "APK=$APK" >> $GITHUB_ENV
-      - uses: actions/upload-artifact@v4
+          ERRS=$(grep -E "^e:|error:|FAILURE|ERROR" build.log | head -40)
+          gh issue create --title "Build failed $(date +%m%d-%H%M)" --body "$(echo "$ERRS")" || true
+          exit 1
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: heimish-messages-apk
-          path: ${{ env.APK }}
+          path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 90
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.4-b${{ github.run_number }}
           name: "Heimish Messages v1.4"
-          body: "📱 Tap the APK file below to download."
-          files: ${{ env.APK }}
+          body: "📱 Tap the APK file below to download and install."
+          files: app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
