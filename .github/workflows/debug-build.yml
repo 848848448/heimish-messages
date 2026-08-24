@@ -1,0 +1,22 @@
+name: Debug Build
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v3
+      - run: chmod +x ./gradlew
+      - name: Build
+        run: ./gradlew assembleDebug --stacktrace 2>&1 | grep -E "^e:|error:|FAILURE|BUILD|> " | tail -40
+        continue-on-error: true
+      - name: Dump errors to summary
+        if: always()
+        run: |
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ./gradlew assembleDebug 2>&1 | grep -E "^e: |error:|FAILURE|Cannot|Unresolved|> Task" | tail -30 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
