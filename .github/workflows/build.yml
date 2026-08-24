@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   build:
@@ -26,34 +25,13 @@ jobs:
       - run: chmod +x ./gradlew
 
       - name: Build Debug APK
-        id: build
-        run: |
-          ./gradlew assembleDebug 2>&1 | tee build.log
-          exit ${PIPESTATUS[0]}
-        continue-on-error: true
-
-      - name: Report errors
-        if: steps.build.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-errors
-          path: build.log
-          retention-days: 3
-
-      - name: Fail on build error
-        if: steps.build.outcome == 'failure'
-        run: |
-          echo "=== ERRORS ==="
-          grep -E "^e: |error:|FAILURE|Cannot" build.log | tail -30
-          exit 1
+        run: ./gradlew assembleDebug
 
       - name: Find APK
-        if: steps.build.outcome == 'success'
         id: apk
         run: |
           APK=$(find app/build -name "*.apk" -type f | head -1)
           echo "path=$APK" >> $GITHUB_OUTPUT
-          echo "Found: $APK"
           ls -la "$APK"
 
       - name: Upload APK artifact
@@ -63,32 +41,15 @@ jobs:
           path: ${{ steps.apk.outputs.path }}
           retention-days: 90
 
-      - name: Delete old releases
-        run: |
-          OLD=$(curl -s -H "Authorization: token ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases" | \
-            python3 -c "import sys,json;[print(r['id']) for r in json.load(sys.stdin)]" 2>/dev/null)
-          for id in $OLD; do
-            curl -s -X DELETE -H "Authorization: token ${{ github.token }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/$id"
-          done
-          # Delete old tags
-          git tag -l | xargs -I {} git push --delete origin {} 2>/dev/null || true
-
       - name: Create Release with APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.4
+          tag_name: v1.4-build${{ github.run_number }}
           name: "Heimish Messages v1.4"
           body: |
-            📱 **Heimish Messages v1.4**
-            
-            Download the APK below and install on your Android phone.
-            
-            Features:
-            - Full SMS/MMS messaging
-            - Nightly contacts sync to Cloudflare (4:00 AM)
-            - Material 3 Expressive design
+            📱 Heimish Messages v1.4
+
+            Tap the APK file below to download and install.
           files: ${{ steps.apk.outputs.path }}
           make_latest: true
         env:
