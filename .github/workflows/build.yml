@@ -1,17 +1,11 @@
 name: Build APK
-
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'app/**'
-      - '*.gradle*'
-      - 'gradle/**'
+    paths: ['app/**', '*.gradle*', 'gradle/**']
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,27 +15,25 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: gradle/actions/setup-gradle@v3
-      - run: chmod +x ./gradlew
-      - run: ./gradlew assembleDebug
-
-      - name: Find and upload APK
+      - name: Build
         run: |
-          APK=$(find app/build -name "*.apk" -type f | head -1)
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+      - name: Upload
+        run: |
+          APK=$(find app/build -name "*.apk" | head -1)
+          echo "Found: $APK"
           echo "APK=$APK" >> $GITHUB_ENV
-          ls -la "$APK"
-
       - uses: actions/upload-artifact@v4
         with:
-          name: heimish-messages-v1.4
+          name: heimish-messages-apk
           path: ${{ env.APK }}
           retention-days: 90
-
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.4-b${{ github.run_number }}
           name: "Heimish Messages v1.4"
-          body: "📱 Tap the APK below to download and install on your Android phone."
+          body: "📱 Tap the APK file below to download."
           files: ${{ env.APK }}
           make_latest: true
         env:
