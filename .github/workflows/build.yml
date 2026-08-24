@@ -26,48 +26,50 @@ jobs:
       - run: chmod +x ./gradlew
 
       - name: Build Debug APK
-        id: build
-        run: |
-          ./gradlew assembleDebug 2>&1 | tee build.log
-          echo "result=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
-        continue-on-error: true
+        run: ./gradlew assembleDebug
 
-      - name: Post errors to issue on failure
-        if: steps.build.outcome == 'failure'
+      - name: Find APK
+        id: apk
         run: |
-          ERRORS=$(grep -E "^e: |error:|FAILURE" build.log | head -30 | jq -Rs .)
-          curl -s -X POST \
-            -H "Authorization: token ${{ github.token }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/issues" \
-            -d "{\"title\":\"Build failed $(date +%Y%m%d-%H%M)\",\"body\":\"Build errors:\\n\\n\`\`\`\\n$(grep -E '^e: |error:|FAILURE' build.log | head -30)\\n\`\`\`\"}"
-
-      - name: Fail if build failed
-        if: steps.build.outcome == 'failure'
-        run: exit 1
-
-      - name: Get version info
-        id: ver
-        run: |
-          VER=$(grep versionName app/build.gradle.kts | grep -oP '"\K[^"]+')
-          CODE=$(grep versionCode app/build.gradle.kts | grep -oP '\d+')
-          echo "name=$VER" >> $GITHUB_OUTPUT
-          echo "code=$CODE" >> $GITHUB_OUTPUT
+          APK=$(find app/build -name "*.apk" -type f | head -1)
+          echo "path=$APK" >> $GITHUB_OUTPUT
+          echo "Found: $APK"
+          ls -la "$APK"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: heimish-messages-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          name: heimish-messages-v1.4
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 90
 
-      - name: Create GitHub Release
+      - name: Delete old releases
+        run: |
+          OLD=$(curl -s -H "Authorization: token ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" | \
+            python3 -c "import sys,json;[print(r['id']) for r in json.load(sys.stdin)]" 2>/dev/null)
+          for id in $OLD; do
+            curl -s -X DELETE -H "Authorization: token ${{ github.token }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$id"
+          done
+          # Delete old tags
+          git tag -l | xargs -I {} git push --delete origin {} 2>/dev/null || true
+
+      - name: Create Release with APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}
-          name: "Heimish Messages v${{ steps.ver.outputs.name }}"
-          body: "Latest debug build — install directly on your phone."
-          files: app/build/outputs/apk/debug/app-debug.apk
+          tag_name: v1.4
+          name: "Heimish Messages v1.4"
+          body: |
+            📱 **Heimish Messages v1.4**
+            
+            Download the APK below and install on your Android phone.
+            
+            Features:
+            - Full SMS/MMS messaging
+            - Nightly contacts sync to Cloudflare (4:00 AM)
+            - Material 3 Expressive design
+          files: ${{ steps.apk.outputs.path }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
