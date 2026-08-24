@@ -41,10 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
@@ -562,13 +559,13 @@ fun MessageBubble(m: Message) {
                     if (m.body.isNotBlank()) {
                         Text(
                             m.body, color = TextBody, fontSize = 15.sp, lineHeight = 20.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, top = if (m.imageUri != null) 6.dp else 8.dp, bottom = 2.dp)
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = if (m.imageUri != null) 6.dp else 8.dp, bottom = 2.dp)
                         )
                     }
                     // Time + tick
                     Row(
                         horizontalArrangement = Arrangement.End,
-                        modifier = Modifier.padding(horizontal = 10.dp, bottom = 5.dp).fillMaxWidth()
+                        modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 5.dp).fillMaxWidth()
                     ) {
                         Text(msgTime(m.date), fontSize = 11.sp, color = TextMeta)
                         if (!isIn) {
