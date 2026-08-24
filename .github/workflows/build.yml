@@ -17,37 +17,22 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - name: Build
-        id: build
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug 2>&1 | tee build.log
-        continue-on-error: true
-      - name: Post errors on failure
-        if: steps.build.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          ERRS=$(grep -E "^e:|error:|FAILURE|ERROR" build.log | head -40)
-          gh issue create --title "Build failed $(date +%m%d-%H%M)" --body "$(echo "$ERRS")" || true
-          exit 1
-      - name: Find APK
-        id: apk
-        run: |
-          APK=$(find app/build -name "*.apk" -type f | head -1)
-          echo "path=$APK" >> $GITHUB_OUTPUT
-          echo "Found APK at: $APK"
-          ls -la "$APK"
-      - uses: actions/upload-artifact@v4
+          ./gradlew assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: heimish-messages-apk
-          path: ${{ steps.apk.outputs.path }}
+          path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 90
-      - uses: softprops/action-gh-release@v2
+      - name: Release APK
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.4-b${{ github.run_number }}
-          name: "Heimish Messages v1.4"
-          body: "📱 Tap the APK file below to download and install."
-          files: ${{ steps.apk.outputs.path }}
+          name: "Heimish Messages v1.4 (build ${{ github.run_number }})"
+          body: "📱 Tap **app-debug.apk** below to download and install."
+          files: app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
