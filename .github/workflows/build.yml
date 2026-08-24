@@ -26,9 +26,29 @@ jobs:
       - run: chmod +x ./gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        id: build
+        run: |
+          ./gradlew assembleDebug 2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
+        continue-on-error: true
+
+      - name: Report errors
+        if: steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-errors
+          path: build.log
+          retention-days: 3
+
+      - name: Fail on build error
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "=== ERRORS ==="
+          grep -E "^e: |error:|FAILURE|Cannot" build.log | tail -30
+          exit 1
 
       - name: Find APK
+        if: steps.build.outcome == 'success'
         id: apk
         run: |
           APK=$(find app/build -name "*.apk" -type f | head -1)
