@@ -23,34 +23,26 @@ jobs:
           distribution: 'temurin'
       - uses: gradle/actions/setup-gradle@v3
       - run: chmod +x ./gradlew
+      - run: ./gradlew assembleDebug --stacktrace
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
-
-      - name: Find APK
-        id: apk
+      - name: Find and upload APK
         run: |
           APK=$(find app/build -name "*.apk" -type f | head -1)
-          echo "path=$APK" >> $GITHUB_OUTPUT
+          echo "APK=$APK" >> $GITHUB_ENV
           ls -la "$APK"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: heimish-messages-v1.4
-          path: ${{ steps.apk.outputs.path }}
+          path: ${{ env.APK }}
           retention-days: 90
 
-      - name: Create Release with APK
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.4-build${{ github.run_number }}
+          tag_name: v1.4-b${{ github.run_number }}
           name: "Heimish Messages v1.4"
-          body: |
-            📱 Heimish Messages v1.4
-
-            Tap the APK file below to download and install.
-          files: ${{ steps.apk.outputs.path }}
+          body: "📱 Tap the APK below to download and install on your Android phone."
+          files: ${{ env.APK }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
