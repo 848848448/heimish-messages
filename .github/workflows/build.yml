@@ -30,18 +30,24 @@ jobs:
           ERRS=$(grep -E "^e:|error:|FAILURE|ERROR" build.log | head -40)
           gh issue create --title "Build failed $(date +%m%d-%H%M)" --body "$(echo "$ERRS")" || true
           exit 1
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Find APK
+        id: apk
+        run: |
+          APK=$(find app/build -name "*.apk" -type f | head -1)
+          echo "path=$APK" >> $GITHUB_OUTPUT
+          echo "Found APK at: $APK"
+          ls -la "$APK"
+      - uses: actions/upload-artifact@v4
         with:
           name: heimish-messages-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.apk.outputs.path }}
           retention-days: 90
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.4-b${{ github.run_number }}
           name: "Heimish Messages v1.4"
           body: "📱 Tap the APK file below to download and install."
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: ${{ steps.apk.outputs.path }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
