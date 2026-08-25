@@ -158,13 +158,39 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     }
 }
 @Composable fun SetupPerms(onGrant: () -> Unit) {
+    val ctx = LocalContext.current
+    var tried by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(Brand), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
             Icon(Icons.Filled.Lock, null, tint = Color.White, modifier = Modifier.size(64.dp))
             Spacer(Modifier.height(16.dp))
             Text("Permissions Required", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(Modifier.height(8.dp))
+            Text("SMS, Phone, Contacts and Notifications", fontSize = 14.sp, color = Color.White.copy(.7f), textAlign = TextAlign.Center)
             Spacer(Modifier.height(28.dp))
-            Button(onClick = onGrant, colors = ButtonDefaults.buttonColors(Surf, Brand), shape = RoundedCornerShape(50)) { Text("Allow Access", fontWeight = FontWeight.Bold) }
+            Button(onClick = {
+                if (!tried) { tried = true; onGrant() }
+                else {
+                    // Open app settings directly
+                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", ctx.packageName, null)
+                    }
+                    ctx.startActivity(intent)
+                }
+            }, colors = ButtonDefaults.buttonColors(Surf, Brand), shape = RoundedCornerShape(50)) {
+                Text(if (!tried) "Allow Access" else "Open Settings", fontWeight = FontWeight.Bold)
+            }
+            if (tried) {
+                Spacer(Modifier.height(12.dp))
+                Text("Turn on all permissions, then come back", fontSize = 13.sp, color = Color.White.copy(.6f), textAlign = TextAlign.Center)
+            }
+        }
+    }
+    // Auto-recheck when returning from settings
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            if (Permissions.granted(ctx)) onGrant()
         }
     }
 }
