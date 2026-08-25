@@ -349,4 +349,40 @@ object SmsRepository {
             return null
         }
 
+
+        fun loadContactsList(ctx: Context): List<Pair<String, String>> {
+            val contacts = mutableListOf<Pair<String, String>>()
+            val seen = mutableSetOf<String>()
+            try {
+                val cursor = ctx.contentResolver.query(
+                    android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(
+                        android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ), null, null,
+                    android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+                )
+                cursor?.use {
+                    val ni = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val pi = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    while (it.moveToNext()) {
+                        val name = it.getString(ni) ?: continue
+                        val num = (it.getString(pi) ?: continue).replace(Regex("[^+0-9]"), "")
+                        if (num.isBlank() || seen.contains(num)) continue
+                        seen.add(num)
+                        contacts.add(name to num)
+                    }
+                }
+            } catch (_: Exception) {}
+            return contacts
+        }
+
+        fun deleteMessage(ctx: Context, msgId: Long) {
+            try { ctx.contentResolver.delete(android.provider.Telephony.Sms.CONTENT_URI, "_id = ?", arrayOf(msgId.toString())) } catch (_: Exception) {}
+        }
+
+        fun deleteThread(ctx: Context, threadId: Long) {
+            try { ctx.contentResolver.delete(android.provider.Telephony.Sms.CONTENT_URI, "thread_id = ?", arrayOf(threadId.toString())) } catch (_: Exception) {}
+        }
+
 }
