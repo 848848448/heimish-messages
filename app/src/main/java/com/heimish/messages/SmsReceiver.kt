@@ -7,10 +7,6 @@ import android.content.Intent
 import android.provider.Telephony
 import android.telephony.SmsMessage
 
-/**
- * Runs when we're the default SMS app and a message arrives. The system no
- * longer writes incoming SMS to the store for us, so we persist it ourselves.
- */
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_DELIVER_ACTION) return
@@ -28,8 +24,12 @@ class SmsReceiver : BroadcastReceiver() {
             put(Telephony.Sms.READ, 0)
             put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
         }
-        runCatching { context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values) }
+        val uri = runCatching { context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values) }.getOrNull()
 
-        Notifications.showIncoming(context, address, body.toString())
+        // Get thread ID for notification reply
+        val threadId = SmsRepository.getThreadIdForAddress(context, address)
+        val sender = SmsRepository.getContactName(context, address) ?: address
+
+        Notifications.showMessage(context, sender, body.toString(), address, threadId)
     }
 }

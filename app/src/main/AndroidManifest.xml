@@ -83,7 +83,10 @@
             android:exported="false"
             android:stopWithTask="false" />
 
-            <!-- Nightly contacts sync -->
+            <receiver android:name=".DirectReplyReceiver" android:exported="false" />
+        <receiver android:name=".MarkReadReceiver" android:exported="false" />
+
+        <!-- Nightly contacts sync -->
         <receiver
             android:name=".ContactsSyncService"
             android:exported="false" />

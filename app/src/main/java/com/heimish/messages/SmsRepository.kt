@@ -319,4 +319,34 @@ object SmsRepository {
         }
         return text to imgUri
     }
+
+        fun getThreadIdForAddress(ctx: Context, address: String): Long {
+            try {
+                val uri = android.provider.Telephony.Sms.CONTENT_URI
+                val cursor = ctx.contentResolver.query(uri,
+                    arrayOf(android.provider.Telephony.Sms.THREAD_ID),
+                    "${android.provider.Telephony.Sms.ADDRESS} = ?",
+                    arrayOf(address), "${android.provider.Telephony.Sms.DATE} DESC")
+                cursor?.use {
+                    if (it.moveToFirst()) return it.getLong(0)
+                }
+            } catch (_: Exception) {}
+            return address.hashCode().toLong()
+        }
+
+        fun getContactName(ctx: Context, address: String): String? {
+            try {
+                val uri = android.net.Uri.withAppendedPath(
+                    android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                    android.net.Uri.encode(address))
+                val cursor = ctx.contentResolver.query(uri,
+                    arrayOf(android.provider.ContactsContract.PhoneLookup.DISPLAY_NAME),
+                    null, null, null)
+                cursor?.use {
+                    if (it.moveToFirst()) return it.getString(0)
+                }
+            } catch (_: Exception) {}
+            return null
+        }
+
 }
