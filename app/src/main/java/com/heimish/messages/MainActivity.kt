@@ -253,8 +253,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 icon = { Icon(Icons.Filled.Chat, null) }, text = { Text("Start chat", fontWeight = FontWeight.SemiBold) })
         }
     ) { pad ->
-        Column(Modifier.padding(pad)) {
-            if (isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brand)
+        Box(Modifier.padding(pad)) {
             if (filtered.isEmpty() && !isRefreshing) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -264,10 +263,26 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     }
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf)) {
-                    items(filtered, key = { it.threadId }) { conv ->
-                        ConvRow(conv, onOpen, onRefresh = { refresh() })
-                        if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = DivClr)
+                // Pull-to-refresh: swipe down indicator + refresh
+                Column(Modifier.fillMaxSize()) {
+                    if (isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brand)
+                    LazyColumn(
+                        Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf),
+                        state = rememberLazyListState()
+                    ) {
+                        // Pull-down refresh row
+                        item {
+                            Row(Modifier.fillMaxWidth().clickable { refresh() }.padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Refresh, "Refresh", tint = if (isRefreshing) Brand else TextHint.copy(.4f), modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (isRefreshing) "Refreshing…" else "Pull down or tap to refresh", fontSize = 12.sp, color = TextHint.copy(.5f))
+                            }
+                        }
+                        items(filtered, key = { it.threadId }) { conv ->
+                            ConvRow(conv, onOpen, onRefresh = { refresh() })
+                            if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = DivClr)
+                        }
                     }
                 }
             }
@@ -798,7 +813,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.SwipeRight, "Swipe actions", "Archive on swipe") { onSub("swipe") } }
             item { HorizontalDivider(color = DivClr, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
-            item { SettRow(Icons.Default.Info, "About", "Version 2.1") { onSub("about") } }
+            item { SettRow(Icons.Default.Info, "About", "Version 2.3") { onSub("about") } }
         }
     }
 }
@@ -865,7 +880,7 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                 }
                 "about" -> {
                     item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                    item { Text("Version 2.1", fontSize = 14.sp, color = TextHint); Spacer(Modifier.height(16.dp)) }
+                    item { Text("Version 2.3", fontSize = 14.sp, color = TextHint); Spacer(Modifier.height(16.dp)) }
                     item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = TextSecond) }
                     item { Spacer(Modifier.height(16.dp)); Text("© 2024-2026 Heimish Messages", fontSize = 13.sp, color = TextHint) }
                 }
