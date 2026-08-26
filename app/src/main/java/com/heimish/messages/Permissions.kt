@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 
 object Permissions {
+    // All permissions to request
     val ALL = buildList {
         add(Manifest.permission.SEND_SMS)
         add(Manifest.permission.READ_SMS)
@@ -19,7 +20,13 @@ object Permissions {
         }
     }.toTypedArray()
 
-    fun granted(ctx: Context): Boolean = ALL.all {
+    // Only these are REQUIRED to proceed - the rest are nice-to-have
+    private val REQUIRED = listOf(
+        Manifest.permission.SEND_SMS,
+        Manifest.permission.READ_SMS
+    )
+
+    fun granted(ctx: Context): Boolean = REQUIRED.all {
         ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED
     }
 }
