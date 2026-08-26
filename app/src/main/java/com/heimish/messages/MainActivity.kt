@@ -266,7 +266,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             } else {
                 LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf)) {
                     items(filtered, key = { it.threadId }) { conv ->
-                        ConvRow(conv, onOpen)
+                        ConvRow(conv, onOpen, onRefresh = { refresh() })
                         if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = DivClr)
                     }
                 }
@@ -276,26 +276,45 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
 }
 
 @Composable
-fun ConvRow(c: Conversation, onOpen: (Conversation) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onOpen(c) }.padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Avatar — circle with first letter
-        Box(Modifier.size(52.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
-            Text(initial(c.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) Brand else TextHint)
+fun ConvRow(c: Conversation, onOpen: (Conversation) -> Unit, ctx: Context = LocalContext.current, onRefresh: () -> Unit = {}) {
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    Box(Modifier.fillMaxWidth().background(if (offsetX < -80) Red else if (offsetX > 80) Green else Color.Transparent)) {
+        // Swipe icons
+        if (abs(offsetX) > 20) {
+            Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = if (offsetX > 0) Alignment.CenterStart else Alignment.CenterEnd) {
+                Icon(if (offsetX > 80 || offsetX < -80) Icons.Default.Delete else Icons.Default.Archive, null, tint = Color.White, modifier = Modifier.size(24.dp))
             }
-            Spacer(Modifier.height(3.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(c.snippet.ifBlank { "No content" }, fontSize = 14.sp, color = if (c.unread) TextPrimary else TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal, modifier = Modifier.weight(1f))
-                if (c.unread) { Spacer(Modifier.width(8.dp)); Box(Modifier.size(10.dp).clip(CircleShape).background(Brand)) }
+        }
+        Row(
+            Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }.fillMaxWidth().background(Surf).clickable { onOpen(c) }
+                .pointerInput(c.threadId) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (abs(offsetX) > 120) { SmsRepository.deleteThread(ctx, c.threadId); onRefresh(); Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show() }
+                            else if (abs(offsetX) > 60) { SmsRepository.markThreadRead(ctx, c.threadId); onRefresh(); Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show() }
+                            offsetX = 0f
+                        },
+                        onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(-200f, 200f) }
+                    )
+                }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(52.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
+                Text(initial(c.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) Brand else TextHint)
+                }
+                Spacer(Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(c.snippet.ifBlank { "No content" }, fontSize = 14.sp, color = if (c.unread) TextPrimary else TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal, modifier = Modifier.weight(1f))
+                    if (c.unread) { Spacer(Modifier.width(8.dp)); Box(Modifier.size(10.dp).clip(CircleShape).background(Brand)) }
+                }
             }
         }
     }
@@ -396,6 +415,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var pendingMediaUri by remember { mutableStateOf<Uri?>(null) }
     var pendingMediaType by remember { mutableStateOf("image") }
     var replyTo by remember { mutableStateOf<Message?>(null) }
+    var showSearch by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     // Filter out empty messages (no body AND no image)
     fun reload() {
@@ -461,10 +482,12 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     Scaffold(containerColor = BrandLt,
         topBar = {
             TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandLt, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextPrimary),
-                navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.Default.ArrowBack, null) } },
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                        // Open contact info — dial for now
+                    if (showSearch) {
+                        TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat…", color = TextHint) }, singleLine = true,
+                            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = Brand), modifier = Modifier.fillMaxWidth())
+                    } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
                         ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conversation.address}")))
                     }) {
                         Box(Modifier.size(40.dp).clip(CircleShape).background(avatarColor(conversation.address)), contentAlignment = Alignment.Center) {
@@ -475,12 +498,15 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     }
                 },
                 actions = {
+                    if (showSearch) {
+                        IconButton({ showSearch = false; searchQuery = "" }) { Icon(Icons.Default.Close, null) }
+                    } else {
                     IconButton({ ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${conversation.address}"))) }) { Icon(Icons.Default.Phone, null) }
                     IconButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conversation.address}"))) }) { Icon(Icons.Default.Videocam, null) }
                     Box {
                         IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
                         DropdownMenu(showMenu, { showMenu = false }) {
-                            DropdownMenuItem({ Text("Details") }, { showMenu = false }, leadingIcon = { Icon(Icons.Default.Info, null) })
+                            DropdownMenuItem({ Text("Search") }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null) })
                             DropdownMenuItem({ Text("Block & report") }, {
                                 showMenu = false; SmsRepository.deleteThread(ctx, conversation.threadId)
                                 Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
@@ -491,6 +517,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Red) })
                         }
                     }
+                    } // close else
                 }
             )
         },
@@ -581,7 +608,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(2.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
         ) {
-            val grouped = msgs.groupByDate()
+            val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
+            val grouped = displayMsgs.groupByDate()
             grouped.forEach { (day, dayMsgs) ->
                 item(key = "day_$day") { DayHeader(day) }
                 items(dayMsgs, key = { it.id }) { m ->
