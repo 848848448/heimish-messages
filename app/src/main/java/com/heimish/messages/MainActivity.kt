@@ -283,45 +283,25 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
 }
 
 @Composable
-fun ConvRow(c: Conversation, onOpen: (Conversation) -> Unit, ctx: Context = LocalContext.current, onRefresh: () -> Unit = {}) {
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    Box(Modifier.fillMaxWidth().background(if (offsetX < -80) Red else if (offsetX > 80) Green else Color.Transparent)) {
-        // Swipe icons
-        if (abs(offsetX) > 20) {
-            Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = if (offsetX > 0) Alignment.CenterStart else Alignment.CenterEnd) {
-                Icon(if (offsetX > 80 || offsetX < -80) Icons.Default.Delete else Icons.Default.Archive, null, tint = Color.White, modifier = Modifier.size(24.dp))
-            }
+fun ConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh: () -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onOpen(c) }.padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(52.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
+            Text(initial(c.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         }
-        Row(
-            Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }.fillMaxWidth().background(Surf).clickable { onOpen(c) }
-                .pointerInput(c.threadId) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (abs(offsetX) > 120) { SmsRepository.deleteThread(ctx, c.threadId); onRefresh(); Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show() }
-                            else if (abs(offsetX) > 60) { SmsRepository.markThreadRead(ctx, c.threadId); onRefresh(); Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show() }
-                            offsetX = 0f
-                        },
-                        onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(-200f, 200f) }
-                    )
-                }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(Modifier.size(52.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
-                Text(initial(c.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) Brand else TextHint)
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) Brand else TextHint)
-                }
-                Spacer(Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(c.snippet.ifBlank { "No content" }, fontSize = 14.sp, color = if (c.unread) TextPrimary else TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal, modifier = Modifier.weight(1f))
-                    if (c.unread) { Spacer(Modifier.width(8.dp)); Box(Modifier.size(10.dp).clip(CircleShape).background(Brand)) }
-                }
+            Spacer(Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(c.snippet.ifBlank { " " }, fontSize = 14.sp, color = if (c.unread) TextPrimary else TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal, modifier = Modifier.weight(1f))
+                if (c.unread) { Spacer(Modifier.width(8.dp)); Box(Modifier.size(10.dp).clip(CircleShape).background(Brand)) }
             }
         }
     }
@@ -609,36 +589,21 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
         }
     ) { pad ->
-        // Swipe down to go back to conversation list
-        var dragY by remember { mutableFloatStateOf(0f) }
-        Box(Modifier.fillMaxSize().padding(pad).pointerInput(Unit) {
-            detectVerticalDragGestures(
-                onDragEnd = { if (dragY > 150f) onBack(); dragY = 0f },
-                onVerticalDrag = { _, dy -> if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) dragY = (dragY + dy).coerceIn(0f, 300f) }
-            )
-        }) {
-            // Drag indicator
-            if (dragY > 30f) {
-                Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.TopCenter) {
-                    Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(TextHint.copy(alpha = (dragY / 150f).coerceAtMost(1f))))
-                }
-            }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().offset { IntOffset(0, dragY.roundToInt()) }.clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf).padding(horizontal = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
-            ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf).padding(horizontal = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
+        ) {
             val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
             val grouped = displayMsgs.groupByDate()
             grouped.forEach { (day, dayMsgs) ->
                 item(key = "day_$day") { DayHeader(day) }
                 items(dayMsgs, key = { it.id }) { m ->
-                    SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m })
+                    MessageBubble(m, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m })
                 }
             }
-            }
-        } // close swipe-down Box
+        }
     }
 }
 
