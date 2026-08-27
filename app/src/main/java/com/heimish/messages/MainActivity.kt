@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -379,18 +380,30 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
 
     fun reload() { msgs = SmsRepository.loadMessages(ctx, conversation.threadId); scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) } }
     fun doSend() {
-        val body = draft.trim(); if (body.isEmpty()) return
+        val body = draft.trim()
+        val img = pendingImage
+        if (body.isEmpty() && img == null) return
         scope.launch(Dispatchers.IO) {
-            val ok = SmsRepository.sendSms(ctx, conversation.address, body)
-            withContext(Dispatchers.Main) { if (ok) { draft = ""; keyboard?.hide(); reload() } else Toast.makeText(ctx, "Failed", Toast.LENGTH_SHORT).show() }
+            var ok = true
+            if (img != null) {
+                ok = SmsRepository.sendMms(ctx, conversation.address, img, body)
+            } else {
+                ok = SmsRepository.sendSms(ctx, conversation.address, body)
+            }
+            withContext(Dispatchers.Main) {
+                if (ok) { draft = ""; pendingImage = null; keyboard?.hide(); reload() }
+                else Toast.makeText(ctx, "Failed", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
+    BackHandler { onBack() }
     LaunchedEffect(Unit) { reload(); SmsRepository.markThreadRead(ctx, conversation.threadId) }
     LaunchedEffect(Unit) { while (true) { delay(3000); reload() } }
 
+    var pendingImage by remember { mutableStateOf<Uri?>(null) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { scope.launch(Dispatchers.IO) { SmsRepository.sendMms(ctx, conversation.address, it); withContext(Dispatchers.Main) { reload() } } }
+        pendingImage = uri
     }
 
     // Context menu dialog
@@ -457,6 +470,16 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         },
         bottomBar = {
             Surface(color = Surf) {
+                Column {
+                // Image preview
+                if (pendingImage != null) {
+                    Row(Modifier.fillMaxWidth().background(Surf).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(pendingImage, "preview", Modifier.size(68.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
+                        Spacer(Modifier.weight(1f))
+                        IconButton({ pendingImage = null }) { Icon(Icons.Default.Close, "Remove", tint = TextMeta) }
+                    }
+                    HorizontalDivider(color = DivClr, thickness = .5.dp)
+                }
                 Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp).navigationBarsPadding().imePadding(), verticalAlignment = Alignment.Bottom) {
                     IconButton({ imagePicker.launch("image/*") }, Modifier.size(40.dp).clip(CircleShape).background(Brand)) { Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
                     Spacer(Modifier.width(6.dp))
@@ -467,9 +490,11 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         keyboardActions = KeyboardActions(onSend = { doSend() }), maxLines = 5)
                     Spacer(Modifier.width(6.dp))
                     val has = draft.isNotBlank()
+                    val has = draft.isNotBlank() || pendingImage != null
                     FloatingActionButton({ if (has) doSend() }, Modifier.size(46.dp), containerColor = if (has) Brand else BrandLt, contentColor = if (has) Color.White else Brand, shape = CircleShape,
                         elevation = FloatingActionButtonDefaults.elevation(0.dp)) { Icon(if (has) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp)) }
                 }
+                } // close Column
             }
         }
     ) { pad ->
