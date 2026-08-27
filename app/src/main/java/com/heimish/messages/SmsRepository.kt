@@ -173,71 +173,147 @@ object SmsRepository {
 
     fun sendMms(ctx: Context, address: String, imageUri: Uri, caption: String = ""): Boolean {
         return runCatching {
-            // Read image bytes
             val bytes = ctx.contentResolver.openInputStream(imageUri)?.readBytes() ?: return false
             val mimeType = ctx.contentResolver.getType(imageUri) ?: "image/jpeg"
-
-            @Suppress("DEPRECATION")
             val sms = smsManager(ctx)
-
-            // Build MMS parts
-            val parts = ArrayList<android.telephony.SmsManager>() // placeholder
-
-            // Use system MMS API (API 21+)
-            val sendReqUri = Uri.parse("content://mms/outbox")
             val threadId = getOrCreateThreadId(ctx, address)
 
-            // Insert MMS into system
+            // Build the MMS PDU manually (SendReq format)
+            val pdu = buildSendReqPdu(address, bytes, mimeType, caption)
+
+            // Write PDU to a temp file and get a content URI via FileProvider
+            val pduFile = java.io.File(ctx.cacheDir, "mms_send_${System.currentTimeMillis()}.dat")
+            pduFile.writeBytes(pdu)
+            val pduUri = androidx.core.content.FileProvider.getUriForFile(
+                ctx, "${ctx.packageName}.fileprovider", pduFile
+            )
+
+            // Send via system MMS API
+            val sendIntent = android.app.PendingIntent.getBroadcast(
+                ctx, 0, Intent("com.heimish.messages.MMS_SENT"),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            sms.sendMultimediaMessage(ctx, pduUri, null, null, sendIntent)
+
+            // Also store in the sent box so it shows in the thread
             val mmsValues = ContentValues().apply {
                 put("thread_id", threadId)
-                put("msg_box", 4) // outbox
+                put("msg_box", 2) // sent
                 put("read", 1)
                 put("seen", 1)
                 put("date", System.currentTimeMillis() / 1000)
+                put("ct_t", "application/vnd.wap.multipart.related")
             }
             val mmsUri = ctx.contentResolver.insert(Uri.parse("content://mms"), mmsValues)
-            val mmsId = mmsUri?.lastPathSegment?.toLong() ?: return false
-
-            // Address part
-            val addrValues = ContentValues().apply {
-                put("address", address)
-                put("msg_id", mmsId)
-                put("type", 151) // PduHeaders.TO
-                put("charset", 106)
-            }
-            ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), addrValues)
-
-            // Image part
-            val imgValues = ContentValues().apply {
-                put("mid", mmsId)
-                put("ct", mimeType)
-                put("name", "image")
-                put("chset", 106)
-            }
-            val partUri = ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), imgValues)
-            if (partUri != null) {
-                ctx.contentResolver.openOutputStream(partUri)?.use { it.write(bytes) }
-            }
-
-            // Caption part (if any)
-            if (caption.isNotBlank()) {
-                val textValues = ContentValues().apply {
-                    put("mid", mmsId)
-                    put("ct", "text/plain")
-                    put("chset", 106)
-                    put("text", caption)
+            val mmsId = mmsUri?.lastPathSegment?.toLong()
+            if (mmsId != null) {
+                val addrValues = ContentValues().apply {
+                    put("address", address)
+                    put("msg_id", mmsId)
+                    put("type", 151)
+                    put("charset", 106)
                 }
-                ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), textValues)
+                ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), addrValues)
+
+                val imgValues = ContentValues().apply {
+                    put("mid", mmsId)
+                    put("ct", mimeType)
+                    put("name", "image.jpg")
+                    put("chset", 106)
+                }
+                val partUri = ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), imgValues)
+                if (partUri != null) {
+                    ctx.contentResolver.openOutputStream(partUri)?.use { it.write(bytes) }
+                }
+
+                if (caption.isNotBlank()) {
+                    val textValues = ContentValues().apply {
+                        put("mid", mmsId)
+                        put("ct", "text/plain")
+                        put("chset", 106)
+                        put("text", caption)
+                    }
+                    ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), textValues)
+                }
             }
 
-            // Trigger actual send
-            sms.sendMultimediaMessage(
-                ctx,
-                mmsUri,
-                null, null, null
-            )
+            // Clean up temp file after a delay
+            Thread { Thread.sleep(30_000); pduFile.delete() }.start()
             true
         }.getOrElse { e -> Log.e("SmsRepo", "sendMms: ${e.message}"); false }
+    }
+
+    private fun buildSendReqPdu(address: String, imageBytes: ByteArray, mimeType: String, caption: String): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+
+        // MMS headers
+        out.write(0x8C); out.write(0x80) // X-Mms-Message-Type: m-send-req
+        out.write(0x98) // X-Mms-Transaction-Id
+        val txnId = "T${System.currentTimeMillis()}"
+        out.write(txnId.toByteArray()); out.write(0x00)
+        out.write(0x8D); out.write(0x90) // X-Mms-MMS-Version: 1.0
+        out.write(0x89) // To
+        val encodedAddr = "+${address.replace(Regex("[^0-9+]"), "")}/TYPE=PLMN"
+        out.write(encodedAddr.length + 2)
+        out.write(encodedAddr.toByteArray()); out.write(0x00)
+        out.write(0x96) // Subject (optional)
+        if (caption.isNotBlank()) {
+            val subj = caption.take(40)
+            out.write(subj.toByteArray(Charsets.UTF_8)); out.write(0x00)
+        } else {
+            out.write(0x00)
+        }
+        out.write(0x84); out.write(0x83) // Content-Type: application/vnd.wap.multipart.related
+
+        // Number of parts
+        val partCount = if (caption.isNotBlank()) 2 else 1
+        out.write(partCount)
+
+        // Image part
+        val imgContentType = mimeType.toByteArray()
+        val imgName = "image.jpg"
+        // Part headers length
+        val imgHeaders = java.io.ByteArrayOutputStream()
+        imgHeaders.write(imgContentType); imgHeaders.write(0x00)
+        val imgHeaderLen = imgHeaders.size()
+        // uintvar encoding of header length
+        writeUintVar(out, imgHeaderLen)
+        // uintvar encoding of data length
+        writeUintVar(out, imageBytes.size)
+        // Headers
+        out.write(imgHeaders.toByteArray())
+        // Data
+        out.write(imageBytes)
+
+        // Text part (if caption)
+        if (caption.isNotBlank()) {
+            val textBytes = caption.toByteArray(Charsets.UTF_8)
+            val textCt = "text/plain".toByteArray()
+            val textHeaders = java.io.ByteArrayOutputStream()
+            textHeaders.write(textCt); textHeaders.write(0x00)
+            writeUintVar(out, textHeaders.size())
+            writeUintVar(out, textBytes.size)
+            out.write(textHeaders.toByteArray())
+            out.write(textBytes)
+        }
+
+        return out.toByteArray()
+    }
+
+    private fun writeUintVar(out: java.io.ByteArrayOutputStream, value: Int) {
+        if (value < 0x80) {
+            out.write(value)
+        } else {
+            val bytes = mutableListOf<Int>()
+            var v = value
+            bytes.add(v and 0x7F)
+            v = v shr 7
+            while (v > 0) {
+                bytes.add((v and 0x7F) or 0x80)
+                v = v shr 7
+            }
+            bytes.reversed().forEach { out.write(it) }
+        }
     }
 
     // ── Mark read ─────────────────────────────────────────────────────────────
@@ -378,11 +454,21 @@ object SmsRepository {
         }
 
         fun deleteMessage(ctx: Context, msgId: Long) {
-            try { ctx.contentResolver.delete(android.provider.Telephony.Sms.CONTENT_URI, "_id = ?", arrayOf(msgId.toString())) } catch (_: Exception) {}
+            try {
+                if (msgId >= 1_000_000L) {
+                    val realMmsId = msgId - 1_000_000L
+                    ctx.contentResolver.delete(Uri.parse("content://mms"), "_id = ?", arrayOf(realMmsId.toString()))
+                } else {
+                    ctx.contentResolver.delete(Telephony.Sms.CONTENT_URI, "_id = ?", arrayOf(msgId.toString()))
+                }
+            } catch (_: Exception) {}
         }
 
         fun deleteThread(ctx: Context, threadId: Long) {
-            try { ctx.contentResolver.delete(android.provider.Telephony.Sms.CONTENT_URI, "thread_id = ?", arrayOf(threadId.toString())) } catch (_: Exception) {}
+            try {
+                ctx.contentResolver.delete(Telephony.Sms.CONTENT_URI, "thread_id = ?", arrayOf(threadId.toString()))
+                ctx.contentResolver.delete(Uri.parse("content://mms"), "thread_id = ?", arrayOf(threadId.toString()))
+            } catch (_: Exception) {}
         }
 
 }

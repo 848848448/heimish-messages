@@ -250,6 +250,27 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     LaunchedEffect(Unit) { while (true) { delay(1000); if (Permissions.granted(ctx)) onGrant() } }
 }
 
+// ── Archive helpers ──────────────────────────────────────────────────────────
+object ArchiveStore {
+    private const val KEY = "archived_threads"
+    fun get(ctx: Context): Set<Long> {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY, emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
+    }
+    fun add(ctx: Context, threadId: Long) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.add(threadId.toString())
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+    fun remove(ctx: Context, threadId: Long) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.remove(threadId.toString())
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+}
+
 // ━━━━━━━━━━━━━━━━ CONVERSATION LIST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -260,15 +281,16 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     var showSearch by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
-    // Long-press context menu state
     var ctxConv by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
+    val archived = remember { mutableStateOf(ArchiveStore.get(ctx)) }
 
     fun refresh() { scope.launch { isRefreshing = true; list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; isRefreshing = false } }
     LaunchedEffect(Unit) { refresh() }
-    LaunchedEffect(Unit) { while (true) { delay(5000); list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } } }
+    LaunchedEffect(Unit) { while (true) { delay(30_000); val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; if (fresh != list) list = fresh } }
 
-    val filtered = if (search.isBlank()) list else list.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) }
+    val visible = list.filter { it.threadId !in archived.value }
+    val filtered = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) }
 
     // Long-press context menu dialog
     if (ctxConv != null) {
@@ -282,6 +304,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 Column {
                     MenuBtn(Icons.Default.PushPin, "Pin") { Toast.makeText(ctx, "Pinned", Toast.LENGTH_SHORT).show(); ctxConv = null }
                     MenuBtn(Icons.Default.Archive, "Archive") {
+                        ArchiveStore.add(ctx, c.threadId); archived.value = ArchiveStore.get(ctx)
                         Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show(); ctxConv = null
                     }
                     MenuBtn(if (c.unread) Icons.Default.DoneAll else Icons.Default.MarkEmailUnread,
@@ -353,7 +376,8 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                         state = rememberLazyListState()
                     ) {
                         items(filtered, key = { it.threadId }) { conv ->
-                            SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it })
+                            SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it },
+                                onArchive = { tid -> ArchiveStore.add(ctx, tid); archived.value = ArchiveStore.get(ctx) })
                             if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = ThemeState.divLt)
                         }
                     }
@@ -366,24 +390,42 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
 // ── Swipeable conversation row (swipe left = archive) ────────────────────────
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh: () -> Unit, onLongPress: (Conversation) -> Unit) {
+fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh: () -> Unit, onLongPress: (Conversation) -> Unit, onArchive: (Long) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     var offsetX by remember { mutableFloatStateOf(0f) }
     val threshold = 150f
+    val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+    val swipeAction = prefs.getString("swipe_action", "archive") ?: "archive"
+
+    val swipeIcon = when (swipeAction) {
+        "delete" -> Icons.Default.Delete
+        "read" -> Icons.Default.DoneAll
+        "none" -> Icons.Default.Archive
+        else -> Icons.Default.Archive
+    }
+    val swipeLabel = when (swipeAction) {
+        "delete" -> "Delete"
+        "read" -> "Read"
+        "none" -> ""
+        else -> "Archive"
+    }
+    val swipeEnabled = swipeAction != "none"
 
     Box(
         Modifier.fillMaxWidth().background(
-            if (offsetX < -20f) Color(0xFF5F6368) else Color.Transparent
+            if (offsetX < -20f) when (swipeAction) {
+                "delete" -> Color(0xFFB3261E)
+                else -> Color(0xFF5F6368)
+            } else Color.Transparent
         )
     ) {
-        // Archive icon behind
-        if (offsetX < -20f) {
+        if (offsetX < -20f && swipeEnabled) {
             Box(Modifier.fillMaxSize().padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Archive, null, tint = Color.White, modifier = Modifier.size(24.dp))
-                    Text("Archive", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Icon(swipeIcon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Text(swipeLabel, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -396,10 +438,23 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress(c) }
                 )
                 .pointerInput(c.threadId) {
-                    detectHorizontalDragGestures(
+                    if (swipeEnabled) detectHorizontalDragGestures(
                         onDragEnd = {
                             if (offsetX < -threshold) {
-                                Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show()
+                                when (swipeAction) {
+                                    "archive" -> {
+                                        onArchive(c.threadId)
+                                        Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show()
+                                    }
+                                    "delete" -> {
+                                        scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, c.threadId) }
+                                        Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show()
+                                    }
+                                    "read" -> {
+                                        scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId) }
+                                        Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                                 onRefresh()
                             }
                             offsetX = 0f
@@ -530,10 +585,12 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    fun reload() {
+    fun reload(scrollToEnd: Boolean = false) {
         val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
-        msgs = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-        scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
+        val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
+        val hadNewMsg = filtered.size > msgs.size
+        msgs = filtered
+        if (scrollToEnd || hadNewMsg) scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
     }
 
     fun doSend() {
@@ -543,7 +600,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
             scope.launch(Dispatchers.IO) {
                 SmsRepository.sendMms(ctx, conversation.address, uri, prefix + body)
-                withContext(Dispatchers.Main) { draft = ""; pendingMediaUri = null; replyTo = null; keyboard?.hide(); reload() }
+                withContext(Dispatchers.Main) { draft = ""; pendingMediaUri = null; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) }
             }
             return
         }
@@ -551,13 +608,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
         scope.launch(Dispatchers.IO) {
             val ok = SmsRepository.sendSms(ctx, conversation.address, prefix + body)
-            withContext(Dispatchers.Main) { if (ok) { draft = ""; replyTo = null; keyboard?.hide(); reload() } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
+            withContext(Dispatchers.Main) { if (ok) { draft = ""; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
         }
     }
 
     BackHandler { onBack() }
-    LaunchedEffect(Unit) { reload(); SmsRepository.markThreadRead(ctx, conversation.threadId) }
-    LaunchedEffect(Unit) { while (true) { delay(3000); reload() } }
+    LaunchedEffect(Unit) { reload(scrollToEnd = true); SmsRepository.markThreadRead(ctx, conversation.threadId) }
+    LaunchedEffect(Unit) { while (true) { delay(15_000); reload() } }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false } }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "video"; showAttach = false } }
@@ -871,6 +928,15 @@ fun EmojiPicker(onPick: (String) -> Unit) {
 }
 
 // ━━━━━━━━━━━━━━━━ MESSAGE BUBBLE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+fun textSizeSp(): Float {
+    val ctx = LocalContext.current
+    val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+    return when (prefs.getString("text_size", "default")) {
+        "small" -> 13f; "large" -> 18f; "largest" -> 21f; else -> 15f
+    }
+}
+
 private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+)", RegexOption.IGNORE_CASE)
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -878,6 +944,7 @@ private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+)",
 fun MessageBubble(m: Message, onLongClick: () -> Unit) {
     val ctx = LocalContext.current
     val isIn = m.incoming
+    val fontSize = textSizeSp()
     val shape = RoundedCornerShape(
         topStart = 20.dp, topEnd = 20.dp,
         bottomEnd = if (isIn) 20.dp else 4.dp,
@@ -908,7 +975,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
                     val urls = URL_REGEX.findAll(m.body).toList()
 
                     if (urls.isEmpty()) {
-                        Text(m.body, color = textColor, fontSize = 15.sp, lineHeight = 21.sp,
+                        Text(m.body, color = textColor, fontSize = fontSize.sp, lineHeight = (fontSize + 6).sp,
                             modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 10.dp, bottom = 2.dp))
                     } else {
                         val annotated = buildAnnotatedString {
@@ -922,7 +989,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
                             }
                             if (last < m.body.length) withStyle(SpanStyle(color = textColor)) { append(m.body.substring(last)) }
                         }
-                        ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
+                        ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize + 6).sp),
                             modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 10.dp, bottom = 2.dp),
                             onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) } })
                         val url = urls.first().value
@@ -973,7 +1040,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.SwipeRight, "Swipe actions", "Archive on swipe") { onSub("swipe") } }
             item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
-            item { SettRow(Icons.Default.Info, "About", "Version 3.0") { onSub("about") } }
+            item { SettRow(Icons.Default.Info, "About", "Version 3.1") { onSub("about") } }
         }
     }
 }
@@ -1093,7 +1160,7 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                 }
                 "about" -> {
                     item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = ThemeState.textPrimary) }
-                    item { Text("Version 3.0", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
+                    item { Text("Version 3.1", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
                     item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = ThemeState.textSecond) }
                     item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = ThemeState.textHint) }
                 }

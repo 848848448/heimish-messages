@@ -29,6 +29,8 @@ object Notifications {
     }
 
     fun showMessage(ctx: Context, sender: String, body: String, address: String, threadId: Long) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("notif_allow", true)) return
         init(ctx)
 
         val nid = (threadId % Int.MAX_VALUE).toInt()
@@ -68,18 +70,26 @@ object Notifications {
             android.R.drawable.ic_menu_close_clear_cancel, "Mark as read", readPi
         ).build()
 
-        val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.sym_action_chat)
-            .setContentTitle(sender)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentTitle(if (prefs.getBoolean("notif_sender", true)) sender else "New message")
+            .setContentText(if (prefs.getBoolean("notif_preview", true)) body else "Tap to view")
             .setContentIntent(openPi)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .addAction(replyAction)
             .addAction(readAction)
-            .build()
+        if (prefs.getBoolean("notif_preview", true)) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
+        if (!prefs.getBoolean("notif_sound", true)) {
+            builder.setSilent(true)
+        }
+        if (!prefs.getBoolean("notif_vibrate", true)) {
+            builder.setVibrate(longArrayOf(0))
+        }
+        val notif = builder.build()
 
         try { NotificationManagerCompat.from(ctx).notify(nid, notif) } catch (_: SecurityException) {}
     }
