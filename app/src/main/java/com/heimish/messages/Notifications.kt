@@ -107,6 +107,10 @@ class DirectReplyReceiver : BroadcastReceiver() {
     }
 }
 
+    fun showTestNotification(ctx: Context) {
+        showMessage(ctx, "Heimish Messages", "This is a test notification \ud83d\udcf1", "test", 0)
+    }
+
 /** Handles "Mark as read" from the notification */
 class MarkReadReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
