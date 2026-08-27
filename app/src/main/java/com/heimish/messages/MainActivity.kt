@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -608,12 +609,26 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
         }
     ) { pad ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf).padding(horizontal = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
-        ) {
+        // Swipe down to go back to conversation list
+        var dragY by remember { mutableFloatStateOf(0f) }
+        Box(Modifier.fillMaxSize().padding(pad).pointerInput(Unit) {
+            detectVerticalDragGestures(
+                onDragEnd = { if (dragY > 150f) onBack(); dragY = 0f },
+                onVerticalDrag = { _, dy -> if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) dragY = (dragY + dy).coerceIn(0f, 300f) }
+            )
+        }) {
+            // Drag indicator
+            if (dragY > 30f) {
+                Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(TextHint.copy(alpha = (dragY / 150f).coerceAtMost(1f))))
+                }
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().offset { IntOffset(0, dragY.roundToInt()) }.clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf).padding(horizontal = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
+            ) {
             val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
             val grouped = displayMsgs.groupByDate()
             grouped.forEach { (day, dayMsgs) ->
@@ -622,7 +637,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m })
                 }
             }
-        }
+            }
+        } // close swipe-down Box
     }
 }
 
