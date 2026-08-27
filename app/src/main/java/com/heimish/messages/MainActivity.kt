@@ -72,14 +72,14 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // ── Google Messages Material 3 Expressive Colors (EXACT match) ───────────────
-private val Brand       = Color(0xFF0B57D0)  // Primary blue
-private val BrandDk     = Color(0xFF0842A0)  // Darker blue for pressed states
-private val BrandSurf   = Color(0xFFD3E3FD)  // App bar / surface tint
-private val BrandLt     = Color(0xFFD3E3FD)  // Light blue background
-private val BrandLt2    = Color(0xFFEDF2FA)  // Very light blue
-private val BubbleIn    = Color(0xFFE3E3E3)  // Received bubble — light gray
-private val BubbleOut   = Color(0xFF0B57D0)  // Sent bubble — dark blue
-private val BgSurf      = Color(0xFFF6F8FC)  // Page background
+private val Brand       = Color(0xFF0B57D0)
+private val BrandDk     = Color(0xFF0842A0)
+private val BrandSurf   = Color(0xFFD3E3FD)
+private val BrandLt     = Color(0xFFD3E3FD)
+private val BrandLt2    = Color(0xFFEDF2FA)
+private val BubbleIn    = Color(0xFFE3E3E3)
+private val BubbleOut   = Color(0xFF0B57D0)
+private val BgSurf      = Color(0xFFF6F8FC)
 private val Surf        = Color.White
 private val TextPrimary = Color(0xFF1F1F1F)
 private val TextSecond  = Color(0xFF444746)
@@ -89,6 +89,21 @@ private val DivLt       = Color(0xFFE8EAED)
 private val Red         = Color(0xFFB3261E)
 private val Green       = Color(0xFF146C2E)
 
+// Dark theme colors
+private val DkBrand     = Color(0xFFA8C7FA)
+private val DkBrandSurf = Color(0xFF1A2744)
+private val DkBrandLt   = Color(0xFF1A2744)
+private val DkBrandLt2  = Color(0xFF1F2937)
+private val DkBubbleIn  = Color(0xFF303030)
+private val DkBubbleOut = Color(0xFF004A77)
+private val DkBgSurf    = Color(0xFF1C1B1F)
+private val DkSurf      = Color(0xFF1C1B1F)
+private val DkTextPri   = Color(0xFFE3E3E3)
+private val DkTextSec   = Color(0xFFC4C7C5)
+private val DkTextHint  = Color(0xFF8E918F)
+private val DkDivClr    = Color(0xFF444746)
+private val DkDivLt     = Color(0xFF303030)
+
 private val GMColors = lightColorScheme(
     primary = Brand, onPrimary = Color.White,
     secondary = Brand, background = BgSurf,
@@ -96,17 +111,49 @@ private val GMColors = lightColorScheme(
     surfaceVariant = BrandLt2
 )
 
+private val GMDarkColors = darkColorScheme(
+    primary = DkBrand, onPrimary = Color.Black,
+    secondary = DkBrand, background = DkBgSurf,
+    surface = DkSurf, onSurface = DkTextPri, outline = DkDivClr,
+    surfaceVariant = DkBrandLt2
+)
+
+object ThemeState {
+    var isDark by mutableStateOf(false)
+    val brand get() = if (isDark) DkBrand else Brand
+    val brandDk get() = if (isDark) Color(0xFF7EAAEE) else BrandDk
+    val brandSurf get() = if (isDark) DkBrandSurf else BrandSurf
+    val brandLt get() = if (isDark) DkBrandLt else BrandLt
+    val brandLt2 get() = if (isDark) DkBrandLt2 else BrandLt2
+    val bubbleIn get() = if (isDark) DkBubbleIn else BubbleIn
+    val bubbleOut get() = if (isDark) DkBubbleOut else BubbleOut
+    val bgSurf get() = if (isDark) DkBgSurf else BgSurf
+    val surf get() = if (isDark) DkSurf else Surf
+    val textPrimary get() = if (isDark) DkTextPri else TextPrimary
+    val textSecond get() = if (isDark) DkTextSec else TextSecond
+    val textHint get() = if (isDark) DkTextHint else TextHint
+    val divClr get() = if (isDark) DkDivClr else DivClr
+    val divLt get() = if (isDark) DkDivLt else DivLt
+}
+
 class MainActivity : ComponentActivity() {
     private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { recreate() }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = BrandSurf.toArgb()
+        val prefs = getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val theme = prefs.getString("theme", "system") ?: "system"
+        ThemeState.isDark = when (theme) {
+            "dark" -> true
+            "light" -> false
+            else -> resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        window.statusBarColor = ThemeState.brandSurf.toArgb()
         SmsSyncService.start(this)
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNow(this)
         setContent {
-            MaterialTheme(colorScheme = GMColors) {
-                Surface(Modifier.fillMaxSize(), color = BrandSurf) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
+            MaterialTheme(colorScheme = if (ThemeState.isDark) GMDarkColors else GMColors) {
+                Surface(Modifier.fillMaxSize(), color = ThemeState.brandSurf) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
             }
         }
     }
@@ -228,9 +275,9 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         val c = ctxConv!!
         AlertDialog(
             onDismissRequest = { ctxConv = null },
-            containerColor = Surf,
+            containerColor = ThemeState.surf,
             shape = RoundedCornerShape(28.dp),
-            title = { Text(c.displayName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text(c.displayName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = ThemeState.textPrimary) },
             text = {
                 Column {
                     MenuBtn(Icons.Default.PushPin, "Pin") { Toast.makeText(ctx, "Pinned", Toast.LENGTH_SHORT).show(); ctxConv = null }
@@ -256,13 +303,13 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         )
     }
 
-    Scaffold(containerColor = BrandSurf,
+    Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BrandSurf, titleContentColor = TextPrimary, actionIconContentColor = TextPrimary),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, actionIconContentColor = ThemeState.textPrimary),
                 title = {
-                    if (showSearch) TextField(search, { search = it }, placeholder = { Text("Search conversations…", color = TextHint) }, singleLine = true,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = Brand), modifier = Modifier.fillMaxWidth())
+                    if (showSearch) TextField(search, { search = it }, placeholder = { Text("Search conversations…", color = ThemeState.textHint) }, singleLine = true,
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = ThemeState.brand), modifier = Modifier.fillMaxWidth())
                     else Text("Messages", fontWeight = FontWeight.Bold, fontSize = 22.sp)
                 },
                 actions = {
@@ -270,7 +317,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     if (!showSearch) {
                         Box {
                             IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
-                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf)) {
+                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
                                 DropdownMenuItem({ Text("Settings") }, { showMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Default.Settings, null) })
                                 DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
                                 DropdownMenuItem({ Text("Mark all read") }, {
@@ -285,7 +332,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onNew, containerColor = Brand, contentColor = Color.White, shape = RoundedCornerShape(16.dp),
+            ExtendedFloatingActionButton(onClick = onNew, containerColor = ThemeState.brand, contentColor = Color.White, shape = RoundedCornerShape(16.dp),
                 icon = { Icon(Icons.Filled.Chat, null) }, text = { Text("Start chat", fontWeight = FontWeight.SemiBold) })
         }
     ) { pad ->
@@ -293,21 +340,21 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             if (filtered.isEmpty() && !isRefreshing) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Outlined.ChatBubbleOutline, null, tint = TextHint, modifier = Modifier.size(64.dp))
+                        Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ThemeState.textHint, modifier = Modifier.size(64.dp))
                         Spacer(Modifier.height(12.dp))
-                        Text(if (search.isBlank()) "No messages yet" else "No results", color = TextHint)
+                        Text(if (search.isBlank()) "No messages yet" else "No results", color = ThemeState.textHint)
                     }
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    if (isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brand)
+                    if (isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth(), color = ThemeState.brand)
                     LazyColumn(
-                        Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf),
+                        Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf),
                         state = rememberLazyListState()
                     ) {
                         items(filtered, key = { it.threadId }) { conv ->
                             SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it })
-                            if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = DivLt)
+                            if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = ThemeState.divLt)
                         }
                     }
                 }
@@ -340,11 +387,10 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
                 }
             }
         }
-        // The actual row
         Row(
             Modifier.fillMaxWidth()
                 .offset { IntOffset(offsetX.roundToInt().coerceAtMost(0), 0) }
-                .background(Surf)
+                .background(ThemeState.surf)
                 .combinedClickable(
                     onClick = { onOpen(c) },
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress(c) }
@@ -364,7 +410,6 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar
             Box(Modifier.size(52.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
                 Text(initial(c.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             }
@@ -372,18 +417,18 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
             Column(Modifier.weight(1f)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) Brand else TextHint)
+                        color = ThemeState.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) ThemeState.brand else ThemeState.textHint)
                 }
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(c.snippet.ifBlank { " " }, fontSize = 14.sp, color = if (c.unread) TextPrimary else TextHint,
+                    Text(c.snippet.ifBlank { " " }, fontSize = 14.sp, color = if (c.unread) ThemeState.textPrimary else ThemeState.textHint,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal,
                         modifier = Modifier.weight(1f))
                     if (c.unread) {
                         Spacer(Modifier.width(8.dp))
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(Brand))
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(ThemeState.brand))
                     }
                 }
             }
@@ -409,15 +454,15 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         onOpen(Conversation(threadId, number, name, "", System.currentTimeMillis(), false))
     }
 
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
             title = { Text("New conversation") }) }
     ) { pad ->
         Column(Modifier.padding(pad)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                 FilledTonalButton(onClick = { isGroup = !isGroup }, shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = if (isGroup) BrandSurf else BrandLt2)) {
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = if (isGroup) ThemeState.brandSurf else ThemeState.brandLt2)) {
                     Icon(if (isGroup) Icons.Default.GroupRemove else Icons.Default.GroupAdd, null, Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (isGroup) "Cancel group" else "Create group")
@@ -428,23 +473,23 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                     selected.forEach { (name, num) ->
                         AssistChip(onClick = { selected = selected.filter { it.second != num } }, label = { Text(name, fontSize = 13.sp) },
                             trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
-                            colors = AssistChipDefaults.assistChipColors(containerColor = BrandSurf))
+                            colors = AssistChipDefaults.assistChipColors(containerColor = ThemeState.brandSurf))
                     }
                     if (selected.size >= 2) {
                         Button(onClick = {
                             val addr = selected.joinToString(";") { it.second }
                             val names = selected.joinToString(", ") { it.first }
                             onOpen(Conversation(addr.hashCode().toLong(), addr, names, "", System.currentTimeMillis(), false))
-                        }, colors = ButtonDefaults.buttonColors(Brand), shape = RoundedCornerShape(20.dp)) { Text("Start", fontSize = 13.sp) }
+                        }, colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) { Text("Start", fontSize = 13.sp) }
                     }
                 }
             }
             OutlinedTextField(to, { to = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 placeholder = { Text("To: name or number") }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = BrandLt2, unfocusedContainerColor = BrandLt2, focusedBorderColor = Brand, unfocusedBorderColor = Color.Transparent),
+                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Phone),
                 keyboardActions = KeyboardActions(onDone = { if (to.isNotBlank() && !isGroup) openConv(contacts.find { it.second == to.trim() }?.first ?: to.trim(), to.trim()) }))
-            LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf)) {
+            LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
                 items(filtered) { (name, number) ->
                     Row(Modifier.fillMaxWidth().clickable {
                         if (isGroup) { if (selected.none { it.second == number }) selected = selected + (name to number); to = "" }
@@ -454,10 +499,10 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                             Text(initial(name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         }
                         Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium); Text(number, fontSize = 13.sp, color = TextHint) }
-                        if (isGroup && selected.any { it.second == number }) Icon(Icons.Default.CheckCircle, null, tint = Brand)
+                        Column(Modifier.weight(1f)) { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = ThemeState.textPrimary); Text(number, fontSize = 13.sp, color = ThemeState.textHint) }
+                        if (isGroup && selected.any { it.second == number }) Icon(Icons.Default.CheckCircle, null, tint = ThemeState.brand)
                     }
-                    HorizontalDivider(Modifier.padding(start = 74.dp), thickness = .5.dp, color = DivLt)
+                    HorizontalDivider(Modifier.padding(start = 74.dp), thickness = .5.dp, color = ThemeState.divLt)
                 }
             }
         }
@@ -522,22 +567,21 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         val m = ctxMsg!!
         AlertDialog(
             onDismissRequest = { ctxMsg = null },
-            containerColor = Surf,
+            containerColor = ThemeState.surf,
             shape = RoundedCornerShape(28.dp),
-            title = { Text(m.body.take(60).ifBlank { "Message" }, fontSize = 14.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            title = { Text(m.body.take(60).ifBlank { "Message" }, fontSize = 14.sp, color = ThemeState.textSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) },
             text = {
                 Column {
-                    // Reaction bar
                     Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         listOf("\ud83d\ude02", "\ud83d\udc4d", "\u2764\ufe0f", "\ud83d\ude2e", "\ud83d\ude22", "\ud83d\ude21").forEach { emoji ->
-                            Box(Modifier.size(44.dp).clip(CircleShape).background(BrandLt2).clickable {
+                            Box(Modifier.size(44.dp).clip(CircleShape).background(ThemeState.brandLt2).clickable {
                                 Toast.makeText(ctx, "$emoji Reacted", Toast.LENGTH_SHORT).show(); ctxMsg = null
                             }, contentAlignment = Alignment.Center) {
                                 Text(emoji, fontSize = 22.sp)
                             }
                         }
                     }
-                    HorizontalDivider(color = DivLt, thickness = .5.dp)
+                    HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
                     Spacer(Modifier.height(4.dp))
                     MenuBtn(Icons.Default.Reply, "Reply") { replyTo = m; ctxMsg = null }
                     MenuBtn(Icons.Default.ContentCopy, "Copy") {
@@ -560,14 +604,14 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         )
     }
 
-    Scaffold(containerColor = BrandSurf,
+    Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
-            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextPrimary),
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary, actionIconContentColor = ThemeState.textPrimary),
                 navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.Default.ArrowBack, null) } },
                 title = {
                     if (showSearch) {
-                        TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat\u2026", color = TextHint) }, singleLine = true,
-                            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = Brand), modifier = Modifier.fillMaxWidth())
+                        TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat\u2026", color = ThemeState.textHint) }, singleLine = true,
+                            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = ThemeState.brand), modifier = Modifier.fillMaxWidth())
                     } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
                         ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conversation.address}")))
                     }) {
@@ -576,8 +620,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         }
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
-                            Text(conversation.address, fontSize = 12.sp, color = TextHint)
+                            Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, color = ThemeState.textPrimary)
+                            Text(conversation.address, fontSize = 12.sp, color = ThemeState.textHint)
                         }
                     }
                 },
@@ -589,7 +633,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         IconButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conversation.address}"))) }) { Icon(Icons.Default.Videocam, null) }
                         Box {
                             IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
-                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf)) {
+                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
                                 DropdownMenuItem({ Text("Search") }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null) })
                                 DropdownMenuItem({ Text("Block & report") }, {
                                     showMenu = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }
@@ -606,91 +650,99 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             )
         },
         bottomBar = {
-            Surface(color = Surf, shadowElevation = 2.dp) {
+            Surface(color = ThemeState.surf, shadowElevation = 2.dp) {
                 Column(Modifier.navigationBarsPadding().imePadding()) {
-                    // Reply indicator
                     if (replyTo != null) {
-                        Row(Modifier.fillMaxWidth().background(BrandLt2).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(Brand))
+                        Row(Modifier.fillMaxWidth().background(ThemeState.brandLt2).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(ThemeState.brand))
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text("Reply", fontSize = 12.sp, color = Brand, fontWeight = FontWeight.SemiBold)
-                                Text(replyTo!!.body.take(60), fontSize = 13.sp, color = TextSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Reply", fontSize = 12.sp, color = ThemeState.brand, fontWeight = FontWeight.SemiBold)
+                                Text(replyTo!!.body.take(60), fontSize = 13.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton({ replyTo = null }, Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, Modifier.size(16.dp), tint = TextHint) }
+                            IconButton({ replyTo = null }, Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, Modifier.size(16.dp), tint = ThemeState.textHint) }
                         }
                     }
-                    // Media preview
                     if (pendingMediaUri != null) {
-                        Row(Modifier.fillMaxWidth().background(BrandLt2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().background(ThemeState.brandLt2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (pendingMediaType == "image") {
                                 AsyncImage(pendingMediaUri, "preview", Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
                             } else {
-                                Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(TextPrimary), contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(ThemeState.textPrimary), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.PlayCircle, null, tint = Color.White, modifier = Modifier.size(32.dp))
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
-                            Text(if (pendingMediaType == "image") "Photo ready" else "Video ready", fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
+                            Text(if (pendingMediaType == "image") "Photo ready" else "Video ready", fontSize = 14.sp, color = ThemeState.textSecond, modifier = Modifier.weight(1f))
                             IconButton({ pendingMediaUri = null }) { Icon(Icons.Default.Close, null, tint = Red) }
                         }
                     }
-                    // Compose bar: [+] [field with emoji + gallery] [mic/send]
                     Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                        // + button (blue circle)
-                        IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(Brand)) {
+                        IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(ThemeState.brand)) {
                             Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(24.dp))
                         }
                         Spacer(Modifier.width(6.dp))
-                        // Input field (rounded 28dp)
                         OutlinedTextField(
                             draft, { draft = it }, Modifier.weight(1f),
-                            placeholder = { Text("Message", color = TextHint) },
+                            placeholder = { Text("Message", color = ThemeState.textHint) },
                             shape = RoundedCornerShape(28.dp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = BrandLt2, unfocusedContainerColor = BrandLt2, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
-                            leadingIcon = { IconButton({ showEmoji = !showEmoji; showAttach = false }) { Icon(Icons.Default.EmojiEmotions, null, tint = TextHint) } },
-                            trailingIcon = { IconButton({ imagePicker.launch("image/*") }) { Icon(Icons.Default.Image, null, tint = TextHint) } },
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                            leadingIcon = { IconButton({ showEmoji = !showEmoji; showAttach = false }) { Icon(Icons.Default.EmojiEmotions, null, tint = ThemeState.textHint) } },
+                            trailingIcon = { IconButton({ imagePicker.launch("image/*") }) { Icon(Icons.Default.Image, null, tint = ThemeState.textHint) } },
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
                             keyboardActions = KeyboardActions(onSend = { doSend() }),
                             maxLines = 4
                         )
                         Spacer(Modifier.width(6.dp))
-                        // Mic / Send
                         val hasCont = draft.isNotBlank() || pendingMediaUri != null
                         FloatingActionButton(
                             onClick = { if (hasCont) doSend() },
                             modifier = Modifier.size(46.dp),
-                            containerColor = if (hasCont) Brand else BrandLt2,
-                            contentColor = if (hasCont) Color.White else Brand,
+                            containerColor = if (hasCont) ThemeState.brand else ThemeState.brandLt2,
+                            contentColor = if (hasCont) Color.White else ThemeState.brand,
                             shape = CircleShape,
                             elevation = FloatingActionButtonDefaults.elevation(0.dp)
                         ) { Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp)) }
                     }
-                    // Attachment sheet (5x2 grid — M3 Expressive: same bg as app bar, pill-shaped monochrome buttons)
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         LazyVerticalGrid(
                             GridCells.Fixed(5),
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(BrandSurf).padding(horizontal = 12.dp, vertical = 16.dp),
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.brandSurf).padding(horizontal = 12.dp, vertical = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             item { AttachBtn(Icons.Default.Image, "Gallery", Brand) { imagePicker.launch("image/*") } }
-                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Green) { ctx.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)) } }
-                            item { AttachBtn(Icons.Default.Gif, "GIFs", Color(0xFF8E24AA)) { Toast.makeText(ctx, "GIFs coming soon", Toast.LENGTH_SHORT).show() } }
-                            item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Color(0xFFE65100)) { Toast.makeText(ctx, "Stickers coming soon", Toast.LENGTH_SHORT).show() } }
-                            item { AttachBtn(Icons.Default.AutoAwesome, "Magic", Color(0xFF1E88E5)) { Toast.makeText(ctx, "Magic Compose coming soon", Toast.LENGTH_SHORT).show() } }
+                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Green) {
+                                val camIntent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+                                if (camIntent.resolveActivity(ctx.packageManager) != null) ctx.startActivity(camIntent)
+                                else Toast.makeText(ctx, "No camera app found", Toast.LENGTH_SHORT).show()
+                            } }
+                            item { AttachBtn(Icons.Default.Gif, "GIFs", Color(0xFF8E24AA)) {
+                                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tenor.com")))
+                            } }
+                            item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Color(0xFFE65100)) { showEmoji = true; showAttach = false } }
+                            item { AttachBtn(Icons.Default.AutoAwesome, "Magic", Color(0xFF1E88E5)) {
+                                if (draft.isBlank()) { draft = "✨ " } else { draft = "✨ $draft" }
+                                showAttach = false
+                            } }
                             item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Color(0xFF6D4C41)) { ctx.startActivity(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }) } }
                             item { AttachBtn(Icons.Default.LocationOn, "Location", Color(0xFFD32F2F)) {
-                                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=My+Location")))
+                                val locIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0"))
+                                if (locIntent.resolveActivity(ctx.packageManager) != null) ctx.startActivity(locIntent)
+                                else ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com")))
+                                showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.Contacts, "Contacts", Color(0xFF00897B)) {
                                 ctx.startActivity(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI))
+                                showAttach = false
                             } }
-                            item { AttachBtn(Icons.Default.Schedule, "Schedule", Color(0xFF5E35B1)) { Toast.makeText(ctx, "Schedule send coming soon", Toast.LENGTH_SHORT).show() } }
+                            item { AttachBtn(Icons.Default.Schedule, "Schedule", Color(0xFF5E35B1)) {
+                                Toast.makeText(ctx, "Type your message, then long-press Send to schedule", Toast.LENGTH_LONG).show()
+                                showAttach = false
+                            } }
                             item { AttachBtn(Icons.Default.Videocam, "Video", Color(0xFF039BE5)) { videoPicker.launch("video/*") } }
                         }
                     }
-                    // Emoji picker
                     AnimatedVisibility(showEmoji, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         EmojiPicker { draft += it; showEmoji = false }
                     }
@@ -700,7 +752,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     ) { pad ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf).padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(horizontal = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
         ) {
@@ -723,10 +775,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     scope.launch { doSend() }
                                 },
                                 shape = RoundedCornerShape(20.dp),
-                                color = BrandLt2,
-                                border = BorderStroke(1.dp, DivLt)
+                                color = ThemeState.brandLt2,
+                                border = BorderStroke(1.dp, ThemeState.divLt)
                             ) {
-                                Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = Brand, fontWeight = FontWeight.Medium)
+                                Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = ThemeState.brand, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -751,7 +803,7 @@ fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit)
     }) {
         if (abs(offsetX) > 20f) {
             Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd) {
-                Icon(Icons.Default.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.Reply, null, tint = ThemeState.brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
             }
         }
         Box(Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }) {
@@ -764,28 +816,27 @@ fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit)
 // ── Attachment button (pill-shaped, monochrome — M3 Expressive style) ────────
 @Composable
 fun AttachBtn(icon: ImageVector, label: String, @Suppress("UNUSED_PARAMETER") tint: Color, onClick: () -> Unit) {
-    // M3 Expressive: pill-shaped, monochrome icons, no colorful backgrounds
     Column(Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = Color(0xFFF0F0F0),
+            color = if (ThemeState.isDark) Color(0xFF2D2D2D) else Color(0xFFF0F0F0),
             modifier = Modifier.size(width = 56.dp, height = 48.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = Color(0xFF444746), modifier = Modifier.size(22.dp))
+                Icon(icon, null, tint = ThemeState.textSecond, modifier = Modifier.size(22.dp))
             }
         }
         Spacer(Modifier.height(4.dp))
-        Text(label, fontSize = 10.sp, color = TextSecond, maxLines = 1)
+        Text(label, fontSize = 10.sp, color = ThemeState.textSecond, maxLines = 1)
     }
 }
 
 @Composable
-fun MenuBtn(icon: ImageVector, label: String, tint: Color = TextPrimary, onClick: () -> Unit) {
+fun MenuBtn(icon: ImageVector, label: String, tint: Color = ThemeState.textPrimary, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(14.dp))
-        Text(label, fontSize = 15.sp, color = if (tint == Red) Red else TextPrimary)
+        Text(label, fontSize = 15.sp, color = if (tint == Red) Red else ThemeState.textPrimary)
     }
 }
 
@@ -801,12 +852,12 @@ fun EmojiPicker(onPick: (String) -> Unit) {
         "\ud83d\ude07","\ud83e\udd29","\ud83d\ude1c","\ud83e\udee3","\ud83e\udd7a","\ud83d\ude24","\ud83d\ude43","\ud83d\ude2c","\ud83e\udd2b","\ud83e\udee0",
         "\ud83d\udc94","\ud83d\udc95","\ud83d\udc96","\ud83e\udee0","\ud83d\udc4f","\ud83e\udd1e","\u270c\ufe0f","\ud83e\udd1f","\ud83e\udee5","\ud83d\udc40"
     )
-    Surface(color = BrandSurf, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
+    Surface(color = ThemeState.brandSurf, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
         Column {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("\ud83d\ude0a Emoji" to true, "GIF" to false, "Stickers" to false).forEach { (label, active) ->
-                    Box(Modifier.clip(RoundedCornerShape(20.dp)).background(if (active) BrandSurf else Color.Transparent).clickable {}.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                        Text(label, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal, color = if (active) Brand else TextHint)
+                    Box(Modifier.clip(RoundedCornerShape(20.dp)).background(if (active) ThemeState.brandSurf else Color.Transparent).clickable {}.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                        Text(label, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal, color = if (active) ThemeState.brand else ThemeState.textHint)
                     }
                 }
             }
@@ -838,18 +889,22 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
         horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
     ) {
         if (!isIn) Spacer(Modifier.width(56.dp))
-        Box(Modifier.widthIn(max = 300.dp).clip(shape).background(if (isIn) BubbleIn else BubbleOut)) {
+        Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = shape,
+            color = if (isIn) ThemeState.bubbleIn else ThemeState.bubbleOut,
+            shadowElevation = if (!isIn) 1.dp else 0.dp,
+            tonalElevation = if (!isIn) 1.dp else 0.dp
+        ) {
             Column {
-                // Image (empty bubble if only image)
                 if (m.imageUri != null) {
                     AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
                         if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
                     ), contentScale = ContentScale.Crop)
                 }
-                // Text with link detection
                 if (m.body.isNotBlank()) {
-                    val textColor = if (isIn) TextPrimary else Color.White
-                    val linkColor = if (isIn) Brand else Color(0xFFBBDEFB)
+                    val textColor = if (isIn) ThemeState.textPrimary else Color.White
+                    val linkColor = if (isIn) ThemeState.brand else Color(0xFFBBDEFB)
                     val urls = URL_REGEX.findAll(m.body).toList()
 
                     if (urls.isEmpty()) {
@@ -870,24 +925,22 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
                         ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
                             modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 10.dp, bottom = 2.dp),
                             onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) } })
-                        // Link preview card
                         val url = urls.first().value
                         val domain = try { java.net.URL(url).host.removePrefix("www.") } catch (_: Exception) { url }
                         Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(if (isIn) Color(0xFFD5D5D5) else BrandDk)
+                            .background(if (isIn) ThemeState.bubbleIn.copy(alpha = .7f) else ThemeState.brandDk)
                             .clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.padding(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Language, null, tint = if (isIn) TextSecond else Color.White.copy(.8f), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Language, null, tint = if (isIn) ThemeState.textSecond else Color.White.copy(.8f), modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text(domain, fontSize = 12.sp, color = if (isIn) TextSecond else Color.White.copy(.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(domain, fontSize = 12.sp, color = if (isIn) ThemeState.textSecond else Color.White.copy(.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
-                // Timestamp + SMS label + delivery ticks (Google Messages style)
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) TextHint else Color.White.copy(.7f))
+                    Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) ThemeState.textHint else Color.White.copy(.7f))
                     if (!isIn) {
                         Text(if (m.isMms) " \u00b7 MMS " else " \u00b7 SMS ", fontSize = 11.sp, color = Color.White.copy(.7f))
                         Icon(Icons.Default.DoneAll, null, tint = Color.White.copy(.85f), modifier = Modifier.size(14.dp))
@@ -903,24 +956,24 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
             title = { Text("Settings") }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf)) {
+        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
             item { SettRow(Icons.Default.Notifications, "Notifications", "Sounds, vibration") { onSub("notifications") } }
             item { SettRow(Icons.Default.Chat, "Bubbles", "Chat colors and style") { onSub("bubbles") } }
-            item { HorizontalDivider(color = DivLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Palette, "Theme", "System default") { onSub("theme") } }
             item { SettRow(Icons.Default.FormatSize, "Text size", "Default") { onSub("textsize") } }
-            item { HorizontalDivider(color = DivLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Link, "Automatic previews", "Web link previews") { onSub("previews") } }
             item { SettRow(Icons.Default.Shield, "Protection & Safety", "Spam, blocked contacts") { onSub("safety") } }
             item { SettRow(Icons.Default.SwipeRight, "Swipe actions", "Archive on swipe") { onSub("swipe") } }
-            item { HorizontalDivider(color = DivLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
-            item { SettRow(Icons.Default.Info, "About", "Version 2.7") { onSub("about") } }
+            item { SettRow(Icons.Default.Info, "About", "Version 3.0") { onSub("about") } }
         }
     }
 }
@@ -933,11 +986,11 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
     val title = when (key) { "notifications" -> "Notifications"; "bubbles" -> "Bubbles"; "theme" -> "Theme"; "textsize" -> "Text size"
         "previews" -> "Previews"; "safety" -> "Safety"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; else -> "Settings" }
 
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }, title = { Text(title) }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf).padding(16.dp)) {
+        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(16.dp)) {
             when (key) {
                 "notifications" -> {
                     item { ToggleRow("Allow notifications", "notif_allow", prefs) }
@@ -950,13 +1003,13 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                         Button(onClick = {
                             Notifications.showTestNotification(ctx)
                             Toast.makeText(ctx, "Test notification sent", Toast.LENGTH_SHORT).show()
-                        }, colors = ButtonDefaults.buttonColors(Brand), shape = RoundedCornerShape(20.dp)) {
+                        }, colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) {
                             Text("Test notification")
                         }
                     }
                 }
                 "bubbles" -> {
-                    item { Text("Chat bubble color", fontWeight = FontWeight.SemiBold, fontSize = 16.sp); Spacer(Modifier.height(12.dp)) }
+                    item { Text("Chat bubble color", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = ThemeState.textPrimary); Spacer(Modifier.height(12.dp)) }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             listOf(Brand, Color(0xFF1E8E3E), Color(0xFF8C4A2E), Color(0xFF6A2E8C), Color(0xFFD93025), Color(0xFF185ABC), Color(0xFFE65100), Color(0xFF00897B)).forEach { clr ->
@@ -969,10 +1022,10 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                     }
                     item {
                         Spacer(Modifier.height(20.dp))
-                        Text("Preview", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextHint)
+                        Text("Preview", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = ThemeState.textHint)
                         Spacer(Modifier.height(8.dp))
                         // Live preview bubble
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)).background(BubbleOut).padding(12.dp)) {
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)).background(ThemeState.bubbleOut).padding(12.dp)) {
                             Column {
                                 Text("Hello!", color = Color.White, fontSize = 15.sp)
                                 Text("3:25 PM \u00b7 SMS \u2713\u2713", color = Color.White.copy(.7f), fontSize = 11.sp, modifier = Modifier.align(Alignment.End))
@@ -981,9 +1034,18 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                     }
                 }
                 "theme" -> {
-                    item { RadioRow("System default", prefs.getString("theme", "system") == "system") { prefs.edit().putString("theme", "system").apply() } }
-                    item { RadioRow("Light", prefs.getString("theme", "system") == "light") { prefs.edit().putString("theme", "light").apply() } }
-                    item { RadioRow("Dark", prefs.getString("theme", "system") == "dark") { prefs.edit().putString("theme", "dark").apply() } }
+                    item { RadioRow("System default", prefs.getString("theme", "system") == "system") {
+                        prefs.edit().putString("theme", "system").apply()
+                        ThemeState.isDark = ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                    } }
+                    item { RadioRow("Light", prefs.getString("theme", "system") == "light") {
+                        prefs.edit().putString("theme", "light").apply()
+                        ThemeState.isDark = false
+                    } }
+                    item { RadioRow("Dark", prefs.getString("theme", "system") == "dark") {
+                        prefs.edit().putString("theme", "dark").apply()
+                        ThemeState.isDark = true
+                    } }
                 }
                 "textsize" -> {
                     item { RadioRow("Small", prefs.getString("text_size", "default") == "small") { prefs.edit().putString("text_size", "small").apply() } }
@@ -1004,7 +1066,7 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                         Spacer(Modifier.height(16.dp))
                         Text("Blocked numbers", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                         Spacer(Modifier.height(4.dp))
-                        Text("Manage blocked numbers", color = TextHint, fontSize = 13.sp)
+                        Text("Manage blocked numbers", color = ThemeState.textHint, fontSize = 13.sp)
                     }
                 }
                 "swipe" -> {
@@ -1030,10 +1092,10 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                     }
                 }
                 "about" -> {
-                    item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                    item { Text("Version 2.7", fontSize = 14.sp, color = TextHint); Spacer(Modifier.height(16.dp)) }
-                    item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = TextSecond) }
-                    item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = TextHint) }
+                    item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = ThemeState.textPrimary) }
+                    item { Text("Version 3.0", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
+                    item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = ThemeState.textSecond) }
+                    item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = ThemeState.textHint) }
                 }
             }
         }
@@ -1043,19 +1105,19 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
 @Composable fun ToggleRow(label: String, key: String, prefs: android.content.SharedPreferences) {
     var on by remember { mutableStateOf(prefs.getBoolean(key, true)) }
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, fontSize = 15.sp); Switch(on, { on = it; prefs.edit().putBoolean(key, it).apply() }, colors = SwitchDefaults.colors(checkedTrackColor = Brand))
+        Text(label, fontSize = 15.sp, color = ThemeState.textPrimary); Switch(on, { on = it; prefs.edit().putBoolean(key, it).apply() }, colors = SwitchDefaults.colors(checkedTrackColor = ThemeState.brand))
     }
 }
 @Composable fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected, onClick, colors = RadioButtonDefaults.colors(selectedColor = Brand)); Spacer(Modifier.width(12.dp)); Text(label, fontSize = 15.sp)
+        RadioButton(selected, onClick, colors = RadioButtonDefaults.colors(selectedColor = ThemeState.brand)); Spacer(Modifier.width(12.dp)); Text(label, fontSize = 15.sp, color = ThemeState.textPrimary)
     }
 }
 @Composable fun SettRow(icon: ImageVector, title: String, sub: String, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = TextSecond, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) { Text(title, fontSize = 15.sp); Text(sub, fontSize = 13.sp, color = TextHint) }
-        Icon(Icons.Default.ChevronRight, null, tint = TextHint)
+        Icon(icon, null, tint = ThemeState.textSecond, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) { Text(title, fontSize = 15.sp, color = ThemeState.textPrimary); Text(sub, fontSize = 13.sp, color = ThemeState.textHint) }
+        Icon(Icons.Default.ChevronRight, null, tint = ThemeState.textHint)
     }
 }
 
@@ -1064,13 +1126,13 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current; var q by remember { mutableStateOf("") }; var res by remember { mutableStateOf("") }; val scope = rememberCoroutineScope()
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }, title = { Text("Admin Panel") }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf).padding(16.dp)) {
+        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(16.dp)) {
             item {
-                Text("CONTACT SEARCH", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextHint, letterSpacing = 1.sp)
+                Text("CONTACT SEARCH", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(q, {
                     q = it; scope.launch(Dispatchers.IO) {
@@ -1083,14 +1145,14 @@ fun AdminScreen(onBack: () -> Unit) {
                         } catch (e: Exception) { withContext(Dispatchers.Main) { res = "Error: ${e.message}" } }
                     }
                 }, Modifier.fillMaxWidth(), placeholder = { Text("Search\u2026") }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = BrandLt2, unfocusedContainerColor = BrandLt2, focusedBorderColor = Brand, unfocusedBorderColor = Color.Transparent))
-                Spacer(Modifier.height(12.dp)); Text(res.take(2000), fontSize = 13.sp, color = TextSecond)
+                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent))
+                Spacer(Modifier.height(12.dp)); Text(res.take(2000), fontSize = 13.sp, color = ThemeState.textSecond)
             }
             item {
-                Spacer(Modifier.height(24.dp)); Text("DEVICE INFO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextHint, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp))
-                Text("Model: ${Build.MODEL}", fontSize = 14.sp); Text("Android: ${Build.VERSION.RELEASE}", fontSize = 14.sp, color = TextSecond)
-                Text("Default SMS: ${isDefaultSmsApp(ctx)}", fontSize = 14.sp, color = TextSecond); Spacer(Modifier.height(12.dp))
-                Button({ ContactsSyncService.syncNow(ctx); Toast.makeText(ctx, "Syncing\u2026", Toast.LENGTH_SHORT).show() }, colors = ButtonDefaults.buttonColors(Brand), shape = RoundedCornerShape(20.dp)) { Text("Sync contacts") }
+                Spacer(Modifier.height(24.dp)); Text("DEVICE INFO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp))
+                Text("Model: ${Build.MODEL}", fontSize = 14.sp, color = ThemeState.textPrimary); Text("Android: ${Build.VERSION.RELEASE}", fontSize = 14.sp, color = ThemeState.textSecond)
+                Text("Default SMS: ${isDefaultSmsApp(ctx)}", fontSize = 14.sp, color = ThemeState.textSecond); Spacer(Modifier.height(12.dp))
+                Button({ ContactsSyncService.syncNow(ctx); Toast.makeText(ctx, "Syncing\u2026", Toast.LENGTH_SHORT).show() }, colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) { Text("Sync contacts") }
             }
         }
     }
@@ -1108,8 +1170,8 @@ fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
 
 @Composable fun DayHeader(label: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.clip(RoundedCornerShape(16.dp)).background(BrandLt2).border(0.5.dp, DivLt, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 5.dp)) {
-            Text(label, fontSize = 12.sp, color = TextSecond, fontWeight = FontWeight.Medium)
+        Box(Modifier.clip(RoundedCornerShape(16.dp)).background(ThemeState.brandLt2).border(0.5.dp, ThemeState.divLt, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 5.dp)) {
+            Text(label, fontSize = 12.sp, color = ThemeState.textSecond, fontWeight = FontWeight.Medium)
         }
     }
 }
