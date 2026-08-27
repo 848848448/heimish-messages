@@ -83,6 +83,10 @@ object Notifications {
 
         try { NotificationManagerCompat.from(ctx).notify(nid, notif) } catch (_: SecurityException) {}
     }
+
+    fun showTestNotification(ctx: Context) {
+        showMessage(ctx, "Heimish Messages", "This is a test notification \ud83d\udcf1", "test", 0)
+    }
 }
 
 /** Handles direct reply from the notification shade */
@@ -106,10 +110,6 @@ class DirectReplyReceiver : BroadcastReceiver() {
         try { NotificationManagerCompat.from(ctx).notify(nid, notif) } catch (_: SecurityException) {}
     }
 }
-
-    fun showTestNotification(ctx: Context) {
-        showMessage(ctx, "Heimish Messages", "This is a test notification \ud83d\udcf1", "test", 0)
-    }
 
 /** Handles "Mark as read" from the notification */
 class MarkReadReceiver : BroadcastReceiver() {
