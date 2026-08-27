@@ -39,7 +39,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -607,7 +606,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             )
         },
         bottomBar = {
-            Surface(color = Surf, shadowElevation = 8.dp) {
+            Surface(color = Surf, shadowElevation = 2.dp) {
                 Column(Modifier.navigationBarsPadding().imePadding()) {
                     // Reply indicator
                     if (replyTo != null) {
@@ -667,13 +666,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             elevation = FloatingActionButtonDefaults.elevation(0.dp)
                         ) { Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp)) }
                     }
-                    // Attachment sheet (5x2 grid like Google Messages)
+                    // Attachment sheet (5x2 grid — M3 Expressive: same bg as app bar, pill-shaped monochrome buttons)
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         LazyVerticalGrid(
                             GridCells.Fixed(5),
-                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp).clip(RoundedCornerShape(20.dp)).background(BrandLt2).padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(BrandSurf).padding(horizontal = 12.dp, vertical = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             item { AttachBtn(Icons.Default.Image, "Gallery", Brand) { imagePicker.launch("image/*") } }
                             item { AttachBtn(Icons.Default.CameraAlt, "Camera", Green) { ctx.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)) } }
@@ -762,11 +761,19 @@ fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit)
 }
 
 // ── Attachment button ────────────────────────────────────────────────────────
+// ── Attachment button (pill-shaped, monochrome — M3 Expressive style) ────────
 @Composable
-fun AttachBtn(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+fun AttachBtn(icon: ImageVector, label: String, @Suppress("UNUSED_PARAMETER") tint: Color, onClick: () -> Unit) {
+    // M3 Expressive: pill-shaped, monochrome icons, no colorful backgrounds
     Column(Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(tint.copy(.12f)), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFFF0F0F0),
+            modifier = Modifier.size(width = 56.dp, height = 48.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = Color(0xFF444746), modifier = Modifier.size(22.dp))
+            }
         }
         Spacer(Modifier.height(4.dp))
         Text(label, fontSize = 10.sp, color = TextSecond, maxLines = 1)
@@ -794,7 +801,7 @@ fun EmojiPicker(onPick: (String) -> Unit) {
         "\ud83d\ude07","\ud83e\udd29","\ud83d\ude1c","\ud83e\udee3","\ud83e\udd7a","\ud83d\ude24","\ud83d\ude43","\ud83d\ude2c","\ud83e\udd2b","\ud83e\udee0",
         "\ud83d\udc94","\ud83d\udc95","\ud83d\udc96","\ud83e\udee0","\ud83d\udc4f","\ud83e\udd1e","\u270c\ufe0f","\ud83e\udd1f","\ud83e\udee5","\ud83d\udc40"
     )
-    Surface(color = BrandLt2, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)) {
+    Surface(color = BrandSurf, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
         Column {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("\ud83d\ude0a Emoji" to true, "GIF" to false, "Stickers" to false).forEach { (label, active) ->
@@ -831,7 +838,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
         horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
     ) {
         if (!isIn) Spacer(Modifier.width(56.dp))
-        Box(Modifier.widthIn(max = 300.dp).shadow(1.dp, shape).clip(shape).background(if (isIn) BubbleIn else BubbleOut)) {
+        Box(Modifier.widthIn(max = 300.dp).clip(shape).background(if (isIn) BubbleIn else BubbleOut)) {
             Column {
                 // Image (empty bubble if only image)
                 if (m.imageUri != null) {
