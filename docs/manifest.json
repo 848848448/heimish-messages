@@ -1,0 +1,16 @@
+{
+  "name": "Heimish Messages",
+  "short_name": "Messages",
+  "description": "Heimish Messages — Google Messages style",
+  "start_url": "/heimish-messages/",
+  "scope": "/heimish-messages/",
+  "display": "standalone",
+  "background_color": "#D3E3FD",
+  "theme_color": "#D3E3FD",
+  "orientation": "portrait",
+  "categories": ["communication", "social"],
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}

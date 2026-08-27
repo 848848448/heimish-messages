@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Heimish Messages</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#D3E3FD">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Messages">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -2887,6 +2893,38 @@ document.getElementById('vinp').addEventListener('change',function(){
   };
   r.readAsDataURL(f);this.value='';
 });
+
+// ── PWA: Service Worker + Install Prompt ────────────────────────────────────
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}
+var deferInstall=null;
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferInstall=e;});
+function pwaInstall(){if(deferInstall){deferInstall.prompt();deferInstall=null;}else{T('Already installed or not supported');}}
+
+// ── DATA PERSISTENCE — conversations + messages survive refresh ─────────────
+function saveData(){
+  try{
+    localStorage.setItem('hm_convs',JSON.stringify(convs));
+    localStorage.setItem('hm_msgs',JSON.stringify(allMsgs));
+  }catch(e){}
+}
+function loadData(){
+  try{
+    var c=localStorage.getItem('hm_convs');
+    var m=localStorage.getItem('hm_msgs');
+    if(c&&m){
+      var pc=JSON.parse(c),pm=JSON.parse(m);
+      if(pc.length){convs.length=0;pc.forEach(function(x){convs.push(x);});for(var k in allMsgs)delete allMsgs[k];for(var k in pm)allMsgs[k]=pm[k];}
+    }
+  }catch(e){}
+}
+loadData();
+renderList(convs);
+
+// Hook into doSend to auto-save after every message
+var _realDoSend=doSend;
+doSend=function(){_realDoSend.apply(this,arguments);saveData();};
+// Periodic save (catches deletes, archives, reactions, etc.)
+setInterval(saveData,5000);
 </script>
 </body>
 </html>
