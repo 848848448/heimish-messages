@@ -270,15 +270,6 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                         Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf),
                         state = rememberLazyListState()
                     ) {
-                        // Pull-down refresh row
-                        item {
-                            Row(Modifier.fillMaxWidth().clickable { refresh() }.padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Refresh, "Refresh", tint = if (isRefreshing) Brand else TextHint.copy(.4f), modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(if (isRefreshing) "Refreshing…" else "Pull down or tap to refresh", fontSize = 12.sp, color = TextHint.copy(.5f))
-                            }
-                        }
                         items(filtered, key = { it.threadId }) { conv ->
                             ConvRow(conv, onOpen, onRefresh = { refresh() })
                             if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = DivClr)
