@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +40,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -583,6 +585,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var pendingMediaType by remember { mutableStateOf("image") }
     var replyTo by remember { mutableStateOf<Message?>(null) }
     var showSearch by remember { mutableStateOf(false) }
+
+    // Pull-down-to-dismiss
+    var pullY by remember { mutableFloatStateOf(0f) }
+    val pullThreshold = 200f
     var searchQuery by remember { mutableStateOf("") }
 
     fun reload(scrollToEnd: Boolean = false) {
@@ -661,6 +667,25 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         )
     }
 
+    Box(
+        Modifier.fillMaxSize()
+            .offset { IntOffset(0, pullY.roundToInt()) }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (pullY > pullThreshold) onBack()
+                        pullY = 0f
+                    },
+                    onVerticalDrag = { change, dy ->
+                        if (pullY > 0f || (dy > 0f && !listState.canScrollBackward)) {
+                            pullY = (pullY + dy).coerceIn(0f, 400f)
+                            change.consume()
+                        }
+                    }
+                )
+            }
+            .graphicsLayer { alpha = 1f - (pullY / 600f).coerceAtMost(0.4f) }
+    ) {
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
             TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary, actionIconContentColor = ThemeState.textPrimary),
@@ -843,6 +868,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
         }
     }
+    } // end pull-down Box
 }
 
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
