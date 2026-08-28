@@ -1,15 +1,20 @@
 package com.heimish.messages
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Telephony
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -731,6 +736,61 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     var showMsgDetail by remember { mutableStateOf<Message?>(null) }
     var isRecording by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
+    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<java.io.File?>(null) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+
+    // Camera capture
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success && cameraUri != null) onImagePreview(cameraUri!!, "image")
+    }
+
+    fun startRecording() {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(ctx, "Audio recording permission required", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val file = java.io.File(ctx.cacheDir, "voice_${System.currentTimeMillis()}.3gp")
+        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(ctx) else @Suppress("DEPRECATION") MediaRecorder()
+        recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+        recorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+        recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+        recorder.setOutputFile(file.absolutePath)
+        try {
+            recorder.prepare()
+            recorder.start()
+            mediaRecorder = recorder
+            recordingFile = file
+            isRecording = true
+        } catch (e: Exception) {
+            Toast.makeText(ctx, "Recording failed", Toast.LENGTH_SHORT).show()
+            file.delete()
+        }
+    }
+
+    fun stopAndSendRecording() {
+        try { mediaRecorder?.stop() } catch (_: Exception) {}
+        try { mediaRecorder?.release() } catch (_: Exception) {}
+        mediaRecorder = null
+        isRecording = false
+        val file = recordingFile ?: return
+        recordingFile = null
+        val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        scope.launch(Dispatchers.IO) {
+            SmsRepository.sendMms(ctx, conversation.address, uri, "🎤 Voice message (${recordingSeconds}s)")
+            withContext(Dispatchers.Main) { reload(scrollToEnd = true) }
+        }
+    }
+
+    fun cancelRecording() {
+        try { mediaRecorder?.stop() } catch (_: Exception) {}
+        try { mediaRecorder?.release() } catch (_: Exception) {}
+        mediaRecorder = null
+        recordingFile?.delete()
+        recordingFile = null
+        isRecording = false
+    }
 
     // Pull-down-to-dismiss
     var pullY by remember { mutableFloatStateOf(0f) }
@@ -955,7 +1015,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                     if (isRecording) {
                         LaunchedEffect(isRecording) { recordingSeconds = 0; while (true) { delay(1000); recordingSeconds++ } }
                         Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            IconButton({ isRecording = false }) { Icon(Icons.Default.Delete, null, tint = Red) }
+                            IconButton({ cancelRecording() }) { Icon(Icons.Default.Delete, null, tint = Red) }
                             Box(Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(28.dp)).background(ThemeState.brandLt2), contentAlignment = Alignment.Center) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                                     Box(Modifier.size(10.dp).clip(CircleShape).background(Red))
@@ -974,10 +1034,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             }
                             Spacer(Modifier.width(6.dp))
                             FloatingActionButton(
-                                onClick = {
-                                    isRecording = false
-                                    Toast.makeText(ctx, "Voice message (${recordingSeconds}s) — recording requires audio permission", Toast.LENGTH_SHORT).show()
-                                },
+                                onClick = { stopAndSendRecording() },
                                 modifier = Modifier.size(46.dp), containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
                                 elevation = FloatingActionButtonDefaults.elevation(0.dp)
                             ) { Icon(Icons.Default.Send, null, Modifier.size(22.dp)) }
@@ -1005,14 +1062,13 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             maxLines = 4
                         )
                         Spacer(Modifier.width(6.dp))
-                        FloatingActionButton(
-                            onClick = { if (hasCont) doSend() else isRecording = true },
-                            modifier = Modifier.size(46.dp),
-                            containerColor = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
-                            contentColor = Color.White,
-                            shape = CircleShape,
-                            elevation = FloatingActionButtonDefaults.elevation(0.dp)
-                        ) { Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp)) }
+                        Box(Modifier.size(46.dp).clip(CircleShape).background(if (hasCont) ThemeState.brand else Color(0xFF146C2E))
+                            .combinedClickable(
+                                onClick = { if (hasCont) doSend() else startRecording() },
+                                onLongClick = { if (hasCont) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); showScheduleDialog = true } }
+                            ), contentAlignment = Alignment.Center) {
+                            Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp), tint = Color.White)
+                        }
                     }
                     }
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -1024,12 +1080,13 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                         ) {
                             item { AttachBtn(Icons.Default.Image, "Gallery", Brand) { imagePicker.launch("image/*") } }
                             item { AttachBtn(Icons.Default.CameraAlt, "Camera", Brand) {
-                                val camIntent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
-                                if (camIntent.resolveActivity(ctx.packageManager) != null) ctx.startActivity(camIntent)
-                                else Toast.makeText(ctx, "No camera app found", Toast.LENGTH_SHORT).show()
+                                val file = java.io.File(ctx.cacheDir, "camera_${System.currentTimeMillis()}.jpg")
+                                cameraUri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+                                cameraLauncher.launch(cameraUri!!)
+                                showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.Gif, "GIFs", Brand) {
-                                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tenor.com")))
+                                showEmoji = true; showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Brand) { showEmoji = true; showAttach = false } }
                             item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Brand) { ctx.startActivity(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }) } }
@@ -1044,7 +1101,8 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                                 showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.Schedule, "Schedule", Brand) {
-                                Toast.makeText(ctx, "Type your message, then long-press Send to schedule", Toast.LENGTH_LONG).show()
+                                if (draft.isNotBlank()) { showScheduleDialog = true }
+                                else Toast.makeText(ctx, "Type your message first, then schedule", Toast.LENGTH_SHORT).show()
                                 showAttach = false
                             } }
                         }
@@ -1117,6 +1175,58 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     }
     } // end pull-down Box
     if (viewerUri != null) MediaViewerOverlay(viewerUri!!) { viewerUri = null }
+
+    // Schedule send dialog
+    if (showScheduleDialog) {
+        val schedOptions = listOf(
+            "In 15 minutes" to 15L,
+            "In 30 minutes" to 30L,
+            "In 1 hour" to 60L,
+            "In 2 hours" to 120L,
+            "Tomorrow morning (8:00 AM)" to -1L
+        )
+        AlertDialog(
+            onDismissRequest = { showScheduleDialog = false },
+            containerColor = ThemeState.surf, shape = RoundedCornerShape(28.dp),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Schedule, null, tint = ThemeState.brand, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Schedule message", fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                }
+            },
+            text = {
+                Column {
+                    Text("\"${draft.take(40)}${if (draft.length > 40) "…" else ""}\"", fontSize = 13.sp, color = ThemeState.textHint,
+                        modifier = Modifier.padding(bottom = 12.dp))
+                    schedOptions.forEach { (label, mins) ->
+                        val sendAt = if (mins == -1L) {
+                            val cal = Calendar.getInstance()
+                            cal.add(Calendar.DAY_OF_YEAR, 1)
+                            cal.set(Calendar.HOUR_OF_DAY, 8)
+                            cal.set(Calendar.MINUTE, 0)
+                            cal.set(Calendar.SECOND, 0)
+                            cal.timeInMillis
+                        } else System.currentTimeMillis() + mins * 60_000
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                            val body = draft.trim()
+                            if (body.isNotEmpty()) {
+                                ScheduledSendReceiver.schedule(ctx, conversation.address, body, sendAt)
+                                val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+                                Toast.makeText(ctx, "Scheduled for ${timeFmt.format(Date(sendAt))}", Toast.LENGTH_LONG).show()
+                                draft = ""; showScheduleDialog = false
+                            }
+                        }.padding(vertical = 14.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Schedule, null, tint = ThemeState.textSecond, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Text(label, fontSize = 15.sp, color = ThemeState.textPrimary)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton({ showScheduleDialog = false }) { Text("Cancel", color = ThemeState.brand) } }
+        )
+    }
 
     // Message details dialog
     if (showMsgDetail != null) {
@@ -1233,10 +1343,25 @@ fun EmojiPicker(onPick: (String) -> Unit) {
                 0 -> LazyVerticalGrid(GridCells.Fixed(8), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
                     items(emojis) { e -> Box(Modifier.size(44.dp).clickable { onPick(e) }, contentAlignment = Alignment.Center) { Text(e, fontSize = 24.sp) } }
                 }
-                1 -> Box(Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(16.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Gif, null, tint = ThemeState.textHint, modifier = Modifier.size(48.dp))
-                        Spacer(Modifier.height(8.dp)); Text("Search for GIFs", fontSize = 14.sp, color = ThemeState.textHint)
+                1 -> {
+                    val gifEmojis = listOf("👍","👏","🎉","🔥","❤️","😂","😢","😡","🤔","😎","🙏","💪","👋","🥳","😍","💯","✨","🌟","🎊","🎶")
+                    LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        items(gifEmojis) { g ->
+                            Box(Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(ThemeState.brandLt2).clickable { onPick(g) }.padding(4.dp),
+                                contentAlignment = Alignment.Center) { Text(g, fontSize = 28.sp) }
+                        }
+                    }
+                    if (search.isNotBlank()) {
+                        val gifCtx = LocalContext.current
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            Surface(onClick = { gifCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tenor.com/search/${search}"))) },
+                                shape = RoundedCornerShape(20.dp), color = ThemeState.brand) {
+                                Text("Search \"$search\" on Tenor", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                            }
+                        }
+                    } else Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                        Text("Type to search GIFs", fontSize = 13.sp, color = ThemeState.textHint)
                     }
                 }
                 2 -> LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
@@ -1326,13 +1451,35 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                             onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) } })
                         val url = urls.first().value
                         val domain = try { java.net.URL(url).host.removePrefix("www.") } catch (_: Exception) { url }
+                        var linkTitle by remember { mutableStateOf<String?>(null) }
+                        LaunchedEffect(url) {
+                            linkTitle = withContext(Dispatchers.IO) {
+                                try {
+                                    val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                                    conn.connectTimeout = 3000; conn.readTimeout = 3000
+                                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                                    val html = conn.inputStream.bufferedReader().readText().take(8000)
+                                    conn.disconnect()
+                                    val titleMatch = Regex("<title[^>]*>([^<]+)</title>", RegexOption.IGNORE_CASE).find(html)
+                                    titleMatch?.groupValues?.get(1)?.trim()
+                                } catch (_: Exception) { null }
+                            }
+                        }
                         Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
                             .background(if (isIn) ThemeState.bubbleIn.copy(alpha = .7f) else if (ThemeState.isDark) ThemeState.brandDk else Color(0xFFBFD7F6))
                             .clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.padding(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Language, null, tint = ThemeState.textSecond, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(domain, fontSize = 12.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column {
+                                if (linkTitle != null) {
+                                    Text(linkTitle!!, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                        color = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Spacer(Modifier.height(4.dp))
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Language, null, tint = ThemeState.textSecond, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(domain, fontSize = 12.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }
@@ -1552,7 +1699,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
             item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Email, "Your email", AdminEmails.getUserEmail(ctx).ifBlank { "Not set" }) { onSub("email") } }
-            item { SettRow(Icons.Default.Info, "About", "Version 3.1") { onSub("about") } }
+            item { SettRow(Icons.Default.Info, "About", "Version 3.2") { onSub("about") } }
         }
     }
 }
@@ -1693,7 +1840,7 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                 }
                 "about" -> {
                     item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = ThemeState.textPrimary) }
-                    item { Text("Version 3.1", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
+                    item { Text("Version 3.2", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
                     item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = ThemeState.textSecond) }
                     item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = ThemeState.textHint) }
                 }
