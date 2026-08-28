@@ -184,6 +184,7 @@ sealed class Screen {
     data object Admin : Screen()
     data class ImagePreview(val conv: Conversation, val uri: Uri, val mediaType: String = "image") : Screen()
     data class ForwardMsg(val body: String) : Screen()
+    data object Archived : Screen()
 }
 
 @Composable
@@ -196,7 +197,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
 
     BackHandler(enabled = screen !is Screen.List) {
         screen = when (screen) {
-            is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin -> Screen.List
+            is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin, Screen.Archived -> Screen.List
             is Screen.ContactDetail -> Screen.Chat((screen as Screen.ContactDetail).conv)
             is Screen.ImagePreview -> Screen.Chat((screen as Screen.ImagePreview).conv)
             is Screen.ForwardMsg -> Screen.List
@@ -209,7 +210,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
         !isDefault -> SetupScreen(onRequestDefault)
         !hasPerms  -> SetupPerms { permL.launch(Permissions.ALL) }
         else -> when (val s = screen) {
-            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin })
+            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived })
             is Screen.Chat  -> ThreadScreen(s.conv,
                 onDetails = { screen = Screen.ContactDetail(s.conv) },
                 onImagePreview = { uri, type -> screen = Screen.ImagePreview(s.conv, uri, type) },
@@ -221,6 +222,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             Screen.Admin    -> AdminScreen { screen = Screen.List }
             is Screen.ImagePreview -> ImagePreviewScreen(s.conv, s.uri, s.mediaType) { screen = Screen.Chat(s.conv) }
             is Screen.ForwardMsg -> ForwardScreen(s.body) { screen = Screen.List }
+            Screen.Archived -> ArchivedScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
         }
     }
 }
@@ -363,7 +365,7 @@ object AdminEmails {
 // ━━━━━━━━━━━━━━━━ CONVERSATION LIST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit) {
+fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit = {}) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(emptyList<Conversation>()) }
     var search by remember { mutableStateOf("") }
@@ -434,6 +436,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                                 if (AdminEmails.isAdmin(ctx)) {
                                     DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
                                 }
+                                DropdownMenuItem({ Text("Archived") }, { showMenu = false; onArchived() }, leadingIcon = { Icon(Icons.Default.Archive, null) })
                                 DropdownMenuItem({ Text("Mark all read") }, {
                                     showMenu = false
                                     scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
@@ -472,6 +475,54 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                             if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = ThemeState.divLt)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+// ── Archived conversations screen ───────────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var allConvs by remember { mutableStateOf(emptyList<Conversation>()) }
+    val archived = remember { mutableStateOf(ArchiveStore.get(ctx)) }
+    LaunchedEffect(Unit) { allConvs = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } }
+    val visible = allConvs.filter { it.threadId in archived.value }
+
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+            title = { Text("Archived") }) }
+    ) { pad ->
+        if (visible.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Archive, null, tint = ThemeState.textHint, modifier = Modifier.size(56.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("No archived conversations", color = ThemeState.textHint, fontSize = 15.sp)
+                }
+            }
+        } else {
+            LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
+                items(visible, key = { it.threadId }) { conv ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(48.dp).clip(CircleShape).background(avatarColor(conv.address)), contentAlignment = Alignment.Center) {
+                            Text(initial(conv.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(conv.displayName, fontWeight = FontWeight.Medium, fontSize = 15.sp, color = ThemeState.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(conv.snippet, fontSize = 13.sp, color = ThemeState.textHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        IconButton(onClick = {
+                            ArchiveStore.remove(ctx, conv.threadId); archived.value = ArchiveStore.get(ctx)
+                            Toast.makeText(ctx, "Unarchived", Toast.LENGTH_SHORT).show()
+                        }) { Icon(Icons.Default.Unarchive, null, tint = ThemeState.textSecond) }
+                    }
+                    HorizontalDivider(Modifier.padding(start = 78.dp), thickness = .5.dp, color = ThemeState.divLt)
                 }
             }
         }
@@ -678,6 +729,8 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     val inSelectMode = selectedIds.isNotEmpty()
     var showMsgDetail by remember { mutableStateOf<Message?>(null) }
+    var isRecording by remember { mutableStateOf(false) }
+    var recordingSeconds by remember { mutableIntStateOf(0) }
 
     // Pull-down-to-dismiss
     var pullY by remember { mutableFloatStateOf(0f) }
@@ -899,6 +952,37 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             IconButton({ pendingMediaUri = null }) { Icon(Icons.Default.Close, null, tint = Red) }
                         }
                     }
+                    if (isRecording) {
+                        LaunchedEffect(isRecording) { recordingSeconds = 0; while (true) { delay(1000); recordingSeconds++ } }
+                        Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton({ isRecording = false }) { Icon(Icons.Default.Delete, null, tint = Red) }
+                            Box(Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(28.dp)).background(ThemeState.brandLt2), contentAlignment = Alignment.Center) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                    Box(Modifier.size(10.dp).clip(CircleShape).background(Red))
+                                    Spacer(Modifier.width(8.dp))
+                                    val mins = recordingSeconds / 60; val secs = recordingSeconds % 60
+                                    Text("${mins}:${secs.toString().padStart(2, '0')}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                                    Spacer(Modifier.width(12.dp))
+                                    // Waveform visualization
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        repeat(16) { i ->
+                                            val h = ((i * 7 + recordingSeconds * 3) % 13 + 4).dp
+                                            Box(Modifier.width(3.dp).height(h).clip(RoundedCornerShape(2.dp)).background(ThemeState.brand))
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            FloatingActionButton(
+                                onClick = {
+                                    isRecording = false
+                                    Toast.makeText(ctx, "Voice message (${recordingSeconds}s) — recording requires audio permission", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(46.dp), containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
+                                elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                            ) { Icon(Icons.Default.Send, null, Modifier.size(22.dp)) }
+                        }
+                    } else {
                     Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(ThemeState.brandLt2)) {
                             Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = ThemeState.textSecond, modifier = Modifier.size(24.dp))
@@ -922,13 +1006,14 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                         )
                         Spacer(Modifier.width(6.dp))
                         FloatingActionButton(
-                            onClick = { if (hasCont) doSend() },
+                            onClick = { if (hasCont) doSend() else isRecording = true },
                             modifier = Modifier.size(46.dp),
                             containerColor = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
                             contentColor = Color.White,
                             shape = CircleShape,
                             elevation = FloatingActionButtonDefaults.elevation(0.dp)
                         ) { Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp)) }
+                    }
                     }
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         LazyVerticalGrid(
