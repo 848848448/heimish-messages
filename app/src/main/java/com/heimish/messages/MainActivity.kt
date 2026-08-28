@@ -182,6 +182,8 @@ sealed class Screen {
     data object Settings : Screen()
     data class SettingSub(val key: String) : Screen()
     data object Admin : Screen()
+    data class ImagePreview(val conv: Conversation, val uri: Uri, val mediaType: String = "image") : Screen()
+    data class ForwardMsg(val body: String) : Screen()
 }
 
 @Composable
@@ -196,6 +198,8 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
         screen = when (screen) {
             is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin -> Screen.List
             is Screen.ContactDetail -> Screen.Chat((screen as Screen.ContactDetail).conv)
+            is Screen.ImagePreview -> Screen.Chat((screen as Screen.ImagePreview).conv)
+            is Screen.ForwardMsg -> Screen.List
             is Screen.SettingSub -> Screen.Settings
             else -> Screen.List
         }
@@ -206,12 +210,17 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
         !hasPerms  -> SetupPerms { permL.launch(Permissions.ALL) }
         else -> when (val s = screen) {
             Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin })
-            is Screen.Chat  -> ThreadScreen(s.conv, onDetails = { screen = Screen.ContactDetail(s.conv) }) { screen = Screen.List }
+            is Screen.Chat  -> ThreadScreen(s.conv,
+                onDetails = { screen = Screen.ContactDetail(s.conv) },
+                onImagePreview = { uri, type -> screen = Screen.ImagePreview(s.conv, uri, type) },
+                onForward = { body -> screen = Screen.ForwardMsg(body) }) { screen = Screen.List }
             is Screen.ContactDetail -> ContactDetailScreen(s.conv) { screen = Screen.Chat(s.conv) }
             Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
             Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
             is Screen.SettingSub -> SettingSubScreen(s.key) { screen = Screen.Settings }
             Screen.Admin    -> AdminScreen { screen = Screen.List }
+            is Screen.ImagePreview -> ImagePreviewScreen(s.conv, s.uri, s.mediaType) { screen = Screen.Chat(s.conv) }
+            is Screen.ForwardMsg -> ForwardScreen(s.body) { screen = Screen.List }
         }
     }
 }
@@ -618,7 +627,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 // ━━━━━━━━━━━━━━━━ THREAD / CHAT SCREEN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack: () -> Unit) {
+fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImagePreview: (Uri, String) -> Unit = { _, _ -> }, onForward: (String) -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var msgs by remember { mutableStateOf(emptyList<Message>()) }
     var draft by remember { mutableStateOf("") }
@@ -635,6 +644,8 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack:
     var replyTo by remember { mutableStateOf<Message?>(null) }
     var showSearch by remember { mutableStateOf(false) }
     var viewerUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedIds by remember { mutableStateOf(setOf<Long>()) }
+    val inSelectMode = selectedIds.isNotEmpty()
 
     // Pull-down-to-dismiss
     var pullY by remember { mutableFloatStateOf(0f) }
@@ -668,12 +679,12 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack:
         }
     }
 
-    BackHandler { onBack() }
+    BackHandler { if (inSelectMode) selectedIds = emptySet() else onBack() }
     LaunchedEffect(Unit) { reload(scrollToEnd = true); SmsRepository.markThreadRead(ctx, conversation.threadId) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); reload() } }
 
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false } }
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "video"; showAttach = false } }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "image") } }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "video") } }
 
     // Floating context menu (long-press on message)
     if (ctxMsg != null) {
@@ -702,10 +713,8 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack:
                             (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.body))
                             Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
                         }
-                        MenuBtn(Icons.Default.Forward, "Forward") {
-                            ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
-                            ctxMsg = null
-                        }
+                        MenuBtn(Icons.Default.Forward, "Forward") { onForward(m.body); ctxMsg = null }
+                        MenuBtn(Icons.Default.CheckBox, "Select") { selectedIds = setOf(m.id); ctxMsg = null }
                         MenuBtn(Icons.Default.Star, "Star", Color(0xFFFFC107)) { Toast.makeText(ctx, "\u2b50 Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null }
                         MenuBtn(Icons.Default.Info, "Details") {
                             val det = "Type: ${if (m.isMms) "MMS" else "SMS"}\nTime: ${msgTime(m.date)}\nStatus: ${if (m.incoming) "Received" else "Sent"}"
@@ -742,6 +751,30 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack:
     ) {
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
+            if (inSelectMode) {
+                TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brand, titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White),
+                    navigationIcon = { IconButton({ selectedIds = emptySet() }) { Icon(Icons.Default.Close, null) } },
+                    title = { Text("${selectedIds.size}", fontWeight = FontWeight.Bold) },
+                    actions = {
+                        IconButton({
+                            val selMsgs = msgs.filter { it.id in selectedIds }
+                            val text = selMsgs.joinToString("\n") { it.body }
+                            (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msgs", text))
+                            Toast.makeText(ctx, "Copied ${selMsgs.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet()
+                        }) { Icon(Icons.Default.ContentCopy, null) }
+                        IconButton({
+                            val selMsgs = msgs.filter { it.id in selectedIds }
+                            val text = selMsgs.joinToString("\n") { it.body }
+                            onForward(text); selectedIds = emptySet()
+                        }) { Icon(Icons.Default.Forward, null) }
+                        IconButton({ Toast.makeText(ctx, "Starred ${selectedIds.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet() }) { Icon(Icons.Default.Star, null) }
+                        IconButton({
+                            scope.launch(Dispatchers.IO) { selectedIds.forEach { id -> SmsRepository.deleteMessage(ctx, id) } }
+                            Toast.makeText(ctx, "Deleted ${selectedIds.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet(); reload()
+                        }) { Icon(Icons.Default.Delete, null) }
+                    }
+                )
+            } else {
             TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary, actionIconContentColor = ThemeState.textPrimary),
                 navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.Default.ArrowBack, null) } },
                 title = {
@@ -790,6 +823,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack:
                     }
                 }
             )
+            }
         },
         bottomBar = {
             Surface(color = ThemeState.surf, shadowElevation = 2.dp) {
@@ -904,8 +938,19 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack:
                     item(key = "day_$day") { DayHeader(day) }
                     val isGroupChat = conversation.address.contains(";")
                     items(dayMsgs, key = { it.id }) { m ->
-                        SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
-                            onImageClick = { uri -> viewerUri = uri }, isGroup = isGroupChat)
+                        if (inSelectMode) {
+                            Row(Modifier.fillMaxWidth().clickable {
+                                selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id
+                            }.background(if (m.id in selectedIds) ThemeState.brandLt2 else Color.Transparent).padding(start = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(m.id in selectedIds, { selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id },
+                                    colors = CheckboxDefaults.colors(checkedColor = ThemeState.brand))
+                                Box(Modifier.weight(1f)) { MessageBubble(m, {}, null, isGroupChat) }
+                            }
+                        } else {
+                            SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
+                                onImageClick = { uri -> viewerUri = uri }, isGroup = isGroupChat)
+                        }
                     }
                 }
                 if (msgs.isNotEmpty() && msgs.last().incoming) {
@@ -1148,6 +1193,170 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
             }
         }
         if (isIn) Spacer(Modifier.width(56.dp))
+    }
+}
+
+// ━━━━━━━━━━━━━━━━ IMAGE PREVIEW (with caption) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ImagePreviewScreen(conv: Conversation, uri: Uri, mediaType: String, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var caption by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+
+    Scaffold(containerColor = Color.Black,
+        topBar = {
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(Color.Black.copy(.7f), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White),
+                navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                title = { Text(conv.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+        },
+        bottomBar = {
+            Surface(color = Color.Black.copy(.85f)) {
+                Column(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth(),
+                        placeholder = { Text("Add a caption", color = Color.White.copy(.5f)) }, singleLine = false, maxLines = 3,
+                        shape = RoundedCornerShape(28.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.White.copy(.1f), unfocusedContainerColor = Color.White.copy(.1f),
+                            focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, cursorColor = Color.White))
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        FloatingActionButton(
+                            onClick = {
+                                if (!sending) {
+                                    sending = true
+                                    scope.launch(Dispatchers.IO) {
+                                        SmsRepository.sendMms(ctx, conv.address, uri, caption)
+                                        withContext(Dispatchers.Main) { sending = false; onBack() }
+                                    }
+                                }
+                            },
+                            containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
+                            modifier = Modifier.size(52.dp)
+                        ) {
+                            if (sending) CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Send, null, Modifier.size(22.dp))
+                        }
+                    }
+                }
+            }
+        }
+    ) { pad ->
+        Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
+            if (mediaType == "image") {
+                AsyncImage(uri, "preview", Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit)
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.PlayCircle, null, tint = Color.White, modifier = Modifier.size(64.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Video selected", color = Color.White.copy(.7f), fontSize = 14.sp)
+                }
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━ FORWARD / SELECT RECIPIENTS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ForwardScreen(body: String, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var contacts by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
+    var selected by remember { mutableStateOf(listOf<Pair<String, String>>()) }
+    var search by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { contacts = withContext(Dispatchers.IO) { SmsRepository.loadContactsList(ctx) } }
+    val filtered = if (search.isBlank()) contacts else contacts.filter { it.first.contains(search, true) || it.second.contains(search, true) }
+
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = {
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+                navigationIcon = { IconButton(onDone) { Icon(Icons.Default.ArrowBack, null) } },
+                title = { Text("Forward to…") })
+        },
+        bottomBar = {
+            if (selected.isNotEmpty()) {
+                Surface(color = ThemeState.surf, shadowElevation = 4.dp) {
+                    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${selected.size} recipient${if (selected.size > 1) "s" else ""}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                            Text(body.take(60) + if (body.length > 60) "…" else "", fontSize = 12.sp, color = ThemeState.textHint, maxLines = 1)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        FloatingActionButton(
+                            onClick = {
+                                if (!sending) {
+                                    sending = true
+                                    scope.launch(Dispatchers.IO) {
+                                        selected.forEach { (_, num) -> SmsRepository.sendSms(ctx, num, body) }
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(ctx, "Forwarded to ${selected.size} contact${if (selected.size > 1) "s" else ""}", Toast.LENGTH_SHORT).show()
+                                            sending = false; onDone()
+                                        }
+                                    }
+                                }
+                            },
+                            containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            if (sending) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Send, null, Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+        }
+    ) { pad ->
+        Column(Modifier.padding(pad)) {
+            if (selected.isNotEmpty()) {
+                FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    selected.forEach { (name, num) ->
+                        AssistChip(onClick = { selected = selected.filter { it.second != num } }, label = { Text(name, fontSize = 13.sp) },
+                            trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = ThemeState.brandSurf))
+                    }
+                }
+            }
+            Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2) {
+                Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    TextField(search, { search = it }, Modifier.weight(1f), placeholder = { Text("Search contacts", color = ThemeState.textHint) }, singleLine = true,
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = ThemeState.brand))
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            // Message preview
+            Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), color = ThemeState.brandLt2) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.FormatQuote, null, tint = ThemeState.brand, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(body.take(120) + if (body.length > 120) "…" else "", fontSize = 13.sp, color = ThemeState.textSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
+                items(filtered) { (name, number) ->
+                    val isSelected = selected.any { it.second == number }
+                    Row(Modifier.fillMaxWidth().clickable {
+                        if (isSelected) selected = selected.filter { it.second != number }
+                        else selected = selected + (name to number)
+                    }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(44.dp).clip(CircleShape).background(avatarColor(number)), contentAlignment = Alignment.Center) {
+                            Text(initial(name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = ThemeState.textPrimary); Text(number, fontSize = 13.sp, color = ThemeState.textHint) }
+                        if (isSelected) Icon(Icons.Default.CheckCircle, null, tint = ThemeState.brand)
+                    }
+                    HorizontalDivider(Modifier.padding(start = 74.dp), thickness = .5.dp, color = ThemeState.divLt)
+                }
+            }
+        }
     }
 }
 
