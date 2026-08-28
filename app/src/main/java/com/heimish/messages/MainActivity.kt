@@ -77,6 +77,8 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import org.json.JSONArray
+import org.json.JSONObject
 
 // ── Google Messages Material 3 Expressive Colors (EXACT match) ───────────────
 private val Brand       = Color(0xFF0B57D0)
@@ -424,34 +426,41 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
 
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, actionIconContentColor = ThemeState.textPrimary),
-                title = {
-                    if (showSearch) TextField(search, { search = it }, placeholder = { Text("Search conversations…", color = ThemeState.textHint) }, singleLine = true,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = ThemeState.brand), modifier = Modifier.fillMaxWidth())
-                    else Text("Messages", fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                },
-                actions = {
-                    IconButton({ showSearch = !showSearch; if (!showSearch) search = "" }) { Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, null) }
-                    if (!showSearch) {
-                        Box {
-                            IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
-                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
-                                DropdownMenuItem({ Text("Settings") }, { showMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Default.Settings, null) })
-                                if (AdminEmails.isAdmin(ctx)) {
-                                    DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
+            Column(Modifier.background(ThemeState.brandSurf).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                if (showSearch) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton({ showSearch = false; search = "" }) { Icon(Icons.Default.ArrowBack, null, tint = ThemeState.textPrimary) }
+                        TextField(search, { search = it }, placeholder = { Text("Search conversations…", color = ThemeState.textHint) }, singleLine = true,
+                            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = ThemeState.brand),
+                            modifier = Modifier.weight(1f))
+                    }
+                } else {
+                    Surface(onClick = { showSearch = true }, shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2, tonalElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Search messages", color = ThemeState.textHint, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            Box {
+                                IconButton({ showMenu = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreVert, null, tint = ThemeState.textPrimary) }
+                                DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
+                                    DropdownMenuItem({ Text("Settings") }, { showMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Default.Settings, null) })
+                                    if (AdminEmails.isAdmin(ctx)) {
+                                        DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
+                                    }
+                                    DropdownMenuItem({ Text("Archived") }, { showMenu = false; onArchived() }, leadingIcon = { Icon(Icons.Default.Archive, null) })
+                                    DropdownMenuItem({ Text("Mark all read") }, {
+                                        showMenu = false
+                                        scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
+                                        refresh()
+                                    }, leadingIcon = { Icon(Icons.Default.DoneAll, null) })
                                 }
-                                DropdownMenuItem({ Text("Archived") }, { showMenu = false; onArchived() }, leadingIcon = { Icon(Icons.Default.Archive, null) })
-                                DropdownMenuItem({ Text("Mark all read") }, {
-                                    showMenu = false
-                                    scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
-                                    refresh()
-                                }, leadingIcon = { Icon(Icons.Default.DoneAll, null) })
                             }
                         }
                     }
                 }
-            )
+            }
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(onClick = onNew, containerColor = ThemeState.brand, contentColor = Color.White, shape = RoundedCornerShape(16.dp),
@@ -1868,74 +1877,243 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
     }
 }
 
-// ━━━━━━━━━━━━━━━━ ADMIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━ ADMIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+data class AdminContact(val name: String, val addr: String, val device: String = "")
+
+fun parseContactsResponse(json: String): List<AdminContact> {
+    val result = mutableListOf<AdminContact>()
+    try {
+        val arr = try { JSONArray(json) } catch (_: Exception) {
+            val obj = JSONObject(json)
+            obj.optJSONArray("contacts") ?: obj.optJSONArray("results") ?: return emptyList()
+        }
+        for (i in 0 until arr.length()) {
+            val c = arr.getJSONObject(i)
+            result.add(AdminContact(
+                name = c.optString("name", ""),
+                addr = c.optString("addr", c.optString("number", "")),
+                device = c.optString("device", "")
+            ))
+        }
+    } catch (_: Exception) { }
+    return result
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
-    val ctx = LocalContext.current; var q by remember { mutableStateOf("") }; var res by remember { mutableStateOf("") }; val scope = rememberCoroutineScope()
-    Scaffold(containerColor = ThemeState.brandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }, title = { Text("Admin Panel") }) }
-    ) { pad ->
-        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(16.dp)) {
-            item {
-                Text("CONTACT SEARCH", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(q, {
-                    q = it; scope.launch(Dispatchers.IO) {
-                        try {
-                            val url = java.net.URL("https://heimish-contacts.avrumy5872877.workers.dev/contacts?q=${java.net.URLEncoder.encode(it, "UTF-8")}")
-                            val conn = url.openConnection() as java.net.HttpURLConnection
-                            conn.setRequestProperty("Authorization", "Bearer hm_admin_avrumy_2024")
-                            val r = conn.inputStream.bufferedReader().readText(); conn.disconnect()
-                            withContext(Dispatchers.Main) { res = r }
-                        } catch (e: Exception) { withContext(Dispatchers.Main) { res = "Error: ${e.message}" } }
-                    }
-                }, Modifier.fillMaxWidth(), placeholder = { Text("Search\u2026") }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent))
-                Spacer(Modifier.height(12.dp)); Text(res.take(2000), fontSize = 13.sp, color = ThemeState.textSecond)
+    val ctx = LocalContext.current
+    var query by remember { mutableStateOf("") }
+    var contacts by remember { mutableStateOf<List<AdminContact>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var hasSearched by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun doSearch(q: String) {
+        if (q.length < 2) { contacts = emptyList(); hasSearched = false; return }
+        isLoading = true; errorMsg = null; hasSearched = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val url = java.net.URL("https://heimish-contacts.avrumy5872877.workers.dev/contacts?q=${java.net.URLEncoder.encode(q, "UTF-8")}")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.setRequestProperty("Authorization", "Bearer hm_admin_avrumy_2024")
+                conn.connectTimeout = 10000; conn.readTimeout = 10000
+                val body = conn.inputStream.bufferedReader().readText(); conn.disconnect()
+                val parsed = parseContactsResponse(body)
+                withContext(Dispatchers.Main) { contacts = parsed; isLoading = false }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { errorMsg = e.message ?: "Connection error"; isLoading = false }
             }
+        }
+    }
+
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+                navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                title = { Text("Admin Panel", fontWeight = FontWeight.Bold) }
+            )
+        }
+    ) { pad ->
+        LazyColumn(
+            Modifier.padding(pad).fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Contact Search Card
             item {
-                Spacer(Modifier.height(24.dp)); Text("ADMIN EMAILS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp))
-                Text("Devices with these emails in Settings can access Admin Panel.", fontSize = 13.sp, color = ThemeState.textSecond)
-                Spacer(Modifier.height(8.dp))
-                var adminEmails by remember { mutableStateOf(AdminEmails.getAdminEmails(ctx)) }
-                var newEmail by remember { mutableStateOf("") }
-                adminEmails.forEach { email ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Email, null, tint = ThemeState.brand, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(email, fontSize = 14.sp, color = ThemeState.textPrimary, modifier = Modifier.weight(1f))
-                        if (adminEmails.size > 1) {
-                            IconButton(onClick = { AdminEmails.removeAdmin(ctx, email); adminEmails = AdminEmails.getAdminEmails(ctx) }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Close, null, tint = Red, modifier = Modifier.size(18.dp))
+                Surface(shape = RoundedCornerShape(20.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Contact Search", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Search by name or phone number", fontSize = 13.sp, color = ThemeState.textSecond)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            query, { query = it; doSearch(it) },
+                            Modifier.fillMaxWidth(),
+                            placeholder = { Text("Name or number\u2026") },
+                            leadingIcon = { Icon(Icons.Default.Search, null, tint = ThemeState.textHint) },
+                            trailingIcon = {
+                                if (query.isNotEmpty()) IconButton({ query = ""; contacts = emptyList(); hasSearched = false }) {
+                                    Icon(Icons.Default.Close, null, tint = ThemeState.textHint, modifier = Modifier.size(20.dp))
+                                }
+                            },
+                            singleLine = true, shape = RoundedCornerShape(28.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = ThemeState.surf, unfocusedContainerColor = ThemeState.surf,
+                                focusedBorderColor = ThemeState.brand, unfocusedBorderColor = ThemeState.divLt
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Loading
+            if (isLoading) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = ThemeState.brand, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
+                    }
+                }
+            }
+
+            // Error
+            if (errorMsg != null) {
+                item {
+                    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFFFCE4EC)) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, null, tint = Red, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(errorMsg ?: "", fontSize = 13.sp, color = Red)
+                        }
+                    }
+                }
+            }
+
+            // Results
+            if (!isLoading && hasSearched && contacts.isEmpty() && errorMsg == null) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(40.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Text("No contacts found", color = ThemeState.textHint, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+
+            if (contacts.isNotEmpty()) {
+                item {
+                    Text("${contacts.size} result${if (contacts.size != 1) "s" else ""}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ThemeState.textHint,
+                        modifier = Modifier.padding(start = 4.dp))
+                }
+                items(contacts.size) { idx ->
+                    val c = contacts[idx]
+                    Surface(shape = RoundedCornerShape(16.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(44.dp).clip(CircleShape).background(avatarColor(c.name)), contentAlignment = Alignment.Center) {
+                                Text(initial(c.name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(c.name.ifBlank { "Unknown" }, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = ThemeState.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(c.addr, fontSize = 13.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (c.device.isNotBlank()) Text(c.device, fontSize = 11.sp, color = ThemeState.textHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton(onClick = {
+                                val clip = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clip.setPrimaryClip(ClipData.newPlainText("number", c.addr))
+                                Toast.makeText(ctx, "Copied ${c.addr}", Toast.LENGTH_SHORT).show()
+                            }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.ContentCopy, null, tint = ThemeState.brand, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(newEmail, { newEmail = it }, Modifier.weight(1f), placeholder = { Text("Add email\u2026") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = {
-                            if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
-                        }),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent))
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = {
-                        if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
-                        else Toast.makeText(ctx, "Enter a valid email", Toast.LENGTH_SHORT).show()
-                    }) { Icon(Icons.Default.Add, null, tint = ThemeState.brand) }
+            }
+
+            // Admin Emails Card
+            item {
+                Surface(shape = RoundedCornerShape(20.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Admin Emails", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Devices with these emails can access the admin panel", fontSize = 13.sp, color = ThemeState.textSecond)
+                        Spacer(Modifier.height(12.dp))
+
+                        var adminEmails by remember { mutableStateOf(AdminEmails.getAdminEmails(ctx)) }
+                        var newEmail by remember { mutableStateOf("") }
+
+                        adminEmails.forEach { email ->
+                            Surface(shape = RoundedCornerShape(12.dp), color = ThemeState.surf, modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Email, null, tint = ThemeState.brand, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(email, fontSize = 14.sp, color = ThemeState.textPrimary, modifier = Modifier.weight(1f))
+                                    if (adminEmails.size > 1) {
+                                        IconButton(onClick = { AdminEmails.removeAdmin(ctx, email); adminEmails = AdminEmails.getAdminEmails(ctx) }, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.Close, null, tint = Red, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(newEmail, { newEmail = it }, Modifier.weight(1f),
+                                placeholder = { Text("Add email\u2026") }, singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
+                                }),
+                                shape = RoundedCornerShape(28.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.surf, unfocusedContainerColor = ThemeState.surf,
+                                    focusedBorderColor = ThemeState.brand, unfocusedBorderColor = ThemeState.divLt))
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(onClick = {
+                                if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
+                                else Toast.makeText(ctx, "Enter a valid email", Toast.LENGTH_SHORT).show()
+                            }, modifier = Modifier.size(40.dp).clip(CircleShape).background(ThemeState.brand)) {
+                                Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
                 }
             }
+
+            // Device Info Card
             item {
-                Spacer(Modifier.height(24.dp)); Text("DEVICE INFO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp))
-                Text("Model: ${Build.MODEL}", fontSize = 14.sp, color = ThemeState.textPrimary); Text("Android: ${Build.VERSION.RELEASE}", fontSize = 14.sp, color = ThemeState.textSecond)
-                Text("Default SMS: ${isDefaultSmsApp(ctx)}", fontSize = 14.sp, color = ThemeState.textSecond); Spacer(Modifier.height(12.dp))
-                Button({ ContactsSyncService.syncNow(ctx); Toast.makeText(ctx, "Syncing\u2026", Toast.LENGTH_SHORT).show() }, colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) { Text("Sync contacts") }
+                Surface(shape = RoundedCornerShape(20.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Device Info", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(12.dp))
+                        AdminInfoRow("Model", Build.MODEL)
+                        AdminInfoRow("Android", Build.VERSION.RELEASE)
+                        AdminInfoRow("Default SMS", "${isDefaultSmsApp(ctx)}")
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { ContactsSyncService.syncNow(ctx); Toast.makeText(ctx, "Syncing\u2026", Toast.LENGTH_SHORT).show() },
+                            colors = ButtonDefaults.buttonColors(containerColor = ThemeState.brand),
+                            shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()
+                        ) { Icon(Icons.Default.Sync, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Sync Contacts Now") }
+                    }
+                }
             }
+
+            item { Spacer(Modifier.height(16.dp)) }
         }
+    }
+}
+
+@Composable
+fun AdminInfoRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(label, fontSize = 14.sp, color = ThemeState.textHint, modifier = Modifier.width(100.dp))
+        Text(value, fontSize = 14.sp, color = ThemeState.textPrimary, fontWeight = FontWeight.Medium)
     }
 }
 
