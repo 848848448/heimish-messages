@@ -285,6 +285,37 @@ object ArchiveStore {
     }
 }
 
+// ── Starred messages store ──────────────────────────────────────────────────
+object StarredStore {
+    private const val KEY = "starred_messages"
+    fun get(ctx: Context): Set<Long> {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY, emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
+    }
+    fun toggle(ctx: Context, msgId: Long): Boolean {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        val added = if (set.contains(msgId.toString())) { set.remove(msgId.toString()); false } else { set.add(msgId.toString()); true }
+        prefs.edit().putStringSet(KEY, set).apply()
+        return added
+    }
+    fun isStarred(ctx: Context, msgId: Long): Boolean = msgId.toString() in (ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getStringSet(KEY, emptySet()) ?: emptySet())
+}
+
+// ── Reaction store (local-only emoji reactions) ────────────────────────────
+object ReactionStore {
+    private const val PREFIX = "reaction_"
+    fun get(ctx: Context, msgId: Long): String? {
+        return ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("$PREFIX$msgId", null)
+    }
+    fun set(ctx: Context, msgId: Long, emoji: String) {
+        ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putString("$PREFIX$msgId", emoji).apply()
+    }
+    fun remove(ctx: Context, msgId: Long) {
+        ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().remove("$PREFIX$msgId").apply()
+    }
+}
+
 // ━━━━━━━━━━━━━━━━ ADMIN EMAIL GATE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 object AdminEmails {
     private const val KEY = "admin_emails"
@@ -646,6 +677,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     var viewerUri by remember { mutableStateOf<Uri?>(null) }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     val inSelectMode = selectedIds.isNotEmpty()
+    var showMsgDetail by remember { mutableStateOf<Message?>(null) }
 
     // Pull-down-to-dismiss
     var pullY by remember { mutableFloatStateOf(0f) }
@@ -698,8 +730,11 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                 Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 8.dp, color = ThemeState.surf) {
                     Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         listOf("\ud83d\ude02", "\ud83d\udc4d", "\u2764\ufe0f", "\ud83d\ude2e", "\ud83d\ude22", "\ud83d\ude21").forEach { emoji ->
-                            Box(Modifier.size(42.dp).clip(CircleShape).clickable {
-                                Toast.makeText(ctx, "$emoji Reacted", Toast.LENGTH_SHORT).show(); ctxMsg = null
+                            val current = ReactionStore.get(ctx, m.id)
+                            Box(Modifier.size(42.dp).clip(CircleShape).background(if (current == emoji) ThemeState.brandLt2 else Color.Transparent).clickable {
+                                if (current == emoji) ReactionStore.remove(ctx, m.id)
+                                else ReactionStore.set(ctx, m.id, emoji)
+                                ctxMsg = null
                             }, contentAlignment = Alignment.Center) { Text(emoji, fontSize = 24.sp) }
                         }
                     }
@@ -715,11 +750,12 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                         }
                         MenuBtn(Icons.Default.Forward, "Forward") { onForward(m.body); ctxMsg = null }
                         MenuBtn(Icons.Default.CheckBox, "Select") { selectedIds = setOf(m.id); ctxMsg = null }
-                        MenuBtn(Icons.Default.Star, "Star", Color(0xFFFFC107)) { Toast.makeText(ctx, "\u2b50 Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null }
-                        MenuBtn(Icons.Default.Info, "Details") {
-                            val det = "Type: ${if (m.isMms) "MMS" else "SMS"}\nTime: ${msgTime(m.date)}\nStatus: ${if (m.incoming) "Received" else "Sent"}"
-                            Toast.makeText(ctx, det, Toast.LENGTH_LONG).show(); ctxMsg = null
+                        MenuBtn(if (StarredStore.isStarred(ctx, m.id)) Icons.Default.StarBorder else Icons.Default.Star,
+                            if (StarredStore.isStarred(ctx, m.id)) "Unstar" else "Star", Color(0xFFFFC107)) {
+                            val added = StarredStore.toggle(ctx, m.id)
+                            Toast.makeText(ctx, if (added) "Starred" else "Unstarred", Toast.LENGTH_SHORT).show(); ctxMsg = null
                         }
+                        MenuBtn(Icons.Default.Info, "Details") { showMsgDetail = m; ctxMsg = null }
                         MenuBtn(Icons.Default.Delete, "Delete", Red) {
                             scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m.id) }
                             ctxMsg = null; reload()
@@ -767,7 +803,10 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             val text = selMsgs.joinToString("\n") { it.body }
                             onForward(text); selectedIds = emptySet()
                         }) { Icon(Icons.Default.Forward, null) }
-                        IconButton({ Toast.makeText(ctx, "Starred ${selectedIds.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet() }) { Icon(Icons.Default.Star, null) }
+                        IconButton({
+                            selectedIds.forEach { id -> StarredStore.toggle(ctx, id) }
+                            Toast.makeText(ctx, "Starred ${selectedIds.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet()
+                        }) { Icon(Icons.Default.Star, null) }
                         IconButton({
                             scope.launch(Dispatchers.IO) { selectedIds.forEach { id -> SmsRepository.deleteMessage(ctx, id) } }
                             Toast.makeText(ctx, "Deleted ${selectedIds.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet(); reload()
@@ -804,7 +843,14 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                                 DropdownMenuItem({ Text("Details") }, { showMenu = false; onDetails() }, leadingIcon = { Icon(Icons.Default.Info, null) })
                                 DropdownMenuItem({ Text("Search") }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null) })
                                 DropdownMenuItem({ Text("Starred") }, {
-                                    showMenu = false; Toast.makeText(ctx, "No starred messages", Toast.LENGTH_SHORT).show()
+                                    showMenu = false
+                                    val starredIds = StarredStore.get(ctx)
+                                    val starredMsgs = msgs.filter { it.id in starredIds }
+                                    if (starredMsgs.isEmpty()) Toast.makeText(ctx, "No starred messages", Toast.LENGTH_SHORT).show()
+                                    else {
+                                        val summary = starredMsgs.joinToString("\n\n") { "${msgTime(it.date)}: ${it.body.take(80)}" }
+                                        Toast.makeText(ctx, "${starredMsgs.size} starred messages", Toast.LENGTH_LONG).show()
+                                    }
                                 }, leadingIcon = { Icon(Icons.Default.Star, null) })
                                 DropdownMenuItem({ Text("Archive") }, {
                                     showMenu = false; ArchiveStore.add(ctx, conversation.threadId)
@@ -986,6 +1032,30 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     }
     } // end pull-down Box
     if (viewerUri != null) MediaViewerOverlay(viewerUri!!) { viewerUri = null }
+
+    // Message details dialog
+    if (showMsgDetail != null) {
+        val md = showMsgDetail!!
+        AlertDialog(
+            onDismissRequest = { showMsgDetail = null },
+            containerColor = ThemeState.surf, shape = RoundedCornerShape(28.dp),
+            title = { Text("Message details", fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DetailInfoRow("Type", if (md.isMms) "MMS" else "SMS")
+                    DetailInfoRow("Status", if (md.incoming) "Received" else "Sent")
+                    DetailInfoRow("Time", SimpleDateFormat("EEEE, MMM d, yyyy h:mm:ss a", Locale.getDefault()).format(Date(md.date)))
+                    if (md.address != null) DetailInfoRow("Address", md.address)
+                    DetailInfoRow("Size", "${md.body.length} chars")
+                    if (md.imageUri != null) DetailInfoRow("Attachment", "Image")
+                    DetailInfoRow("Starred", if (StarredStore.isStarred(ctx, md.id)) "Yes" else "No")
+                    val reaction = ReactionStore.get(ctx, md.id)
+                    if (reaction != null) DetailInfoRow("Reaction", reaction)
+                }
+            },
+            confirmButton = { TextButton({ showMsgDetail = null }) { Text("Close", color = ThemeState.brand) } }
+        )
+    }
 }
 
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
@@ -1184,11 +1254,24 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                 }
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically) {
+                    if (StarredStore.isStarred(ctx, m.id)) {
+                        Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(3.dp))
+                    }
                     Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) ThemeState.textHint else if (ThemeState.isDark) Color.White.copy(.7f) else ThemeState.textHint)
                     if (!isIn) {
                         Spacer(Modifier.width(4.dp))
                         Icon(Icons.Default.DoneAll, null, tint = if (ThemeState.isDark) Color.White.copy(.85f) else ThemeState.brand, modifier = Modifier.size(14.dp))
                     }
+                }
+            }
+        }
+        // Reaction badge under bubble
+        val reaction = ReactionStore.get(ctx, m.id)
+        if (reaction != null) {
+            Box(Modifier.offset(y = (-6).dp).then(if (isIn) Modifier.padding(start = 12.dp) else Modifier.padding(end = 12.dp))) {
+                Surface(shape = RoundedCornerShape(12.dp), color = ThemeState.surf, shadowElevation = 2.dp, border = BorderStroke(.5.dp, ThemeState.divLt)) {
+                    Text(reaction, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                 }
             }
         }
@@ -1711,6 +1794,14 @@ fun DetailRow(icon: ImageVector, title: String, sub: String, tint: Color = Theme
             Text(title, fontSize = 15.sp, color = if (tint == Red) Red else ThemeState.textPrimary)
             if (sub.isNotBlank()) Text(sub, fontSize = 13.sp, color = ThemeState.textHint)
         }
+    }
+}
+
+@Composable
+fun DetailInfoRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, fontSize = 14.sp, color = ThemeState.textHint, modifier = Modifier.weight(.35f))
+        Text(value, fontSize = 14.sp, color = ThemeState.textPrimary, modifier = Modifier.weight(.65f))
     }
 }
 
