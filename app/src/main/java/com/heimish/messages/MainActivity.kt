@@ -995,7 +995,7 @@ fun MenuBtn(icon: ImageVector, label: String, tint: Color = ThemeState.textPrima
     }
 }
 
-// ━━━━━━━━━━━━━━━━ EMOJI PICKER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━ EMOJI / GIF / STICKERS PICKER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @Composable
 fun EmojiPicker(onPick: (String) -> Unit) {
     val emojis = listOf(
@@ -1007,18 +1007,40 @@ fun EmojiPicker(onPick: (String) -> Unit) {
         "\ud83d\ude07","\ud83e\udd29","\ud83d\ude1c","\ud83e\udee3","\ud83e\udd7a","\ud83d\ude24","\ud83d\ude43","\ud83d\ude2c","\ud83e\udd2b","\ud83e\udee0",
         "\ud83d\udc94","\ud83d\udc95","\ud83d\udc96","\ud83e\udee0","\ud83d\udc4f","\ud83e\udd1e","\u270c\ufe0f","\ud83e\udd1f","\ud83e\udee5","\ud83d\udc40"
     )
+    var tab by remember { mutableIntStateOf(0) }
+    var search by remember { mutableStateOf("") }
+    val stickers = listOf("\ud83c\udf89","\ud83e\udd73","\ud83e\udd19","\u2728","\ud83d\udc96","\ud83c\udf08","\ud83e\udd84","\ud83c\udf8a","\ud83c\udf7e","\ud83e\udd42",
+        "\ud83c\udf86","\ud83c\udf87","\ud83e\udde8","\ud83e\ude84","\ud83e\udee6","\ud83e\udd0c","\ud83d\udcab","\u26a1","\ud83c\udf1f","\ud83d\udc9d")
+
     Surface(color = ThemeState.brandSurf, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
         Column {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("\ud83d\ude0a Emoji" to true, "GIF" to false, "Stickers" to false).forEach { (label, active) ->
-                    Box(Modifier.clip(RoundedCornerShape(20.dp)).background(if (active) ThemeState.brandSurf else Color.Transparent).clickable {}.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                        Text(label, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal, color = if (active) ThemeState.brand else ThemeState.textHint)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("Emoji", "GIFs", "Stickers").forEachIndexed { i, label ->
+                    Surface(onClick = { tab = i }, shape = RoundedCornerShape(20.dp),
+                        color = if (tab == i) ThemeState.brand else Color.Transparent) {
+                        Text(label, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 13.sp,
+                            fontWeight = if (tab == i) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (tab == i) Color.White else ThemeState.textHint)
                     }
                 }
             }
-            LazyVerticalGrid(GridCells.Fixed(8), Modifier.fillMaxWidth().heightIn(max = 200.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                items(emojis) { e ->
-                    Box(Modifier.size(44.dp).clickable { onPick(e) }, contentAlignment = Alignment.Center) { Text(e, fontSize = 24.sp) }
+            OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).height(42.dp),
+                placeholder = { Text("Search\u2026", fontSize = 13.sp) }, singleLine = true,
+                shape = RoundedCornerShape(20.dp), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(18.dp)) })
+            when (tab) {
+                0 -> LazyVerticalGrid(GridCells.Fixed(8), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    items(emojis) { e -> Box(Modifier.size(44.dp).clickable { onPick(e) }, contentAlignment = Alignment.Center) { Text(e, fontSize = 24.sp) } }
+                }
+                1 -> Box(Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(16.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Gif, null, tint = ThemeState.textHint, modifier = Modifier.size(48.dp))
+                        Spacer(Modifier.height(8.dp)); Text("Search for GIFs", fontSize = 14.sp, color = ThemeState.textHint)
+                    }
+                }
+                2 -> LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    items(stickers) { s -> Box(Modifier.size(60.dp).clickable { onPick(s) }, contentAlignment = Alignment.Center) { Text(s, fontSize = 36.sp) } }
                 }
             }
         }
