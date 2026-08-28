@@ -134,7 +134,7 @@ object SmsRepository {
                 val date     = c.getLong(iDate) * 1000L
                 val incoming = c.getInt(iBox) == 1
                 val (text, imgUri) = mmsParts(ctx, mmsId)
-                val mmsAddr = mmsAddress(ctx, mmsId)
+                val mmsAddr = mmsSenderAddress(ctx, mmsId)
                 out.add(Message(
                     id       = mmsId + 1_000_000L,
                     body     = text,
@@ -402,7 +402,7 @@ object SmsRepository {
         return text to imgUri
     }
 
-    private fun mmsAddress(ctx: Context, mmsId: Long): String? {
+    private fun mmsSenderAddress(ctx: Context, mmsId: Long): String? {
         return runCatching {
             ctx.contentResolver.query(
                 Uri.parse("content://mms/$mmsId/addr"),
