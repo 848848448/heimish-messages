@@ -26,7 +26,8 @@ data class Message(
     val incoming: Boolean,
     val isMms: Boolean = false,
     val imageUri: Uri? = null,
-    val address: String? = null
+    val address: String? = null,
+    val mediaMime: String? = null
 )
 
 object SmsRepository {
@@ -133,16 +134,17 @@ object SmsRepository {
                 val mmsId    = c.getLong(iId)
                 val date     = c.getLong(iDate) * 1000L
                 val incoming = c.getInt(iBox) == 1
-                val (text, imgUri) = mmsParts(ctx, mmsId)
+                val parts = mmsParts(ctx, mmsId)
                 val mmsAddr = mmsSenderAddress(ctx, mmsId)
                 out.add(Message(
                     id       = mmsId + 1_000_000L,
-                    body     = text,
+                    body     = parts.text,
                     date     = date,
                     incoming = incoming,
                     isMms    = true,
-                    imageUri = imgUri,
-                    address  = mmsAddr
+                    imageUri = parts.mediaUri,
+                    address  = mmsAddr,
+                    mediaMime = parts.mediaMime
                 ))
             }
         }
@@ -421,9 +423,12 @@ object SmsRepository {
         }.getOrDefault("")
     }
 
-    private fun mmsParts(ctx: Context, mmsId: Long): Pair<String, Uri?> {
+    data class MmsParts(val text: String, val mediaUri: Uri?, val mediaMime: String?)
+
+    private fun mmsParts(ctx: Context, mmsId: Long): MmsParts {
         var text = ""
-        var imgUri: Uri? = null
+        var mediaUri: Uri? = null
+        var mediaMime: String? = null
         runCatching {
             ctx.contentResolver.query(
                 Uri.parse("content://mms/$mmsId/part"),
@@ -437,13 +442,15 @@ object SmsRepository {
                     val ct     = c.getString(iCt) ?: ""
                     when {
                         ct == "text/plain" -> text = c.getString(iText) ?: ""
-                        ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/") ->
-                            imgUri = Uri.parse("content://mms/part/$partId")
+                        ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/") -> {
+                            mediaUri = Uri.parse("content://mms/part/$partId")
+                            mediaMime = ct
+                        }
                     }
                 }
             }
         }
-        return text to imgUri
+        return MmsParts(text, mediaUri, mediaMime)
     }
 
     private fun mmsSenderAddress(ctx: Context, mmsId: Long): String? {

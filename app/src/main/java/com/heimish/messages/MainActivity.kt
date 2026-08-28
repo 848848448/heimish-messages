@@ -383,7 +383,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     val scope = rememberCoroutineScope()
     val archived = remember { mutableStateOf(ArchiveStore.get(ctx)) }
 
-    fun refresh() { scope.launch { isRefreshing = true; list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; isRefreshing = false } }
+    fun refresh() { scope.launch { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } } }
     LaunchedEffect(Unit) { refresh() }
     LaunchedEffect(Unit) { while (true) { delay(30_000); val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; if (fresh != list) list = fresh } }
 
@@ -478,7 +478,6 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    if (isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth(), color = ThemeState.brand)
                     LazyColumn(
                         Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf),
                         state = rememberLazyListState()
@@ -739,7 +738,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     var pendingMediaType by remember { mutableStateOf("image") }
     var replyTo by remember { mutableStateOf<Message?>(null) }
     var showSearch by remember { mutableStateOf(false) }
-    var viewerUri by remember { mutableStateOf<Uri?>(null) }
+    var viewerIdx by remember { mutableIntStateOf(-1) }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     val inSelectMode = selectedIds.isNotEmpty()
     var showMsgDetail by remember { mutableStateOf<Message?>(null) }
@@ -763,9 +762,13 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     fun reload(scrollToEnd: Boolean = false) {
         val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
         val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-        val hadNewMsg = filtered.size > msgs.size
+        val hadNewMsg = filtered.size > msgs.size && msgs.isNotEmpty()
         msgs = filtered
-        if (scrollToEnd || hadNewMsg) scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
+        if (scrollToEnd) scope.launch { if (msgs.isNotEmpty()) listState.scrollToItem(msgs.size - 1) }
+        else if (hadNewMsg) {
+            val isAtBottom = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index == (msgs.size - 2).coerceAtLeast(0)
+            if (isAtBottom) scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
+        }
     }
 
     fun doSend() {
@@ -1148,7 +1151,10 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             }
                         } else {
                             SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
-                                onImageClick = { uri -> viewerUri = uri }, isGroup = isGroupChat)
+                                onImageClick = { uri ->
+                                    val imageUris = msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) }.map { it.imageUri!! }
+                                    viewerIdx = imageUris.indexOf(uri).coerceAtLeast(0)
+                                }, isGroup = isGroupChat)
                         }
                     }
                 }
@@ -1184,7 +1190,8 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         }
     }
     } // end pull-down Box
-    if (viewerUri != null) MediaViewerOverlay(viewerUri!!) { viewerUri = null }
+    val imageUris = remember(msgs) { msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) }.map { it.imageUri!! } }
+    if (viewerIdx >= 0 && imageUris.isNotEmpty()) MediaViewerOverlay(imageUris, viewerIdx, onChangeIdx = { viewerIdx = it }) { viewerIdx = -1 }
 
     // Schedule send dialog
     if (showScheduleDialog) {
@@ -1432,9 +1439,64 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                         modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (m.imageUri != null) {
-                    AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
-                        if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-                    ).clickable { onImageClick?.invoke(m.imageUri!!) }, contentScale = ContentScale.Crop)
+                    val mime = m.mediaMime ?: ""
+                    when {
+                        mime.startsWith("audio/") -> {
+                            Row(Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = {
+                                    try {
+                                        val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(m.imageUri, mime)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        ctx.startActivity(playIntent)
+                                    } catch (_: Exception) {
+                                        Toast.makeText(ctx, "No audio player found", Toast.LENGTH_SHORT).show()
+                                    }
+                                }, modifier = Modifier.size(44.dp).clip(CircleShape).background(
+                                    if (isIn) ThemeState.brand.copy(alpha = .15f) else Color.White.copy(alpha = .2f))) {
+                                    Icon(Icons.Default.PlayArrow, null, tint = if (isIn) ThemeState.brand else Color.White, modifier = Modifier.size(28.dp))
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text("Voice message", fontSize = fontSize.sp, fontWeight = FontWeight.Medium,
+                                        color = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(top = 4.dp)) {
+                                        repeat(20) { i ->
+                                            val h = ((i * 7 + 3) % 11 + 3).dp
+                                            Box(Modifier.width(3.dp).height(h).clip(RoundedCornerShape(2.dp))
+                                                .background(if (isIn) ThemeState.textHint else Color.White.copy(.5f)))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        mime.startsWith("video/") -> {
+                            Box(Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
+                                if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                            ).background(Color.Black).clickable {
+                                try {
+                                    val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(m.imageUri, mime)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    ctx.startActivity(playIntent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(ctx, "No video player found", Toast.LENGTH_SHORT).show()
+                                }
+                            }, contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.PlayCircle, null, tint = Color.White.copy(.9f), modifier = Modifier.size(56.dp))
+                                Text("Video", color = Color.White.copy(.7f), fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
+                            }
+                        }
+                        else -> {
+                            AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
+                                if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                            ).clickable { onImageClick?.invoke(m.imageUri!!) }, contentScale = ContentScale.Crop)
+                        }
+                    }
                 }
                 if (m.body.isNotBlank()) {
                     val textColor = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary
@@ -2218,9 +2280,25 @@ fun DetailInfoRow(label: String, value: String) {
 
 // ━━━━━━━━━━━━━━━━ FULL-SCREEN MEDIA VIEWER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @Composable
-fun MediaViewerOverlay(uri: Uri, onDismiss: () -> Unit) {
+fun MediaViewerOverlay(uris: List<Uri>, startIdx: Int, onChangeIdx: (Int) -> Unit, onDismiss: () -> Unit) {
+    var idx by remember { mutableIntStateOf(startIdx.coerceIn(0, uris.size - 1)) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    val uri = uris.getOrNull(idx) ?: return onDismiss()
+
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - abs(offsetY) / 600f).coerceIn(0.3f, 1f)))
+        .pointerInput(uris.size) {
+            detectHorizontalDragGestures(
+                onDragEnd = {
+                    when {
+                        offsetX < -100f && idx < uris.size - 1 -> { idx++; onChangeIdx(idx) }
+                        offsetX > 100f && idx > 0 -> { idx--; onChangeIdx(idx) }
+                    }
+                    offsetX = 0f
+                },
+                onHorizontalDrag = { _, dx -> offsetX += dx }
+            )
+        }
         .pointerInput(Unit) {
             detectVerticalDragGestures(
                 onDragEnd = { if (abs(offsetY) > 150f) onDismiss() else offsetY = 0f },
@@ -2229,16 +2307,26 @@ fun MediaViewerOverlay(uri: Uri, onDismiss: () -> Unit) {
         }
         .clickable { onDismiss() }
     ) {
-        AsyncImage(uri, "full", Modifier.fillMaxSize().offset { IntOffset(0, offsetY.roundToInt()) }, contentScale = ContentScale.Fit)
+        AsyncImage(uri, "full", Modifier.fillMaxSize()
+            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+            .graphicsLayer { alpha = (1f - abs(offsetX) / 400f).coerceIn(0.5f, 1f) },
+            contentScale = ContentScale.Fit)
         IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
             Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(28.dp))
         }
+        if (uris.size > 1) {
+            Text("${idx + 1} / ${uris.size}", color = Color.White.copy(.8f), fontSize = 14.sp,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp))
+        }
         Row(Modifier.align(Alignment.BottomCenter).padding(24.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            if (idx > 0) IconButton({ idx--; onChangeIdx(idx) }) { Icon(Icons.Default.ArrowBack, null, tint = Color.White) }
             IconButton({
-                val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "image/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                onDismiss()
+                try {
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "image/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    onDismiss()
+                } catch (_: Exception) {}
             }) { Icon(Icons.Default.Share, null, tint = Color.White) }
-            IconButton({}) { Icon(Icons.Default.Download, null, tint = Color.White) }
+            if (idx < uris.size - 1) IconButton({ idx++; onChangeIdx(idx) }) { Icon(Icons.Default.ArrowForward, null, tint = Color.White) }
         }
     }
 }
