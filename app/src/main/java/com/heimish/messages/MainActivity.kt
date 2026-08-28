@@ -80,7 +80,7 @@ private val BrandSurf   = Color(0xFFD3E3FD)
 private val BrandLt     = Color(0xFFD3E3FD)
 private val BrandLt2    = Color(0xFFEDF2FA)
 private val BubbleIn    = Color(0xFFE3E3E3)
-private val BubbleOut   = Color(0xFF0B57D0)
+private val BubbleOut   = Color(0xFFD3E3FD)
 private val BgSurf      = Color(0xFFF6F8FC)
 private val Surf        = Color.White
 private val TextPrimary = Color(0xFF1F1F1F)
@@ -177,6 +177,7 @@ fun isDefaultSmsApp(ctx: Context) = Telephony.Sms.getDefaultSmsPackage(ctx) == c
 sealed class Screen {
     data object List : Screen()
     data class Chat(val conv: Conversation) : Screen()
+    data class ContactDetail(val conv: Conversation) : Screen()
     data object NewConv : Screen()
     data object Settings : Screen()
     data class SettingSub(val key: String) : Screen()
@@ -194,6 +195,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     BackHandler(enabled = screen !is Screen.List) {
         screen = when (screen) {
             is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin -> Screen.List
+            is Screen.ContactDetail -> Screen.Chat((screen as Screen.ContactDetail).conv)
             is Screen.SettingSub -> Screen.Settings
             else -> Screen.List
         }
@@ -204,7 +206,8 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
         !hasPerms  -> SetupPerms { permL.launch(Permissions.ALL) }
         else -> when (val s = screen) {
             Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin })
-            is Screen.Chat  -> ThreadScreen(s.conv) { screen = Screen.List }
+            is Screen.Chat  -> ThreadScreen(s.conv, onDetails = { screen = Screen.ContactDetail(s.conv) }) { screen = Screen.List }
+            is Screen.ContactDetail -> ContactDetailScreen(s.conv) { screen = Screen.Chat(s.conv) }
             Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
             Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
             is Screen.SettingSub -> SettingSubScreen(s.key) { screen = Screen.Settings }
@@ -615,7 +618,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 // ━━━━━━━━━━━━━━━━ THREAD / CHAT SCREEN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
+fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var msgs by remember { mutableStateOf(emptyList<Message>()) }
     var draft by remember { mutableStateOf("") }
@@ -631,6 +634,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var pendingMediaType by remember { mutableStateOf("image") }
     var replyTo by remember { mutableStateOf<Message?>(null) }
     var showSearch by remember { mutableStateOf(false) }
+    var viewerUri by remember { mutableStateOf<Uri?>(null) }
 
     // Pull-down-to-dismiss
     var pullY by remember { mutableFloatStateOf(0f) }
@@ -671,46 +675,50 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false } }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "video"; showAttach = false } }
 
-    // Context menu dialog (long-press on message)
+    // Floating context menu (long-press on message)
     if (ctxMsg != null) {
         val m = ctxMsg!!
-        AlertDialog(
-            onDismissRequest = { ctxMsg = null },
-            containerColor = ThemeState.surf,
-            shape = RoundedCornerShape(28.dp),
-            title = { Text(m.body.take(60).ifBlank { "Message" }, fontSize = 14.sp, color = ThemeState.textSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-            text = {
-                Column {
-                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+        Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { ctxMsg = null }) {
+            Column(
+                Modifier.align(if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 16.dp).widthIn(max = 300.dp)
+            ) {
+                // Floating reaction bar
+                Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 8.dp, color = ThemeState.surf) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         listOf("\ud83d\ude02", "\ud83d\udc4d", "\u2764\ufe0f", "\ud83d\ude2e", "\ud83d\ude22", "\ud83d\ude21").forEach { emoji ->
-                            Box(Modifier.size(44.dp).clip(CircleShape).background(ThemeState.brandLt2).clickable {
+                            Box(Modifier.size(42.dp).clip(CircleShape).clickable {
                                 Toast.makeText(ctx, "$emoji Reacted", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                            }, contentAlignment = Alignment.Center) {
-                                Text(emoji, fontSize = 22.sp)
-                            }
+                            }, contentAlignment = Alignment.Center) { Text(emoji, fontSize = 24.sp) }
                         }
                     }
-                    HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
-                    Spacer(Modifier.height(4.dp))
-                    MenuBtn(Icons.Default.Reply, "Reply") { replyTo = m; ctxMsg = null }
-                    MenuBtn(Icons.Default.ContentCopy, "Copy") {
-                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.body))
-                        Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                    }
-                    MenuBtn(Icons.Default.Forward, "Forward") {
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
-                        ctxMsg = null
-                    }
-                    MenuBtn(Icons.Default.Star, "Star", Color(0xFFFFC107)) { Toast.makeText(ctx, "\u2b50 Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null }
-                    MenuBtn(Icons.Default.PushPin, "Pin") { Toast.makeText(ctx, "Pinned", Toast.LENGTH_SHORT).show(); ctxMsg = null }
-                    MenuBtn(Icons.Default.Delete, "Delete", Red) {
-                        scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m.id) }
-                        ctxMsg = null; reload()
+                }
+                Spacer(Modifier.height(4.dp))
+                // Action menu
+                Surface(shape = RoundedCornerShape(16.dp), shadowElevation = 8.dp, color = ThemeState.surf) {
+                    Column(Modifier.padding(vertical = 4.dp)) {
+                        MenuBtn(Icons.Default.Reply, "Reply") { replyTo = m; ctxMsg = null }
+                        MenuBtn(Icons.Default.ContentCopy, "Copy") {
+                            (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.body))
+                            Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
+                        }
+                        MenuBtn(Icons.Default.Forward, "Forward") {
+                            ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
+                            ctxMsg = null
+                        }
+                        MenuBtn(Icons.Default.Star, "Star", Color(0xFFFFC107)) { Toast.makeText(ctx, "\u2b50 Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null }
+                        MenuBtn(Icons.Default.Info, "Details") {
+                            val det = "Type: ${if (m.isMms) "MMS" else "SMS"}\nTime: ${msgTime(m.date)}\nStatus: ${if (m.incoming) "Received" else "Sent"}"
+                            Toast.makeText(ctx, det, Toast.LENGTH_LONG).show(); ctxMsg = null
+                        }
+                        MenuBtn(Icons.Default.Delete, "Delete", Red) {
+                            scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m.id) }
+                            ctxMsg = null; reload()
+                        }
                     }
                 }
-            },
-            confirmButton = { TextButton({ ctxMsg = null }) { Text("Cancel") } }
-        )
+            }
+        }
     }
 
     Box(
@@ -740,9 +748,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     if (showSearch) {
                         TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat\u2026", color = ThemeState.textHint) }, singleLine = true,
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = ThemeState.brand), modifier = Modifier.fillMaxWidth())
-                    } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conversation.address}")))
-                    }) {
+                    } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onDetails() }) {
                         Box(Modifier.size(40.dp).clip(CircleShape).background(avatarColor(conversation.address)), contentAlignment = Alignment.Center) {
                             Text(initial(conversation.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
@@ -762,8 +768,16 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         Box {
                             IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
+                                DropdownMenuItem({ Text("Details") }, { showMenu = false; onDetails() }, leadingIcon = { Icon(Icons.Default.Info, null) })
                                 DropdownMenuItem({ Text("Search") }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null) })
-                                DropdownMenuItem({ Text("Block & report") }, {
+                                DropdownMenuItem({ Text("Starred") }, {
+                                    showMenu = false; Toast.makeText(ctx, "No starred messages", Toast.LENGTH_SHORT).show()
+                                }, leadingIcon = { Icon(Icons.Default.Star, null) })
+                                DropdownMenuItem({ Text("Archive") }, {
+                                    showMenu = false; ArchiveStore.add(ctx, conversation.threadId)
+                                    Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show(); onBack()
+                                }, leadingIcon = { Icon(Icons.Default.Archive, null) })
+                                DropdownMenuItem({ Text("Block & report spam") }, {
                                     showMenu = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }
                                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
                                 }, leadingIcon = { Icon(Icons.Default.Block, null, tint = Red) })
@@ -806,69 +820,68 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                        IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(ThemeState.brand)) {
-                            Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(ThemeState.brandLt2)) {
+                            Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = ThemeState.textSecond, modifier = Modifier.size(24.dp))
                         }
                         Spacer(Modifier.width(6.dp))
+                        val hasCont = draft.isNotBlank() || pendingMediaUri != null
                         OutlinedTextField(
                             draft, { draft = it }, Modifier.weight(1f),
-                            placeholder = { Text("Message", color = ThemeState.textHint) },
+                            placeholder = { Text("Text message", color = ThemeState.textHint) },
                             shape = RoundedCornerShape(28.dp),
                             colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
-                            leadingIcon = { IconButton({ showEmoji = !showEmoji; showAttach = false }) { Icon(Icons.Default.EmojiEmotions, null, tint = ThemeState.textHint) } },
-                            trailingIcon = { IconButton({ imagePicker.launch("image/*") }) { Icon(Icons.Default.Image, null, tint = ThemeState.textHint) } },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton({ showEmoji = !showEmoji; showAttach = false }) { Icon(Icons.Default.EmojiEmotions, null, tint = ThemeState.textHint) }
+                                    if (!hasCont) IconButton({ imagePicker.launch("image/*") }) { Icon(Icons.Default.Image, null, tint = ThemeState.textHint) }
+                                }
+                            },
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
                             keyboardActions = KeyboardActions(onSend = { doSend() }),
                             maxLines = 4
                         )
                         Spacer(Modifier.width(6.dp))
-                        val hasCont = draft.isNotBlank() || pendingMediaUri != null
                         FloatingActionButton(
                             onClick = { if (hasCont) doSend() },
                             modifier = Modifier.size(46.dp),
-                            containerColor = if (hasCont) ThemeState.brand else ThemeState.brandLt2,
-                            contentColor = if (hasCont) Color.White else ThemeState.brand,
+                            containerColor = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
+                            contentColor = Color.White,
                             shape = CircleShape,
                             elevation = FloatingActionButtonDefaults.elevation(0.dp)
                         ) { Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp)) }
                     }
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         LazyVerticalGrid(
-                            GridCells.Fixed(5),
+                            GridCells.Fixed(4),
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.brandSurf).padding(horizontal = 12.dp, vertical = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             item { AttachBtn(Icons.Default.Image, "Gallery", Brand) { imagePicker.launch("image/*") } }
-                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Green) {
+                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Brand) {
                                 val camIntent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
                                 if (camIntent.resolveActivity(ctx.packageManager) != null) ctx.startActivity(camIntent)
                                 else Toast.makeText(ctx, "No camera app found", Toast.LENGTH_SHORT).show()
                             } }
-                            item { AttachBtn(Icons.Default.Gif, "GIFs", Color(0xFF8E24AA)) {
+                            item { AttachBtn(Icons.Default.Gif, "GIFs", Brand) {
                                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tenor.com")))
                             } }
-                            item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Color(0xFFE65100)) { showEmoji = true; showAttach = false } }
-                            item { AttachBtn(Icons.Default.AutoAwesome, "Magic", Color(0xFF1E88E5)) {
-                                if (draft.isBlank()) { draft = "✨ " } else { draft = "✨ $draft" }
-                                showAttach = false
-                            } }
-                            item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Color(0xFF6D4C41)) { ctx.startActivity(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }) } }
-                            item { AttachBtn(Icons.Default.LocationOn, "Location", Color(0xFFD32F2F)) {
+                            item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Brand) { showEmoji = true; showAttach = false } }
+                            item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Brand) { ctx.startActivity(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }) } }
+                            item { AttachBtn(Icons.Default.LocationOn, "Location", Brand) {
                                 val locIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0"))
                                 if (locIntent.resolveActivity(ctx.packageManager) != null) ctx.startActivity(locIntent)
                                 else ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com")))
                                 showAttach = false
                             } }
-                            item { AttachBtn(Icons.Default.Contacts, "Contacts", Color(0xFF00897B)) {
+                            item { AttachBtn(Icons.Default.Contacts, "Contacts", Brand) {
                                 ctx.startActivity(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI))
                                 showAttach = false
                             } }
-                            item { AttachBtn(Icons.Default.Schedule, "Schedule", Color(0xFF5E35B1)) {
+                            item { AttachBtn(Icons.Default.Schedule, "Schedule", Brand) {
                                 Toast.makeText(ctx, "Type your message, then long-press Send to schedule", Toast.LENGTH_LONG).show()
                                 showAttach = false
                             } }
-                            item { AttachBtn(Icons.Default.Videocam, "Video", Color(0xFF039BE5)) { videoPicker.launch("video/*") } }
                         }
                     }
                     AnimatedVisibility(showEmoji, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -878,48 +891,61 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
         }
     ) { pad ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(horizontal = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
-        ) {
-            val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
-            val grouped = displayMsgs.groupByDate()
-            grouped.forEach { (day, dayMsgs) ->
-                item(key = "day_$day") { DayHeader(day) }
-                items(dayMsgs, key = { it.id }) { m ->
-                    SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m })
+        Box(Modifier.fillMaxSize().padding(pad)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(horizontal = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
+            ) {
+                val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
+                val grouped = displayMsgs.groupByDate()
+                grouped.forEach { (day, dayMsgs) ->
+                    item(key = "day_$day") { DayHeader(day) }
+                    val isGroupChat = conversation.address.contains(";")
+                    items(dayMsgs, key = { it.id }) { m ->
+                        SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
+                            onImageClick = { uri -> viewerUri = uri }, isGroup = isGroupChat)
+                    }
                 }
-            }
-            // Smart replies after last incoming message
-            if (msgs.isNotEmpty() && msgs.last().incoming) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("\u05d0\u05b8\u05e7\u05e2\u05d9!", "\ud83d\udc4d", "\u05d9\u05d0\u05b8!", "\u05e9\u05d9\u05d9\u05df!").forEach { reply ->
-                            Surface(
-                                onClick = {
-                                    draft = reply
-                                    scope.launch { doSend() }
-                                },
-                                shape = RoundedCornerShape(20.dp),
-                                color = ThemeState.brandLt2,
-                                border = BorderStroke(1.dp, ThemeState.divLt)
-                            ) {
-                                Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = ThemeState.brand, fontWeight = FontWeight.Medium)
+                if (msgs.isNotEmpty() && msgs.last().incoming) {
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("\u05d0\u05b8\u05e7\u05e2\u05d9!", "\ud83d\udc4d", "\u05d9\u05d0\u05b8!", "\u05e9\u05d9\u05d9\u05df!").forEach { reply ->
+                                Surface(
+                                    onClick = {
+                                        draft = reply
+                                        scope.launch { doSend() }
+                                    },
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = ThemeState.brandLt2,
+                                    border = BorderStroke(1.dp, ThemeState.divLt)
+                                ) {
+                                    Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = ThemeState.brand, fontWeight = FontWeight.Medium)
+                                }
                             }
                         }
                     }
                 }
             }
+            val showScrollDown by remember { derivedStateOf { listState.firstVisibleItemIndex < (msgs.size - 5).coerceAtLeast(0) && msgs.size > 5 } }
+            AnimatedVisibility(showScrollDown, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp), enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+                SmallFloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(msgs.size - 1) } },
+                    containerColor = ThemeState.surf,
+                    contentColor = ThemeState.textSecond,
+                    shape = CircleShape
+                ) { Icon(Icons.Default.KeyboardArrowDown, null) }
+            }
         }
     }
     } // end pull-down Box
+    if (viewerUri != null) MediaViewerOverlay(viewerUri!!) { viewerUri = null }
 }
 
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
 @Composable
-fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit) {
+fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit, onImageClick: ((Uri) -> Unit)? = null, isGroup: Boolean = false) {
     var offsetX by remember { mutableFloatStateOf(0f) }
     val threshold = 100f
     Box(Modifier.fillMaxWidth().pointerInput(m.id) {
@@ -936,7 +962,7 @@ fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit)
             }
         }
         Box(Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }) {
-            MessageBubble(m, onLongClick)
+            MessageBubble(m, onLongClick, onImageClick, isGroup)
         }
     }
 }
@@ -1013,7 +1039,7 @@ private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+)",
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(m: Message, onLongClick: () -> Unit) {
+fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> Unit)? = null, isGroup: Boolean = false) {
     val ctx = LocalContext.current
     val isIn = m.incoming
     val fontSize = textSizeSp()
@@ -1028,6 +1054,13 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
         horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
     ) {
         if (!isIn) Spacer(Modifier.width(56.dp))
+        if (isIn && isGroup) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(avatarColor(m.address ?: "")), contentAlignment = Alignment.Center) {
+                val senderName = SmsRepository.getContactName(ctx, m.address ?: "") ?: (m.address ?: "?")
+                Text(initial(senderName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+            Spacer(Modifier.width(6.dp))
+        }
         Surface(
             modifier = Modifier.widthIn(max = 300.dp),
             shape = shape,
@@ -1036,14 +1069,19 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
             tonalElevation = if (!isIn) 1.dp else 0.dp
         ) {
             Column {
+                if (isIn && isGroup) {
+                    val senderName = SmsRepository.getContactName(ctx, m.address ?: "") ?: (m.address ?: "")
+                    Text(senderName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = avatarColor(m.address ?: ""),
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 if (m.imageUri != null) {
                     AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
                         if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-                    ), contentScale = ContentScale.Crop)
+                    ).clickable { onImageClick?.invoke(m.imageUri!!) }, contentScale = ContentScale.Crop)
                 }
                 if (m.body.isNotBlank()) {
-                    val textColor = if (isIn) ThemeState.textPrimary else Color.White
-                    val linkColor = if (isIn) ThemeState.brand else Color(0xFFBBDEFB)
+                    val textColor = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary
+                    val linkColor = if (isIn) ThemeState.brand else if (ThemeState.isDark) Color(0xFFBBDEFB) else ThemeState.brand
                     val urls = URL_REGEX.findAll(m.body).toList()
 
                     if (urls.isEmpty()) {
@@ -1067,22 +1105,22 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
                         val url = urls.first().value
                         val domain = try { java.net.URL(url).host.removePrefix("www.") } catch (_: Exception) { url }
                         Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(if (isIn) ThemeState.bubbleIn.copy(alpha = .7f) else ThemeState.brandDk)
+                            .background(if (isIn) ThemeState.bubbleIn.copy(alpha = .7f) else if (ThemeState.isDark) ThemeState.brandDk else Color(0xFFBFD7F6))
                             .clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.padding(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Language, null, tint = if (isIn) ThemeState.textSecond else Color.White.copy(.8f), modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Language, null, tint = ThemeState.textSecond, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text(domain, fontSize = 12.sp, color = if (isIn) ThemeState.textSecond else Color.White.copy(.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(domain, fontSize = 12.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) ThemeState.textHint else Color.White.copy(.7f))
+                    Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) ThemeState.textHint else if (ThemeState.isDark) Color.White.copy(.7f) else ThemeState.textHint)
                     if (!isIn) {
-                        Text(if (m.isMms) " \u00b7 MMS " else " \u00b7 SMS ", fontSize = 11.sp, color = Color.White.copy(.7f))
-                        Icon(Icons.Default.DoneAll, null, tint = Color.White.copy(.85f), modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.DoneAll, null, tint = if (ThemeState.isDark) Color.White.copy(.85f) else ThemeState.brand, modifier = Modifier.size(14.dp))
                     }
                 }
             }
@@ -1169,8 +1207,12 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                         // Live preview bubble
                         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)).background(ThemeState.bubbleOut).padding(12.dp)) {
                             Column {
-                                Text("Hello!", color = Color.White, fontSize = 15.sp)
-                                Text("3:25 PM \u00b7 SMS \u2713\u2713", color = Color.White.copy(.7f), fontSize = 11.sp, modifier = Modifier.align(Alignment.End))
+                                Text("Hello!", color = if (ThemeState.isDark) Color.White else ThemeState.textPrimary, fontSize = 15.sp)
+                                Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("3:25 PM", color = ThemeState.textHint, fontSize = 11.sp)
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(Icons.Default.DoneAll, null, tint = ThemeState.brand, modifier = Modifier.size(14.dp))
+                                }
                             }
                         }
                     }
@@ -1351,14 +1393,149 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 }
 
+// ━━━━━━━━━━━━━━━━ CONTACT DETAIL ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val isGroup = conv.address.contains(";")
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+            title = { Text(if (isGroup) "Group details" else "Contact details") }) }
+    ) { pad ->
+        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            item {
+                Spacer(Modifier.height(16.dp))
+                Box(Modifier.size(80.dp).clip(CircleShape).background(avatarColor(conv.address)), contentAlignment = Alignment.Center) {
+                    if (isGroup) Icon(Icons.Default.Group, null, tint = Color.White, modifier = Modifier.size(40.dp))
+                    else Text(initial(conv.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 32.sp)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(conv.displayName, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = ThemeState.textPrimary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                if (!isGroup) { Spacer(Modifier.height(4.dp)); Text(conv.address, fontSize = 14.sp, color = ThemeState.textHint, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+                Spacer(Modifier.height(20.dp))
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    ContactAction(Icons.Default.Phone, "Call") { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${conv.address}"))) }
+                    ContactAction(Icons.Default.Videocam, "Video") { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conv.address}"))) }
+                    ContactAction(Icons.Default.Search, "Search") {}
+                    ContactAction(Icons.Default.Notifications, "Mute") { Toast.makeText(ctx, "Notifications muted", Toast.LENGTH_SHORT).show() }
+                }
+                Spacer(Modifier.height(20.dp))
+            }
+            if (isGroup) {
+                val members = conv.address.split(";")
+                item {
+                    Text("MEMBERS (${members.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                }
+                items(members) { num ->
+                    val name = SmsRepository.getContactName(ctx, num.trim()) ?: num.trim()
+                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(40.dp).clip(CircleShape).background(avatarColor(num)), contentAlignment = Alignment.Center) {
+                            Text(initial(name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column { Text(name, fontSize = 15.sp, color = ThemeState.textPrimary); Text(num.trim(), fontSize = 13.sp, color = ThemeState.textHint) }
+                    }
+                }
+            }
+            item {
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
+                Spacer(Modifier.height(8.dp))
+                DetailRow(Icons.Default.Notifications, "Notifications", "On") {}
+                DetailRow(Icons.Default.Image, "Media & files", "Photos, videos, files") {}
+                DetailRow(Icons.Default.Star, "Starred messages", "None") {}
+                HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
+                Spacer(Modifier.height(8.dp))
+                DetailRow(Icons.Default.Block, "Block & report spam", "", Red) {
+                    Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ContactAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(8.dp)) {
+        Surface(shape = CircleShape, color = ThemeState.brandLt2, modifier = Modifier.size(48.dp)) {
+            Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = ThemeState.brand, modifier = Modifier.size(22.dp)) }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 12.sp, color = ThemeState.textSecond)
+    }
+}
+
+@Composable
+fun DetailRow(icon: ImageVector, title: String, sub: String, tint: Color = ThemeState.textSecond, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, color = if (tint == Red) Red else ThemeState.textPrimary)
+            if (sub.isNotBlank()) Text(sub, fontSize = 13.sp, color = ThemeState.textHint)
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━ FULL-SCREEN MEDIA VIEWER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+fun MediaViewerOverlay(uri: Uri, onDismiss: () -> Unit) {
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - abs(offsetY) / 600f).coerceIn(0.3f, 1f)))
+        .pointerInput(Unit) {
+            detectVerticalDragGestures(
+                onDragEnd = { if (abs(offsetY) > 150f) onDismiss() else offsetY = 0f },
+                onVerticalDrag = { _, dy -> offsetY = (offsetY + dy).coerceIn(-400f, 400f) }
+            )
+        }
+        .clickable { onDismiss() }
+    ) {
+        AsyncImage(uri, "full", Modifier.fillMaxSize().offset { IntOffset(0, offsetY.roundToInt()) }, contentScale = ContentScale.Fit)
+        IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
+            Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(28.dp))
+        }
+        Row(Modifier.align(Alignment.BottomCenter).padding(24.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            IconButton({
+                val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "image/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                onDismiss()
+            }) { Icon(Icons.Default.Share, null, tint = Color.White) }
+            IconButton({}) { Icon(Icons.Default.Download, null, tint = Color.White) }
+        }
+    }
+}
+
 // ━━━━━━━━━━━━━━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
     if (isEmpty()) return emptyList()
-    val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-    val today = fmt.format(Date()); val yest = fmt.format(Date(System.currentTimeMillis() - 86_400_000))
-    val g = LinkedHashMap<String, MutableList<Message>>()
-    forEach { m -> val l = when (val d = fmt.format(Date(m.date))) { today -> "Today"; yest -> "Yesterday"; else -> d }; g.getOrPut(l) { mutableListOf() }.add(m) }
-    return g.map { it.key to it.value }
+    val dateFmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    val dayFmt = SimpleDateFormat("EEEE", Locale.getDefault())
+    val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+    val today = dateFmt.format(Date()); val yest = dateFmt.format(Date(System.currentTimeMillis() - 86_400_000))
+    val groups = mutableListOf<Pair<String, MutableList<Message>>>()
+    var lastTime = 0L
+    forEach { m ->
+        val gap = m.date - lastTime
+        if (groups.isEmpty() || gap > 15 * 60 * 1000) {
+            val d = Date(m.date)
+            val ds = dateFmt.format(d)
+            val label = when (ds) {
+                today -> "Today • ${timeFmt.format(d)}"
+                yest -> "Yesterday • ${timeFmt.format(d)}"
+                else -> "${dayFmt.format(d)} • ${timeFmt.format(d)}"
+            }
+            groups.add(label to mutableListOf(m))
+        } else {
+            groups.last().second.add(m)
+        }
+        lastTime = m.date
+    }
+    return groups
 }
 
 @Composable fun DayHeader(label: String) {

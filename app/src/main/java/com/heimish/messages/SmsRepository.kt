@@ -25,7 +25,8 @@ data class Message(
     val date: Long,
     val incoming: Boolean,
     val isMms: Boolean = false,
-    val imageUri: Uri? = null   // for MMS image parts
+    val imageUri: Uri? = null,
+    val address: String? = null
 )
 
 object SmsRepository {
@@ -98,7 +99,7 @@ object SmsRepository {
         // SMS
         ctx.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE),
+            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS),
             Telephony.Sms.THREAD_ID + " = ?", arrayOf(threadId.toString()),
             Telephony.Sms.DATE + " ASC"
         )?.use { c ->
@@ -106,12 +107,14 @@ object SmsRepository {
             val iBody = c.getColumnIndex(Telephony.Sms.BODY)
             val iDate = c.getColumnIndex(Telephony.Sms.DATE)
             val iType = c.getColumnIndex(Telephony.Sms.TYPE)
+            val iAddr = c.getColumnIndex(Telephony.Sms.ADDRESS)
             while (c.moveToNext()) {
                 out.add(Message(
                     id       = c.getLong(iId),
                     body     = c.getString(iBody) ?: "",
                     date     = c.getLong(iDate),
-                    incoming = c.getInt(iType) == Telephony.Sms.MESSAGE_TYPE_INBOX
+                    incoming = c.getInt(iType) == Telephony.Sms.MESSAGE_TYPE_INBOX,
+                    address  = if (iAddr >= 0) c.getString(iAddr) else null
                 ))
             }
         }
@@ -131,13 +134,15 @@ object SmsRepository {
                 val date     = c.getLong(iDate) * 1000L
                 val incoming = c.getInt(iBox) == 1
                 val (text, imgUri) = mmsParts(ctx, mmsId)
+                val mmsAddr = mmsAddress(ctx, mmsId)
                 out.add(Message(
                     id       = mmsId + 1_000_000L,
                     body     = text,
                     date     = date,
                     incoming = incoming,
                     isMms    = true,
-                    imageUri = imgUri
+                    imageUri = imgUri,
+                    address  = mmsAddr
                 ))
             }
         }
@@ -395,6 +400,17 @@ object SmsRepository {
             }
         }
         return text to imgUri
+    }
+
+    private fun mmsAddress(ctx: Context, mmsId: Long): String? {
+        return runCatching {
+            ctx.contentResolver.query(
+                Uri.parse("content://mms/$mmsId/addr"),
+                arrayOf("address", "type"), "type=137", null, null
+            )?.use { c ->
+                if (c.moveToFirst()) c.getString(c.getColumnIndex("address")) else null
+            }
+        }.getOrNull()
     }
 
         fun getThreadIdForAddress(ctx: Context, address: String): Long {
