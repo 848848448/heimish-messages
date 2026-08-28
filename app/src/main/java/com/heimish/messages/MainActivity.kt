@@ -1088,6 +1088,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             item { AttachBtn(Icons.Default.Image, "Gallery", Brand) { imagePicker.launch("image/*") } }
+                            item { AttachBtn(Icons.Default.Videocam, "Video", Brand) { videoPicker.launch("video/*") } }
                             item { AttachBtn(Icons.Default.CameraAlt, "Camera", Brand) {
                                 val file = java.io.File(ctx.cacheDir, "camera_${System.currentTimeMillis()}.jpg")
                                 cameraUri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
@@ -1493,7 +1494,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp).fillMaxWidth(),
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     if (StarredStore.isStarred(ctx, m.id)) {
                         Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(12.dp))
