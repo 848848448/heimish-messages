@@ -273,6 +273,50 @@ object ArchiveStore {
     }
 }
 
+// ━━━━━━━━━━━━━━━━ ADMIN EMAIL GATE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+object AdminEmails {
+    private const val KEY = "admin_emails"
+    private const val USER_EMAIL_KEY = "user_email"
+    private val DEFAULT_ADMIN = "avrumy5872877@gmail.com"
+
+    fun getAdminEmails(ctx: Context): Set<String> {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY, null) ?: setOf(DEFAULT_ADMIN)
+    }
+
+    fun addAdmin(ctx: Context, email: String) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = getAdminEmails(ctx).toMutableSet()
+        set.add(email.trim().lowercase())
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+
+    fun removeAdmin(ctx: Context, email: String) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = getAdminEmails(ctx).toMutableSet()
+        set.remove(email.trim().lowercase())
+        if (set.isEmpty()) set.add(DEFAULT_ADMIN)
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+
+    fun isAdmin(ctx: Context): Boolean {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val userEmail = prefs.getString(USER_EMAIL_KEY, "") ?: ""
+        if (userEmail.isBlank()) return false
+        return userEmail.trim().lowercase() in getAdminEmails(ctx).map { it.trim().lowercase() }
+    }
+
+    fun getUserEmail(ctx: Context): String {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getString(USER_EMAIL_KEY, "") ?: ""
+    }
+
+    fun setUserEmail(ctx: Context, email: String) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString(USER_EMAIL_KEY, email.trim()).apply()
+    }
+}
+
 // ━━━━━━━━━━━━━━━━ CONVERSATION LIST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -344,7 +388,9 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                             IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
                                 DropdownMenuItem({ Text("Settings") }, { showMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Default.Settings, null) })
-                                DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
+                                if (AdminEmails.isAdmin(ctx)) {
+                                    DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
+                                }
                                 DropdownMenuItem({ Text("Mark all read") }, {
                                     showMenu = false
                                     scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
@@ -1049,6 +1095,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
@@ -1066,6 +1113,8 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.SwipeRight, "Swipe actions", "Archive on swipe") { onSub("swipe") } }
             item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { SettRow(Icons.Default.Email, "Your email", AdminEmails.getUserEmail(ctx).ifBlank { "Not set" }) { onSub("email") } }
             item { SettRow(Icons.Default.Info, "About", "Version 3.1") { onSub("about") } }
         }
     }
@@ -1077,7 +1126,7 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     val title = when (key) { "notifications" -> "Notifications"; "bubbles" -> "Bubbles"; "theme" -> "Theme"; "textsize" -> "Text size"
-        "previews" -> "Previews"; "safety" -> "Safety"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; else -> "Settings" }
+        "previews" -> "Previews"; "safety" -> "Safety"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; "email" -> "Your email"; else -> "Settings" }
 
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
@@ -1184,6 +1233,23 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                         }
                     }
                 }
+                "email" -> {
+                    item {
+                        var emailInput by remember { mutableStateOf(AdminEmails.getUserEmail(ctx)) }
+                        Text("Enter your email address", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("This email determines access to admin features.", fontSize = 13.sp, color = ThemeState.textHint)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(emailInput, { emailInput = it }, Modifier.fillMaxWidth(), placeholder = { Text("your@email.com") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { AdminEmails.setUserEmail(ctx, emailInput); Toast.makeText(ctx, "Email saved", Toast.LENGTH_SHORT).show() }),
+                            shape = RoundedCornerShape(28.dp),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent))
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { AdminEmails.setUserEmail(ctx, emailInput); Toast.makeText(ctx, "Email saved", Toast.LENGTH_SHORT).show() },
+                            colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) { Text("Save") }
+                    }
+                }
                 "about" -> {
                     item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = ThemeState.textPrimary) }
                     item { Text("Version 3.1", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
@@ -1240,6 +1306,40 @@ fun AdminScreen(onBack: () -> Unit) {
                 }, Modifier.fillMaxWidth(), placeholder = { Text("Search\u2026") }, singleLine = true, shape = RoundedCornerShape(28.dp),
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent))
                 Spacer(Modifier.height(12.dp)); Text(res.take(2000), fontSize = 13.sp, color = ThemeState.textSecond)
+            }
+            item {
+                Spacer(Modifier.height(24.dp)); Text("ADMIN EMAILS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp))
+                Text("Devices with these emails in Settings can access Admin Panel.", fontSize = 13.sp, color = ThemeState.textSecond)
+                Spacer(Modifier.height(8.dp))
+                var adminEmails by remember { mutableStateOf(AdminEmails.getAdminEmails(ctx)) }
+                var newEmail by remember { mutableStateOf("") }
+                adminEmails.forEach { email ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Email, null, tint = ThemeState.brand, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(email, fontSize = 14.sp, color = ThemeState.textPrimary, modifier = Modifier.weight(1f))
+                        if (adminEmails.size > 1) {
+                            IconButton(onClick = { AdminEmails.removeAdmin(ctx, email); adminEmails = AdminEmails.getAdminEmails(ctx) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Close, null, tint = Red, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(newEmail, { newEmail = it }, Modifier.weight(1f), placeholder = { Text("Add email\u2026") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
+                        }),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent))
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = {
+                        if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
+                        else Toast.makeText(ctx, "Enter a valid email", Toast.LENGTH_SHORT).show()
+                    }) { Icon(Icons.Default.Add, null, tint = ThemeState.brand) }
+                }
             }
             item {
                 Spacer(Modifier.height(24.dp)); Text("DEVICE INFO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp))
