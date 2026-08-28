@@ -746,6 +746,38 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         if (success && cameraUri != null) onImagePreview(cameraUri!!, "image")
     }
 
+    // Pull-down-to-dismiss
+    var pullY by remember { mutableFloatStateOf(0f) }
+    val pullThreshold = 200f
+    var searchQuery by remember { mutableStateOf("") }
+
+    fun reload(scrollToEnd: Boolean = false) {
+        val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
+        val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
+        val hadNewMsg = filtered.size > msgs.size
+        msgs = filtered
+        if (scrollToEnd || hadNewMsg) scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
+    }
+
+    fun doSend() {
+        val body = draft.trim()
+        if (pendingMediaUri != null) {
+            val uri = pendingMediaUri!!
+            val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
+            scope.launch(Dispatchers.IO) {
+                SmsRepository.sendMms(ctx, conversation.address, uri, prefix + body)
+                withContext(Dispatchers.Main) { draft = ""; pendingMediaUri = null; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) }
+            }
+            return
+        }
+        if (body.isEmpty()) return
+        val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
+        scope.launch(Dispatchers.IO) {
+            val ok = SmsRepository.sendSms(ctx, conversation.address, prefix + body)
+            withContext(Dispatchers.Main) { if (ok) { draft = ""; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
+        }
+    }
+
     fun startRecording() {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(ctx, "Audio recording permission required", Toast.LENGTH_SHORT).show()
@@ -790,38 +822,6 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         recordingFile?.delete()
         recordingFile = null
         isRecording = false
-    }
-
-    // Pull-down-to-dismiss
-    var pullY by remember { mutableFloatStateOf(0f) }
-    val pullThreshold = 200f
-    var searchQuery by remember { mutableStateOf("") }
-
-    fun reload(scrollToEnd: Boolean = false) {
-        val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
-        val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-        val hadNewMsg = filtered.size > msgs.size
-        msgs = filtered
-        if (scrollToEnd || hadNewMsg) scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
-    }
-
-    fun doSend() {
-        val body = draft.trim()
-        if (pendingMediaUri != null) {
-            val uri = pendingMediaUri!!
-            val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
-            scope.launch(Dispatchers.IO) {
-                SmsRepository.sendMms(ctx, conversation.address, uri, prefix + body)
-                withContext(Dispatchers.Main) { draft = ""; pendingMediaUri = null; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) }
-            }
-            return
-        }
-        if (body.isEmpty()) return
-        val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
-        scope.launch(Dispatchers.IO) {
-            val ok = SmsRepository.sendSms(ctx, conversation.address, prefix + body)
-            withContext(Dispatchers.Main) { if (ok) { draft = ""; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
-        }
     }
 
     BackHandler { if (inSelectMode) selectedIds = emptySet() else onBack() }
