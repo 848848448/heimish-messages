@@ -30,6 +30,9 @@ class SmsReceiver : BroadcastReceiver() {
         val threadId = SmsRepository.getThreadIdForAddress(context, address)
         val sender = SmsRepository.getContactName(context, address) ?: address
 
-        Notifications.showMessage(context, sender, body.toString(), address, threadId)
+        val prefs = context.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("muted_$threadId", false)) {
+            Notifications.showMessage(context, sender, body.toString(), address, threadId)
+        }
     }
 }

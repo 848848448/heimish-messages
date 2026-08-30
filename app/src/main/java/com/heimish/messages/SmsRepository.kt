@@ -175,11 +175,14 @@ object SmsRepository {
     fun sendSms(ctx: Context, address: String, body: String): Boolean {
         return runCatching {
             val sms = smsManager(ctx)
-            val parts = sms.divideMessage(body)
-            if (parts.size > 1)
-                sms.sendMultipartTextMessage(address, null, parts, null, null)
-            else
-                sms.sendTextMessage(address, null, body, null, null)
+            val recipients = address.split(";").map { it.trim() }.filter { it.isNotBlank() }
+            for (recipient in recipients) {
+                val parts = sms.divideMessage(body)
+                if (parts.size > 1)
+                    sms.sendMultipartTextMessage(recipient, null, parts, null, null)
+                else
+                    sms.sendTextMessage(recipient, null, body, null, null)
+            }
 
             val values = ContentValues().apply {
                 put(Telephony.Sms.ADDRESS, address)
@@ -297,10 +300,12 @@ object SmsRepository {
         out.write(0x85)
         writeLongInteger(out, (System.currentTimeMillis() / 1000).toInt())
 
-        // To
-        val cleanAddr = address.replace(Regex("[^0-9+]"), "")
-        out.write(0x97)
-        out.write("$cleanAddr/TYPE=PLMN".toByteArray()); out.write(0x00)
+        // To (one header per recipient for group MMS)
+        val recipients = address.split(";").map { it.trim().replace(Regex("[^0-9+]"), "") }.filter { it.isNotBlank() }
+        for (recipient in recipients) {
+            out.write(0x97)
+            out.write("$recipient/TYPE=PLMN".toByteArray()); out.write(0x00)
+        }
 
         // Subject (optional)
         if (caption.isNotBlank()) {
