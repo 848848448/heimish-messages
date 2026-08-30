@@ -500,16 +500,14 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     }
                 }
             } else {
-                Column(Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf),
-                        state = rememberLazyListState()
-                    ) {
-                        items(filtered, key = { it.threadId }) { conv ->
-                            SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it },
-                                onArchive = { tid -> ArchiveStore.add(ctx, tid); archived.value = ArchiveStore.get(ctx) })
-                            if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = ThemeState.divLt)
-                        }
+                LazyColumn(
+                    Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf),
+                    state = rememberLazyListState()
+                ) {
+                    items(filtered, key = { it.threadId }) { conv ->
+                        SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it },
+                            onArchive = { tid -> ArchiveStore.add(ctx, tid); archived.value = ArchiveStore.get(ctx) })
+                        if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = ThemeState.divLt)
                     }
                 }
             }
@@ -783,18 +781,18 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         if (success && cameraUri != null) onImagePreview(cameraUri!!, "image")
     }
 
-    val pullAnim = remember { Animatable(0f) }
-    val pullThreshold = 200f
     var searchQuery by remember { mutableStateOf("") }
 
     fun reload() {
-        val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
-        val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-        val wasAtBottom = listState.firstVisibleItemIndex <= 2
-        val hadNew = filtered.size > msgs.size
-        msgs = filtered
-        if (wasAtBottom && hadNew) {
-            scope.launch { listState.scrollToItem(0) }
+        scope.launch {
+            val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId) }
+            val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
+            val wasAtBottom = listState.firstVisibleItemIndex <= 2
+            val hadNew = filtered.size > msgs.size
+            msgs = filtered
+            if (wasAtBottom && hadNew) {
+                listState.scrollToItem(0)
+            }
         }
     }
 
@@ -960,26 +958,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         }
     }
 
-    Box(
-        Modifier.fillMaxSize()
-            .offset { IntOffset(0, pullAnim.value.roundToInt()) }
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragEnd = {
-                        if (pullAnim.value > pullThreshold) onBack()
-                        else scope.launch { pullAnim.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 400f)) }
-                    },
-                    onVerticalDrag = { change, dy ->
-                        if (pullAnim.value > 0f || (dy > 0f && !listState.canScrollBackward)) {
-                            val target = (pullAnim.value + dy).coerceIn(0f, 400f)
-                            scope.launch { pullAnim.snapTo(target) }
-                            change.consume()
-                        }
-                    }
-                )
-            }
-            .graphicsLayer { alpha = 1f - (pullAnim.value / 600f).coerceAtMost(0.4f) }
-    ) {
+    Box(Modifier.fillMaxSize()) {
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
             if (inSelectMode) {
@@ -1275,7 +1254,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
             }
         }
     }
-    } // end pull-down Box
+    }
     val imageUris = remember(msgs) { msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) }.map { it.imageUri!! } }
     if (viewerIdx >= 0 && imageUris.isNotEmpty()) MediaViewerOverlay(imageUris, viewerIdx, onChangeIdx = { viewerIdx = it }) { viewerIdx = -1 }
 
@@ -1526,8 +1505,8 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
             modifier = Modifier.widthIn(max = 300.dp),
             shape = shape,
             color = if (isIn) ThemeState.bubbleIn else ThemeState.bubbleOut,
-            shadowElevation = if (!isIn) 1.dp else 0.dp,
-            tonalElevation = if (!isIn) 1.dp else 0.dp
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
         ) {
             Column {
                 if (isIn && isGroup) {
@@ -2496,35 +2475,32 @@ fun MediaViewerOverlay(uris: List<Uri>, startIdx: Int, onChangeIdx: (Int) -> Uni
 fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
     if (isEmpty()) return emptyList()
     val dateFmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-    val dayFmt = SimpleDateFormat("EEEE", Locale.getDefault())
-    val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
-    val today = dateFmt.format(Date()); val yest = dateFmt.format(Date(System.currentTimeMillis() - 86_400_000))
+    val dayFmt = SimpleDateFormat("EEEE, MMM d", Locale.getDefault())
+    val today = dateFmt.format(Date())
+    val yest = dateFmt.format(Date(System.currentTimeMillis() - 86_400_000))
     val groups = mutableListOf<Pair<String, MutableList<Message>>>()
-    var lastTime = 0L
+    var lastDay = ""
     forEach { m ->
-        val gap = m.date - lastTime
-        if (groups.isEmpty() || gap > 15 * 60 * 1000) {
-            val d = Date(m.date)
-            val ds = dateFmt.format(d)
+        val d = Date(m.date)
+        val ds = dateFmt.format(d)
+        if (ds != lastDay) {
             val label = when (ds) {
-                today -> "Today • ${timeFmt.format(d)}"
-                yest -> "Yesterday • ${timeFmt.format(d)}"
-                else -> "${dayFmt.format(d)} • ${timeFmt.format(d)}"
+                today -> "Today"
+                yest -> "Yesterday"
+                else -> dayFmt.format(d)
             }
             groups.add(label to mutableListOf(m))
+            lastDay = ds
         } else {
             groups.last().second.add(m)
         }
-        lastTime = m.date
     }
     return groups
 }
 
 @Composable fun DayHeader(label: String) {
-    Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.clip(RoundedCornerShape(16.dp)).background(ThemeState.brandLt2).border(0.5.dp, ThemeState.divLt, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 5.dp)) {
-            Text(label, fontSize = 12.sp, color = ThemeState.textSecond, fontWeight = FontWeight.Medium)
-        }
+    Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Text(label, fontSize = 12.sp, color = ThemeState.textHint, fontWeight = FontWeight.Medium, letterSpacing = 0.3.sp)
     }
 }
 private val palette = listOf(Color(0xFF0B57D0), Color(0xFF146C2E), Color(0xFF8C4A2E), Color(0xFF6A2E8C), Color(0xFFB3261E), Color(0xFF185ABC), Color(0xFF0D652D), Color(0xFF9C27B0))

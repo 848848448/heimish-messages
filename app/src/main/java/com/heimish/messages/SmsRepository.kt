@@ -35,6 +35,18 @@ data class Message(
 
 object SmsRepository {
 
+    private val contactCache = HashMap<String, String?>()
+    private var contactCacheTime = 0L
+
+    private fun cachedContactName(ctx: Context, number: String): String? {
+        if (number.isBlank()) return null
+        if (System.currentTimeMillis() - contactCacheTime > 120_000) {
+            contactCache.clear()
+            contactCacheTime = System.currentTimeMillis()
+        }
+        return contactCache.getOrPut(number) { contactName(ctx, number) }
+    }
+
     // ── Conversations ─────────────────────────────────────────────────────────
 
     fun loadConversations(ctx: Context): List<Conversation> {
@@ -59,7 +71,7 @@ object SmsRepository {
                 out.add(Conversation(
                     threadId    = thread,
                     address     = addr,
-                    displayName = contactName(ctx, addr) ?: addr,
+                    displayName = cachedContactName(ctx, addr) ?: addr,
                     snippet     = c.getString(iBody) ?: "",
                     date        = c.getLong(iDate),
                     unread      = c.getInt(iRead) == 0
@@ -83,7 +95,7 @@ object SmsRepository {
                 out.add(Conversation(
                     threadId    = thread,
                     address     = addr,
-                    displayName = contactName(ctx, addr) ?: addr,
+                    displayName = cachedContactName(ctx, addr) ?: addr,
                     snippet     = "📷 MMS",
                     date        = c.getLong(iDate) * 1000L,
                     unread      = c.getInt(iRead) == 0
