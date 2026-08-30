@@ -762,12 +762,21 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     fun reload(scrollToEnd: Boolean = false) {
         val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
         val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-        val hadNewMsg = filtered.size > msgs.size && msgs.isNotEmpty()
+        val prevSize = msgs.size
+        val prevFirst = listState.firstVisibleItemIndex
+        val prevOffset = listState.firstVisibleItemScrollOffset
         msgs = filtered
-        if (scrollToEnd) scope.launch { if (msgs.isNotEmpty()) listState.scrollToItem(msgs.size - 1) }
-        else if (hadNewMsg) {
-            val isAtBottom = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index == (msgs.size - 2).coerceAtLeast(0)
-            if (isAtBottom) scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
+        if (scrollToEnd) {
+            scope.launch { if (msgs.isNotEmpty()) listState.scrollToItem(msgs.size - 1) }
+        } else if (filtered.size > prevSize && prevSize > 0) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (lastVisible >= prevSize - 2) {
+                scope.launch { listState.animateScrollToItem(msgs.size - 1) }
+            } else {
+                scope.launch { listState.scrollToItem(prevFirst, prevOffset) }
+            }
+        } else if (prevSize > 0) {
+            scope.launch { listState.scrollToItem(prevFirst, prevOffset) }
         }
     }
 
@@ -1440,14 +1449,16 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                 }
                 if (m.imageUri != null) {
                     val mime = m.mediaMime ?: ""
+                    val isAudio = mime.startsWith("audio/") || mime == "video/3gpp" || mime == "video/3gp" || m.body.contains("Voice message")
                     when {
-                        mime.startsWith("audio/") -> {
-                            Row(Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp).fillMaxWidth(),
+                        isAudio -> {
+                            Row(Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp).fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = {
                                     try {
+                                        val playMime = if (mime.startsWith("audio/")) mime else "audio/3gpp"
                                         val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(m.imageUri, mime)
+                                            setDataAndType(m.imageUri, playMime)
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         ctx.startActivity(playIntent)
@@ -1459,15 +1470,15 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                                     Icon(Icons.Default.PlayArrow, null, tint = if (isIn) ThemeState.brand else Color.White, modifier = Modifier.size(28.dp))
                                 }
                                 Spacer(Modifier.width(10.dp))
-                                Column {
+                                Column(Modifier.weight(1f)) {
                                     Text("Voice message", fontSize = fontSize.sp, fontWeight = FontWeight.Medium,
                                         color = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(top = 4.dp)) {
-                                        repeat(20) { i ->
-                                            val h = ((i * 7 + 3) % 11 + 3).dp
+                                    Spacer(Modifier.height(4.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        repeat(24) { i ->
+                                            val h = ((i * 7 + 3) % 13 + 4).dp
                                             Box(Modifier.width(3.dp).height(h).clip(RoundedCornerShape(2.dp))
-                                                .background(if (isIn) ThemeState.textHint else Color.White.copy(.5f)))
+                                                .background(if (isIn) ThemeState.brand.copy(.35f) else Color.White.copy(.45f)))
                                         }
                                     }
                                 }
@@ -1498,7 +1509,8 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                         }
                     }
                 }
-                if (m.body.isNotBlank()) {
+                val showBody = m.body.isNotBlank() && !(m.imageUri != null && (m.mediaMime?.let { it.startsWith("audio/") || it == "video/3gpp" || it == "video/3gp" } == true || m.body.contains("Voice message")))
+                if (showBody) {
                     val textColor = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary
                     val linkColor = if (isIn) ThemeState.brand else if (ThemeState.isDark) Color(0xFFBBDEFB) else ThemeState.brand
                     val urls = URL_REGEX.findAll(m.body).toList()
