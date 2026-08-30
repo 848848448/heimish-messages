@@ -263,84 +263,85 @@ object SmsRepository {
     private fun buildSendReqPdu(address: String, mediaBytes: ByteArray, mimeType: String, caption: String): ByteArray {
         val out = java.io.ByteArrayOutputStream()
 
-        // X-Mms-Message-Type: m-send-req
         out.write(0x8C); out.write(0x80)
 
-        // X-Mms-Transaction-Id
         out.write(0x98)
         val txnId = "T${System.currentTimeMillis()}"
         out.write(txnId.toByteArray()); out.write(0x00)
 
-        // X-Mms-MMS-Version: 1.3
         out.write(0x8D); out.write(0x93)
 
-        // From: Insert-address-token (let MMSC fill in sender)
         out.write(0x89); out.write(0x01); out.write(0x81)
 
-        // Date
         out.write(0x85)
         val epochSec = (System.currentTimeMillis() / 1000).toInt()
         writeLongInteger(out, epochSec)
 
-        // To: use Text-string encoding (ASCII address, no charset prefix needed)
         val cleanAddr = address.replace(Regex("[^0-9+]"), "")
         val addrStr = "$cleanAddr/TYPE=PLMN"
         out.write(0x97)
         out.write(addrStr.toByteArray())
         out.write(0x00)
 
-        // Subject (if caption) - use Value-length + Charset + Text-string for UTF-8
         if (caption.isNotBlank()) {
             out.write(0x96)
             val subjBytes = caption.take(40).toByteArray(Charsets.UTF_8)
             writeValueLength(out, subjBytes.size + 2)
-            out.write(0xEA.toByte().toInt()) // charset UTF-8 (106 as Short-integer: 106|0x80)
+            out.write(0xEA.toByte().toInt())
             out.write(subjBytes); out.write(0x00)
         }
 
-        // Content-Type: application/vnd.wap.multipart.related (must be LAST header)
-        val startCid = "<smil_part>"
+        val mediaTag = when {
+            mimeType.startsWith("image/") -> "img"
+            mimeType.startsWith("video/") -> "video"
+            mimeType.startsWith("audio/") -> "audio"
+            else -> "ref"
+        }
+        val smilXml = buildSmilXml(mediaTag, caption.isNotBlank())
+        val smilBytes = smilXml.toByteArray(Charsets.UTF_8)
+
         val ctParams = java.io.ByteArrayOutputStream()
-        ctParams.write(0xB3) // well-known: application/vnd.wap.multipart.related
-        // start parameter
+        ctParams.write(0xB3)
         ctParams.write(0x8A)
-        val startBytes = startCid.toByteArray()
+        val startBytes = "<smil>".toByteArray()
         ctParams.write(startBytes.size + 1)
         ctParams.write(startBytes); ctParams.write(0x00)
-        // type parameter
         ctParams.write(0x89)
-        val typeBytes = mimeType.toByteArray()
+        val typeBytes = "application/smil".toByteArray()
         ctParams.write(typeBytes.size + 1)
         ctParams.write(typeBytes); ctParams.write(0x00)
 
-        out.write(0x84) // Content-Type header
+        out.write(0x84)
         writeValueLength(out, ctParams.size())
         out.write(ctParams.toByteArray())
 
-        // Body: multipart entries
-        val partCount = if (caption.isNotBlank()) 2 else 1
+        val partCount = 1 + 1 + (if (caption.isNotBlank()) 1 else 0)
         writeUintVar(out, partCount)
 
-        // Media part
+        val smilPartHeaders = java.io.ByteArrayOutputStream()
+        smilPartHeaders.write("application/smil".toByteArray()); smilPartHeaders.write(0x00)
+        smilPartHeaders.write(0xC0.toByte().toInt())
+        smilPartHeaders.write("smil".toByteArray()); smilPartHeaders.write(0x00)
+        writeUintVar(out, smilPartHeaders.size())
+        writeUintVar(out, smilBytes.size)
+        out.write(smilPartHeaders.toByteArray())
+        out.write(smilBytes)
+
         val mediaPartHeaders = java.io.ByteArrayOutputStream()
         mediaPartHeaders.write(mimeType.toByteArray()); mediaPartHeaders.write(0x00)
         mediaPartHeaders.write(0xC0.toByte().toInt())
-        val mediaCid = startCid.removeSurrounding("<", ">")
-        mediaPartHeaders.write(mediaCid.toByteArray()); mediaPartHeaders.write(0x00)
-
+        mediaPartHeaders.write("media".toByteArray()); mediaPartHeaders.write(0x00)
         writeUintVar(out, mediaPartHeaders.size())
         writeUintVar(out, mediaBytes.size)
         out.write(mediaPartHeaders.toByteArray())
         out.write(mediaBytes)
 
-        // Text part (if caption)
         if (caption.isNotBlank()) {
             val textBytes = caption.toByteArray(Charsets.UTF_8)
             val textPartHeaders = java.io.ByteArrayOutputStream()
             textPartHeaders.write("text/plain; charset=utf-8".toByteArray()); textPartHeaders.write(0x00)
             textPartHeaders.write(0xC0.toByte().toInt())
-            textPartHeaders.write("text_0".toByteArray()); textPartHeaders.write(0x00)
-
+            textPartHeaders.write("text".toByteArray()); textPartHeaders.write(0x00)
             writeUintVar(out, textPartHeaders.size())
             writeUintVar(out, textBytes.size)
             out.write(textPartHeaders.toByteArray())
@@ -348,6 +349,21 @@ object SmsRepository {
         }
 
         return out.toByteArray()
+    }
+
+    private fun buildSmilXml(mediaTag: String, hasText: Boolean): String {
+        val sb = StringBuilder("<smil><head><layout><root-layout/>")
+        if (hasText) {
+            sb.append("<region id=\"Image\" fit=\"meet\" top=\"0\" left=\"0\" height=\"80%\" width=\"100%\"/>")
+            sb.append("<region id=\"Text\" top=\"80%\" left=\"0\" height=\"20%\" width=\"100%\"/>")
+        } else {
+            sb.append("<region id=\"Image\" fit=\"meet\" top=\"0\" left=\"0\" height=\"100%\" width=\"100%\"/>")
+        }
+        sb.append("</layout></head><body><par dur=\"5000ms\">")
+        sb.append("<$mediaTag src=\"cid:media\" region=\"Image\"/>")
+        if (hasText) sb.append("<text src=\"cid:text\" region=\"Text\"/>")
+        sb.append("</par></body></smil>")
+        return sb.toString()
     }
 
     private fun writeLongInteger(out: java.io.ByteArrayOutputStream, value: Int) {
