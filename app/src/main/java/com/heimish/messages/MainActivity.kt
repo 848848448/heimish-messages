@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -148,8 +149,12 @@ object ThemeState {
 
 class MainActivity : ComponentActivity() {
     private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { recreate() }
+    companion object {
+        var pendingOpenThread by mutableStateOf<Conversation?>(null)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleNotificationIntent(intent)
         val prefs = getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
         val theme = prefs.getString("theme", "system") ?: "system"
         ThemeState.isDark = when (theme) {
@@ -165,6 +170,18 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = if (ThemeState.isDark) GMDarkColors else GMColors) {
                 Surface(Modifier.fillMaxSize(), color = ThemeState.brandSurf) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
             }
+        }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleNotificationIntent(intent)
+    }
+    private fun handleNotificationIntent(intent: Intent?) {
+        val threadId = intent?.getLongExtra("thread_id", -1) ?: -1
+        if (threadId > 0) {
+            val address = intent?.getStringExtra("address") ?: ""
+            val sender = intent?.getStringExtra("sender") ?: address
+            pendingOpenThread = Conversation(threadId, address, sender, "", System.currentTimeMillis(), false)
         }
     }
     private fun requestDefault() {
@@ -201,7 +218,21 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     var hasPerms by remember { mutableStateOf(Permissions.granted(ctx)) }
     val permL = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { hasPerms = Permissions.granted(ctx) }
     LaunchedEffect(Unit) { if (!hasPerms) permL.launch(Permissions.ALL) }
-    var screen by remember { mutableStateOf<Screen>(Screen.List) }
+    var screen by remember { mutableStateOf<Screen>(
+        if (MainActivity.pendingOpenThread != null) {
+            val conv = MainActivity.pendingOpenThread!!
+            MainActivity.pendingOpenThread = null
+            Screen.Chat(conv)
+        } else Screen.List
+    ) }
+
+    val pending = MainActivity.pendingOpenThread
+    LaunchedEffect(pending) {
+        if (pending != null) {
+            screen = Screen.Chat(pending)
+            MainActivity.pendingOpenThread = null
+        }
+    }
 
     BackHandler(enabled = screen !is Screen.List) {
         screen = when (screen) {
@@ -407,7 +438,16 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
 
     fun refresh() { scope.launch { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } } }
     LaunchedEffect(Unit) { refresh() }
-    LaunchedEffect(Unit) { while (true) { delay(30_000); val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; if (fresh != list) list = fresh } }
+    DisposableEffect(Unit) {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { refresh() }
+        }
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://sms"), true, observer)
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://mms"), true, observer)
+        onDispose {
+            ctx.contentResolver.unregisterContentObserver(observer)
+        }
+    }
 
     val visible = list.filter { it.threadId !in archived.value }
     val filtered = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.address.contains(search, true) || it.snippet.contains(search, true) }
@@ -855,7 +895,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         recordingFile = null
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
         scope.launch(Dispatchers.IO) {
-            SmsRepository.sendMms(ctx, conversation.address, uri, "🎤 Voice message (${recordingSeconds}s)")
+            SmsRepository.sendMms(ctx, conversation.address, uri, "🎤 Voice message (${recordingSeconds}s)", overrideMime = "audio/3gpp")
             withContext(Dispatchers.Main) { reload() }
         }
     }
@@ -871,7 +911,14 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
 
     BackHandler { if (inSelectMode) selectedIds = emptySet() else onBack() }
     LaunchedEffect(Unit) { reload(); SmsRepository.markThreadRead(ctx, conversation.threadId) }
-    LaunchedEffect(Unit) { while (true) { delay(15_000); reload() } }
+    DisposableEffect(conversation.threadId) {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { scope.launch { reload() } }
+        }
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://sms"), true, observer)
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://mms"), true, observer)
+        onDispose { ctx.contentResolver.unregisterContentObserver(observer) }
+    }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "image") } }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "video") } }
@@ -1009,11 +1056,6 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, color = ThemeState.textPrimary)
-                            if (conversation.displayName == conversation.address || conversation.address.contains(";")) {
-                                // no contact name found or group — no subtitle needed
-                            } else {
-                                Text(conversation.address, fontSize = 12.sp, color = ThemeState.textHint)
-                            }
                         }
                     }
                 },
@@ -1090,20 +1132,23 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                     }
                     if (isRecording) {
                         LaunchedEffect(isRecording) { recordingSeconds = 0; while (true) { delay(1000); recordingSeconds++ } }
-                        Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            IconButton({ cancelRecording() }) { Icon(Icons.Default.Delete, null, tint = Red) }
-                            Box(Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(28.dp)).background(ThemeState.brandLt2), contentAlignment = Alignment.Center) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton({ cancelRecording() }, Modifier.size(44.dp)) { Icon(Icons.Default.Delete, null, tint = Red, modifier = Modifier.size(24.dp)) }
+                            Surface(
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                shape = RoundedCornerShape(28.dp),
+                                color = ThemeState.brandLt2
+                            ) {
+                                Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                                     Box(Modifier.size(10.dp).clip(CircleShape).background(Red))
-                                    Spacer(Modifier.width(8.dp))
+                                    Spacer(Modifier.width(10.dp))
                                     val mins = recordingSeconds / 60; val secs = recordingSeconds % 60
                                     Text("${mins}:${secs.toString().padStart(2, '0')}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
-                                    Spacer(Modifier.width(12.dp))
-                                    // Waveform visualization
-                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        repeat(16) { i ->
-                                            val h = ((i * 7 + recordingSeconds * 3) % 13 + 4).dp
-                                            Box(Modifier.width(3.dp).height(h).clip(RoundedCornerShape(2.dp)).background(ThemeState.brand))
+                                    Spacer(Modifier.width(14.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(1.5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        repeat(20) { i ->
+                                            val h = ((i * 7 + recordingSeconds * 3) % 15 + 3).dp
+                                            Box(Modifier.width(2.5.dp).height(h).clip(RoundedCornerShape(2.dp)).background(ThemeState.brand))
                                         }
                                     }
                                 }
@@ -1111,45 +1156,65 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             Spacer(Modifier.width(6.dp))
                             FloatingActionButton(
                                 onClick = { stopAndSendRecording() },
-                                modifier = Modifier.size(46.dp), containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
-                                elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                                modifier = Modifier.size(48.dp), containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
+                                elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
                             ) { Icon(Icons.Default.Send, null, Modifier.size(22.dp)) }
                         }
                     } else {
-                    Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                        IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(ThemeState.brandLt2)) {
-                            Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = ThemeState.textSecond, modifier = Modifier.size(24.dp))
+                    val hasCont = draft.isNotBlank() || pendingMediaUri != null
+                    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(28.dp),
+                            color = ThemeState.brandLt2,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 4.dp, end = 4.dp)) {
+                                IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, modifier = Modifier.padding(bottom = 4.dp).size(40.dp)) {
+                                    Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = ThemeState.textSecond, modifier = Modifier.size(24.dp))
+                                }
+                                Box(Modifier.weight(1f).padding(bottom = 2.dp)) {
+                                    BasicTextField(
+                                        value = draft,
+                                        onValueChange = { draft = it },
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = ThemeState.textPrimary),
+                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(ThemeState.brand),
+                                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                                        keyboardActions = KeyboardActions(onSend = { doSend() }),
+                                        maxLines = 4,
+                                        decorationBox = { inner ->
+                                            if (draft.isBlank()) {
+                                                Text("Text message", color = ThemeState.textHint, fontSize = 16.sp)
+                                            }
+                                            inner()
+                                        }
+                                    )
+                                }
+                                IconButton(onClick = { showEmoji = !showEmoji; showAttach = false }, modifier = Modifier.padding(bottom = 4.dp).size(40.dp)) {
+                                    Icon(Icons.Default.EmojiEmotions, null, tint = ThemeState.textHint, modifier = Modifier.size(24.dp))
+                                }
+                                if (!hasCont) {
+                                    IconButton(onClick = { imagePicker.launch("image/*") }, modifier = Modifier.padding(bottom = 4.dp).size(40.dp)) {
+                                        Icon(Icons.Default.CameraAlt, null, tint = ThemeState.textHint, modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                            }
                         }
                         Spacer(Modifier.width(6.dp))
-                        val hasCont = draft.isNotBlank() || pendingMediaUri != null
-                        OutlinedTextField(
-                            draft, { draft = it }, Modifier.weight(1f),
-                            placeholder = { Text("Text message", color = ThemeState.textHint) },
-                            shape = RoundedCornerShape(28.dp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
-                            trailingIcon = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton({ showEmoji = !showEmoji; showAttach = false }) { Icon(Icons.Default.EmojiEmotions, null, tint = ThemeState.textHint) }
-                                    if (!hasCont) IconButton({ imagePicker.launch("image/*") }) { Icon(Icons.Default.Image, null, tint = ThemeState.textHint) }
-                                }
-                            },
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { doSend() }),
-                            maxLines = 4
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Surface(
-                            shape = CircleShape,
-                            color = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
-                            shadowElevation = 0.dp,
-                            modifier = Modifier.size(46.dp).combinedClickable(
+                        FloatingActionButton(
+                            onClick = { if (hasCont) doSend() else startRecording() },
+                            modifier = Modifier.size(48.dp).combinedClickable(
                                 onClick = { if (hasCont) doSend() else startRecording() },
                                 onLongClick = { if (hasCont) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); showScheduleDialog = true } }
-                            )
+                            ),
+                            containerColor = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
+                            contentColor = Color.White,
+                            shape = CircleShape,
+                            elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp), tint = Color.White)
-                            }
+                            Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp))
                         }
                     }
                     }
@@ -1533,35 +1598,50 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                     val isAudio = mime.startsWith("audio/") || mime == "video/3gpp" || mime == "video/3gp" || m.body.contains("Voice message")
                     when {
                         isAudio -> {
-                            Row(Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp).fillMaxWidth(),
+                            Row(Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = {
-                                    try {
-                                        val playMime = if (mime.startsWith("audio/")) mime else "audio/3gpp"
-                                        val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(m.imageUri, playMime)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isIn) ThemeState.brand else Color.White.copy(alpha = .2f),
+                                    modifier = Modifier.size(40.dp).clickable {
+                                        try {
+                                            val playMime = if (mime.startsWith("audio/")) mime else "audio/3gpp"
+                                            val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(m.imageUri, playMime)
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            ctx.startActivity(playIntent)
+                                        } catch (_: Exception) {
+                                            Toast.makeText(ctx, "No audio player found", Toast.LENGTH_SHORT).show()
                                         }
-                                        ctx.startActivity(playIntent)
-                                    } catch (_: Exception) {
-                                        Toast.makeText(ctx, "No audio player found", Toast.LENGTH_SHORT).show()
                                     }
-                                }, modifier = Modifier.size(44.dp).clip(CircleShape).background(
-                                    if (isIn) ThemeState.brand.copy(alpha = .15f) else Color.White.copy(alpha = .2f))) {
-                                    Icon(Icons.Default.PlayArrow, null, tint = if (isIn) ThemeState.brand else Color.White, modifier = Modifier.size(28.dp))
+                                ) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.PlayArrow, null, tint = if (isIn) Color.White else Color.White, modifier = Modifier.size(24.dp))
+                                    }
                                 }
                                 Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Voice message", fontSize = fontSize.sp, fontWeight = FontWeight.Medium,
-                                        color = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary)
-                                    Spacer(Modifier.height(4.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        repeat(24) { i ->
-                                            val h = ((i * 7 + 3) % 13 + 4).dp
-                                            Box(Modifier.width(3.dp).height(h).clip(RoundedCornerShape(2.dp))
-                                                .background(if (isIn) ThemeState.brand.copy(.35f) else Color.White.copy(.45f)))
+                                Column {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(1.5.dp), verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.height(28.dp)) {
+                                        val barColor = if (isIn) ThemeState.brand.copy(.4f) else Color.White.copy(.5f)
+                                        val barActive = if (isIn) ThemeState.brand else Color.White.copy(.85f)
+                                        repeat(32) { i ->
+                                            val h = ((i * 7 + 3) % 15 + 3).dp
+                                            Box(Modifier.width(2.5.dp).height(h).clip(RoundedCornerShape(2.dp))
+                                                .background(if (i < 10) barActive else barColor))
                                         }
                                     }
+                                    Spacer(Modifier.height(2.dp))
+                                    val durationText = m.body.let {
+                                        val match = Regex("(\\d+)s").find(it)
+                                        if (match != null) {
+                                            val secs = match.groupValues[1].toIntOrNull() ?: 0
+                                            "${secs / 60}:${(secs % 60).toString().padStart(2, '0')}"
+                                        } else "0:00"
+                                    }
+                                    Text(durationText, fontSize = 11.sp,
+                                        color = if (isIn) ThemeState.textHint else if (ThemeState.isDark) Color.White.copy(.6f) else ThemeState.textHint)
                                 }
                             }
                         }
@@ -1649,7 +1729,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp),
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp).align(Alignment.End),
                     verticalAlignment = Alignment.CenterVertically) {
                     if (StarredStore.isStarred(ctx, m.id)) {
                         Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(12.dp))

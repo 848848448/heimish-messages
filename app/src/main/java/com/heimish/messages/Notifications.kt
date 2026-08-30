@@ -35,9 +35,12 @@ object Notifications {
 
         val nid = (threadId % Int.MAX_VALUE).toInt()
 
-        // Tap → open app
+        // Tap → open specific chat
         val openIntent = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("thread_id", threadId)
+            putExtra("address", address)
+            putExtra("sender", sender)
         }
         val openPi = PendingIntent.getActivity(ctx, nid, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

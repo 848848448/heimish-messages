@@ -202,10 +202,10 @@ object SmsRepository {
 
     // ── Send MMS (image) ──────────────────────────────────────────────────────
 
-    fun sendMms(ctx: Context, address: String, mediaUri: Uri, caption: String = ""): Boolean {
+    fun sendMms(ctx: Context, address: String, mediaUri: Uri, caption: String = "", overrideMime: String? = null): Boolean {
         return runCatching {
             val rawBytes = ctx.contentResolver.openInputStream(mediaUri)?.readBytes() ?: return false
-            var mimeType = ctx.contentResolver.getType(mediaUri) ?: "application/octet-stream"
+            var mimeType = overrideMime ?: ctx.contentResolver.getType(mediaUri) ?: "application/octet-stream"
             val sms = smsManager(ctx)
             val threadId = getOrCreateThreadId(ctx, address)
 
