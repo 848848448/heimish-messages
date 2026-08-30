@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import android.telephony.SmsMessage
+import android.util.Log
 
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -24,9 +25,12 @@ class SmsReceiver : BroadcastReceiver() {
             put(Telephony.Sms.READ, 0)
             put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
         }
-        val uri = runCatching { context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values) }.getOrNull()
+        try {
+            context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
+        } catch (e: Exception) {
+            Log.e("SmsReceiver", "Failed to insert SMS: ${e.message}")
+        }
 
-        // Get thread ID for notification reply
         val threadId = SmsRepository.getThreadIdForAddress(context, address)
         val sender = SmsRepository.getContactName(context, address) ?: address
 

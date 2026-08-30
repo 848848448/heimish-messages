@@ -1,5 +1,6 @@
 package com.heimish.messages
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -24,9 +25,17 @@ class MmsReceiver : BroadcastReceiver() {
             try {
                 if (contentLocation != null) {
                     downloadMms(context, contentLocation)
-                    Thread.sleep(6000)
+                    // Wait for download to complete — poll for new MMS entry
+                    val latestBefore = getLatestMmsId(context)
+                    var attempts = 0
+                    while (attempts < 20) {
+                        Thread.sleep(2000)
+                        attempts++
+                        val latestNow = getLatestMmsId(context)
+                        if (latestNow > latestBefore) break
+                    }
                 } else {
-                    Thread.sleep(3000)
+                    Thread.sleep(5000)
                 }
                 showMmsNotification(context)
             } catch (e: Exception) {
@@ -54,12 +63,34 @@ class MmsReceiver : BroadcastReceiver() {
             context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
         else SmsManager.getDefault()
 
-        sms.downloadMultimediaMessage(context, contentLocation, downloadUri, Bundle(), null)
+        val downloadedIntent = PendingIntent.getBroadcast(
+            context, System.currentTimeMillis().toInt(),
+            Intent("com.heimish.messages.MMS_DOWNLOADED"),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        Thread { Thread.sleep(60_000); downloadFile.delete() }.start()
+        val configOverrides = Bundle()
+        configOverrides.putBoolean(SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, true)
+
+        sms.downloadMultimediaMessage(context, contentLocation, downloadUri, configOverrides, downloadedIntent)
+
+        Thread { Thread.sleep(120_000); downloadFile.delete() }.start()
+    }
+
+    private fun getLatestMmsId(ctx: Context): Long {
+        return try {
+            ctx.contentResolver.query(
+                Uri.parse("content://mms"),
+                arrayOf("_id"),
+                null, null, "_id DESC"
+            )?.use {
+                if (it.moveToFirst()) it.getLong(0) else 0L
+            } ?: 0L
+        } catch (_: Exception) { 0L }
     }
 
     private fun extractContentLocation(pdu: ByteArray): String? {
+        // WAP-230: X-Mms-Content-Location header = 0x83
         var i = 0
         while (i < pdu.size - 1) {
             if (pdu[i].toInt() and 0xFF == 0x83) {
@@ -88,14 +119,17 @@ class MmsReceiver : BroadcastReceiver() {
     private fun showMmsNotification(context: Context) {
         val cursor = context.contentResolver.query(
             Uri.parse("content://mms"),
-            arrayOf("_id", "thread_id", "date"),
+            arrayOf("_id", "thread_id", "date", "read"),
             null, null, "date DESC"
         ) ?: return
         cursor.use {
             if (!it.moveToFirst()) return
             val mmsId = it.getLong(0)
             val threadId = it.getLong(1)
+            val read = it.getInt(3)
+            if (read == 1) return
             val addr = getAddress(context, mmsId)
+            if (addr.isBlank()) return
             val name = SmsRepository.getContactName(context, addr) ?: addr
             val body = getMmsText(context, mmsId)
             val prefs = context.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
@@ -133,6 +167,14 @@ class MmsReceiver : BroadcastReceiver() {
                 Uri.parse("content://mms/$mmsId/addr"),
                 arrayOf("address"),
                 "type = 137", null, null
+            )?.use {
+                if (it.moveToFirst()) return it.getString(0) ?: ""
+            }
+            // Fallback: try FROM address type 151
+            ctx.contentResolver.query(
+                Uri.parse("content://mms/$mmsId/addr"),
+                arrayOf("address"),
+                "type = 151", null, null
             )?.use {
                 if (it.moveToFirst()) return it.getString(0) ?: ""
             }
