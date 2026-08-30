@@ -787,24 +787,14 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     val pullThreshold = 200f
     var searchQuery by remember { mutableStateOf("") }
 
-    fun reload(scrollToEnd: Boolean = false) {
+    fun reload() {
         val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
         val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-        val prevSize = msgs.size
-        val prevFirst = listState.firstVisibleItemIndex
-        val prevOffset = listState.firstVisibleItemScrollOffset
+        val wasAtBottom = listState.firstVisibleItemIndex <= 2
+        val hadNew = filtered.size > msgs.size
         msgs = filtered
-        if (scrollToEnd) {
-            scope.launch { if (msgs.isNotEmpty()) listState.scrollToItem(msgs.size - 1) }
-        } else if (filtered.size > prevSize && prevSize > 0) {
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            if (lastVisible >= prevSize - 2) {
-                scope.launch { listState.animateScrollToItem(msgs.size - 1) }
-            } else {
-                scope.launch { listState.scrollToItem(prevFirst, prevOffset) }
-            }
-        } else if (prevSize > 0) {
-            scope.launch { listState.scrollToItem(prevFirst, prevOffset) }
+        if (wasAtBottom && hadNew) {
+            scope.launch { listState.scrollToItem(0) }
         }
     }
 
@@ -815,7 +805,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
             val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
             scope.launch(Dispatchers.IO) {
                 SmsRepository.sendMms(ctx, conversation.address, uri, prefix + body)
-                withContext(Dispatchers.Main) { draft = ""; pendingMediaUri = null; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) }
+                withContext(Dispatchers.Main) { draft = ""; pendingMediaUri = null; replyTo = null; keyboard?.hide(); reload() }
             }
             return
         }
@@ -823,7 +813,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         val prefix = if (replyTo != null) "\u21a9 ${replyTo!!.body.take(40)}\n" else ""
         scope.launch(Dispatchers.IO) {
             val ok = SmsRepository.sendSms(ctx, conversation.address, prefix + body)
-            withContext(Dispatchers.Main) { if (ok) { draft = ""; replyTo = null; keyboard?.hide(); reload(scrollToEnd = true) } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
+            withContext(Dispatchers.Main) { if (ok) { draft = ""; replyTo = null; keyboard?.hide(); reload() } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
         }
     }
 
@@ -860,7 +850,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
         scope.launch(Dispatchers.IO) {
             SmsRepository.sendMms(ctx, conversation.address, uri, "🎤 Voice message (${recordingSeconds}s)")
-            withContext(Dispatchers.Main) { reload(scrollToEnd = true) }
+            withContext(Dispatchers.Main) { reload() }
         }
     }
 
@@ -874,7 +864,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     }
 
     BackHandler { if (inSelectMode) selectedIds = emptySet() else onBack() }
-    LaunchedEffect(Unit) { reload(scrollToEnd = true); SmsRepository.markThreadRead(ctx, conversation.threadId) }
+    LaunchedEffect(Unit) { reload(); SmsRepository.markThreadRead(ctx, conversation.threadId) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); reload() } }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "image") } }
@@ -1195,6 +1185,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                                 showEmoji = true; showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Brand) { showEmoji = true; showAttach = false } }
+                            item { AttachBtn(Icons.Default.Mic, "Voice", Brand) { showAttach = false; startRecording() } }
                             item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Brand) { filePicker.launch("*/*"); showAttach = false } }
                             item { AttachBtn(Icons.Default.LocationOn, "Location", Brand) {
                                 draft = "https://maps.google.com"
@@ -1222,36 +1213,17 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         Box(Modifier.fillMaxSize().padding(pad)) {
             LazyColumn(
                 state = listState,
+                reverseLayout = true,
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(horizontal = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
             ) {
                 val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
                 val grouped = displayMsgs.groupByDate()
-                grouped.forEach { (day, dayMsgs) ->
-                    item(key = "day_$day") { DayHeader(day) }
-                    val isGroupChat = conversation.address.contains(";")
-                    items(dayMsgs, key = { it.id }) { m ->
-                        if (inSelectMode) {
-                            Row(Modifier.fillMaxWidth().clickable {
-                                selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id
-                            }.background(if (m.id in selectedIds) ThemeState.brandLt2 else Color.Transparent).padding(start = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(m.id in selectedIds, { selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id },
-                                    colors = CheckboxDefaults.colors(checkedColor = ThemeState.brand))
-                                Box(Modifier.weight(1f)) { MessageBubble(m, {}, null, isGroupChat) }
-                            }
-                        } else {
-                            SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
-                                onImageClick = { uri ->
-                                    val imageUris = msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) }.map { it.imageUri!! }
-                                    viewerIdx = imageUris.indexOf(uri).coerceAtLeast(0)
-                                }, isGroup = isGroupChat)
-                        }
-                    }
-                }
+                val isGroupChat = conversation.address.contains(";")
+
                 if (msgs.isNotEmpty() && msgs.last().incoming) {
-                    item {
+                    item(key = "quick_replies") {
                         Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("\u05d0\u05b8\u05e7\u05e2\u05d9!", "\ud83d\udc4d", "\u05d9\u05d0\u05b8!", "\u05e9\u05d9\u05d9\u05df!").forEach { reply ->
                                 Surface(
@@ -1269,11 +1241,33 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                         }
                     }
                 }
+
+                grouped.asReversed().forEach { (day, dayMsgs) ->
+                    items(dayMsgs.asReversed(), key = { it.id }) { m ->
+                        if (inSelectMode) {
+                            Row(Modifier.fillMaxWidth().clickable {
+                                selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id
+                            }.background(if (m.id in selectedIds) ThemeState.brandLt2 else Color.Transparent).padding(start = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(m.id in selectedIds, { selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id },
+                                    colors = CheckboxDefaults.colors(checkedColor = ThemeState.brand))
+                                Box(Modifier.weight(1f)) { MessageBubble(m, {}, null, isGroupChat) }
+                            }
+                        } else {
+                            SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
+                                onImageClick = { uri ->
+                                    val imageUris = msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) }.map { it.imageUri!! }
+                                    viewerIdx = imageUris.indexOf(uri).coerceAtLeast(0)
+                                }, isGroup = isGroupChat)
+                        }
+                    }
+                    item(key = "day_$day") { DayHeader(day) }
+                }
             }
-            val showScrollDown by remember { derivedStateOf { listState.firstVisibleItemIndex < (msgs.size - 5).coerceAtLeast(0) && msgs.size > 5 } }
+            val showScrollDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 5 } }
             AnimatedVisibility(showScrollDown, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp), enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
                 SmallFloatingActionButton(
-                    onClick = { scope.launch { listState.animateScrollToItem(msgs.size - 1) } },
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
                     containerColor = ThemeState.surf,
                     contentColor = ThemeState.textSecond,
                     shape = CircleShape
