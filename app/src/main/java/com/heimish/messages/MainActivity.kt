@@ -249,40 +249,20 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
         !isDefault -> SetupScreen(onRequestDefault)
         !hasPerms  -> SetupPerms { permL.launch(Permissions.ALL) }
         else -> {
-            AnimatedContent(
-                targetState = screen,
-                transitionSpec = {
-                    val goingDeeper = when (targetState) {
-                        Screen.List -> false
-                        is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin, Screen.Archived ->
-                            initialState is Screen.List
-                        else -> true
-                    }
-                    if (goingDeeper) {
-                        (slideInHorizontally(tween(150)) { it / 4 } + fadeIn(tween(120)))
-                            .togetherWith(slideOutHorizontally(tween(150)) { -it / 6 } + fadeOut(tween(100)))
-                    } else {
-                        (slideInHorizontally(tween(150)) { -it / 6 } + fadeIn(tween(120)))
-                            .togetherWith(slideOutHorizontally(tween(150)) { it / 4 } + fadeOut(tween(100)))
-                    }
-                },
-                label = "nav"
-            ) { s ->
-                when (s) {
-                    Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived })
-                    is Screen.Chat  -> ThreadScreen(s.conv,
-                        onDetails = { screen = Screen.ContactDetail(s.conv) },
-                        onImagePreview = { uri, type -> screen = Screen.ImagePreview(s.conv, uri, type) },
-                        onForward = { body -> screen = Screen.ForwardMsg(body) }) { screen = Screen.List }
-                    is Screen.ContactDetail -> ContactDetailScreen(s.conv) { screen = Screen.Chat(s.conv) }
-                    Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
-                    Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
-                    is Screen.SettingSub -> SettingSubScreen(s.key) { screen = Screen.Settings }
-                    Screen.Admin    -> AdminScreen { screen = Screen.List }
-                    is Screen.ImagePreview -> ImagePreviewScreen(s.conv, s.uri, s.mediaType) { screen = Screen.Chat(s.conv) }
-                    is Screen.ForwardMsg -> ForwardScreen(s.body) { screen = Screen.List }
-                    Screen.Archived -> ArchivedScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
-                }
+            when (screen) {
+                Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived })
+                is Screen.Chat  -> ThreadScreen((screen as Screen.Chat).conv,
+                    onDetails = { screen = Screen.ContactDetail((screen as Screen.Chat).conv) },
+                    onImagePreview = { uri, type -> screen = Screen.ImagePreview((screen as Screen.Chat).conv, uri, type) },
+                    onForward = { body -> screen = Screen.ForwardMsg(body) }) { screen = Screen.List }
+                is Screen.ContactDetail -> ContactDetailScreen((screen as Screen.ContactDetail).conv) { screen = Screen.Chat((screen as Screen.ContactDetail).conv) }
+                Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
+                Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
+                is Screen.SettingSub -> SettingSubScreen((screen as Screen.SettingSub).key) { screen = Screen.Settings }
+                Screen.Admin    -> AdminScreen { screen = Screen.List }
+                is Screen.ImagePreview -> ImagePreviewScreen((screen as Screen.ImagePreview).conv, (screen as Screen.ImagePreview).uri, (screen as Screen.ImagePreview).mediaType) { screen = Screen.Chat((screen as Screen.ImagePreview).conv) }
+                is Screen.ForwardMsg -> ForwardScreen((screen as Screen.ForwardMsg).body) { screen = Screen.List }
+                Screen.Archived -> ArchivedScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
             }
         }
     }
