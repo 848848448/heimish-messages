@@ -21,6 +21,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -216,20 +217,42 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     when {
         !isDefault -> SetupScreen(onRequestDefault)
         !hasPerms  -> SetupPerms { permL.launch(Permissions.ALL) }
-        else -> when (val s = screen) {
-            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived })
-            is Screen.Chat  -> ThreadScreen(s.conv,
-                onDetails = { screen = Screen.ContactDetail(s.conv) },
-                onImagePreview = { uri, type -> screen = Screen.ImagePreview(s.conv, uri, type) },
-                onForward = { body -> screen = Screen.ForwardMsg(body) }) { screen = Screen.List }
-            is Screen.ContactDetail -> ContactDetailScreen(s.conv) { screen = Screen.Chat(s.conv) }
-            Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
-            Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
-            is Screen.SettingSub -> SettingSubScreen(s.key) { screen = Screen.Settings }
-            Screen.Admin    -> AdminScreen { screen = Screen.List }
-            is Screen.ImagePreview -> ImagePreviewScreen(s.conv, s.uri, s.mediaType) { screen = Screen.Chat(s.conv) }
-            is Screen.ForwardMsg -> ForwardScreen(s.body) { screen = Screen.List }
-            Screen.Archived -> ArchivedScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
+        else -> {
+            AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    val goingDeeper = when (targetState) {
+                        Screen.List -> false
+                        is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin, Screen.Archived ->
+                            initialState is Screen.List
+                        else -> true
+                    }
+                    if (goingDeeper) {
+                        (slideInHorizontally(tween(150)) { it / 4 } + fadeIn(tween(120)))
+                            .togetherWith(slideOutHorizontally(tween(150)) { -it / 6 } + fadeOut(tween(100)))
+                    } else {
+                        (slideInHorizontally(tween(150)) { -it / 6 } + fadeIn(tween(120)))
+                            .togetherWith(slideOutHorizontally(tween(150)) { it / 4 } + fadeOut(tween(100)))
+                    }
+                },
+                label = "nav"
+            ) { s ->
+                when (s) {
+                    Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived })
+                    is Screen.Chat  -> ThreadScreen(s.conv,
+                        onDetails = { screen = Screen.ContactDetail(s.conv) },
+                        onImagePreview = { uri, type -> screen = Screen.ImagePreview(s.conv, uri, type) },
+                        onForward = { body -> screen = Screen.ForwardMsg(body) }) { screen = Screen.List }
+                    is Screen.ContactDetail -> ContactDetailScreen(s.conv) { screen = Screen.Chat(s.conv) }
+                    Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
+                    Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
+                    is Screen.SettingSub -> SettingSubScreen(s.key) { screen = Screen.Settings }
+                    Screen.Admin    -> AdminScreen { screen = Screen.List }
+                    is Screen.ImagePreview -> ImagePreviewScreen(s.conv, s.uri, s.mediaType) { screen = Screen.Chat(s.conv) }
+                    is Screen.ForwardMsg -> ForwardScreen(s.body) { screen = Screen.List }
+                    Screen.Archived -> ArchivedScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
+                }
+            }
         }
     }
 }
@@ -463,6 +486,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(onClick = onNew, containerColor = ThemeState.brand, contentColor = Color.White, shape = RoundedCornerShape(16.dp),
+                elevation = FloatingActionButtonDefaults.elevation(6.dp, 8.dp),
                 icon = { Icon(Icons.Filled.Chat, null) }, text = { Text("Start chat", fontWeight = FontWeight.SemiBold) })
         }
     ) { pad ->
@@ -548,10 +572,12 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    var offsetX by remember { mutableFloatStateOf(0f) }
+    val swipeAnim = remember { Animatable(0f) }
     val threshold = 150f
-    val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-    val swipeAction = prefs.getString("swipe_action", "archive") ?: "archive"
+    val swipeAction = remember {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        prefs.getString("swipe_action", "archive") ?: "archive"
+    }
 
     val swipeIcon = when (swipeAction) {
         "delete" -> Icons.Default.Delete
@@ -566,6 +592,7 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
         else -> "Archive"
     }
     val swipeEnabled = swipeAction != "none"
+    val offsetX = swipeAnim.value
 
     Box(
         Modifier.fillMaxWidth().background(
@@ -594,7 +621,7 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
                 .pointerInput(c.threadId) {
                     if (swipeEnabled) detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (offsetX < -threshold) {
+                            if (swipeAnim.value < -threshold) {
                                 when (swipeAction) {
                                     "archive" -> {
                                         onArchive(c.threadId)
@@ -611,9 +638,12 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
                                 }
                                 onRefresh()
                             }
-                            offsetX = 0f
+                            scope.launch { swipeAnim.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 500f)) }
                         },
-                        onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(-200f, 0f) }
+                        onHorizontalDrag = { _, dx ->
+                            val target = (swipeAnim.value + dx).coerceIn(-200f, 0f)
+                            scope.launch { swipeAnim.snapTo(target) }
+                        }
                     )
                 }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1281,22 +1311,29 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
 @Composable
 fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit, onImageClick: ((Uri) -> Unit)? = null, isGroup: Boolean = false) {
-    var offsetX by remember { mutableFloatStateOf(0f) }
+    val offsetAnim = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
     val threshold = 100f
     Box(Modifier.fillMaxWidth().pointerInput(m.id) {
         detectHorizontalDragGestures(
-            onDragEnd = { if (abs(offsetX) > threshold) onReply(); offsetX = 0f },
+            onDragEnd = {
+                val cur = offsetAnim.value
+                if (abs(cur) > threshold) onReply()
+                scope.launch { offsetAnim.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 400f)) }
+            },
             onHorizontalDrag = { _, dx ->
-                offsetX = if (m.incoming) (offsetX + dx).coerceIn(0f, 200f) else (offsetX + dx).coerceIn(-200f, 0f)
+                val target = if (m.incoming) (offsetAnim.value + dx).coerceIn(0f, 200f) else (offsetAnim.value + dx).coerceIn(-200f, 0f)
+                scope.launch { offsetAnim.snapTo(target) }
             }
         )
     }) {
-        if (abs(offsetX) > 20f) {
+        val off = offsetAnim.value
+        if (abs(off) > 20f) {
             Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd) {
-                Icon(Icons.Default.Reply, null, tint = ThemeState.brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.Reply, null, tint = ThemeState.brand.copy(alpha = (abs(off) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
             }
         }
-        Box(Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }) {
+        Box(Modifier.offset { IntOffset(off.roundToInt(), 0) }) {
             MessageBubble(m, onLongClick, onImageClick, isGroup)
         }
     }
@@ -1401,9 +1438,11 @@ fun EmojiPicker(onPick: (String) -> Unit) {
 @Composable
 fun textSizeSp(): Float {
     val ctx = LocalContext.current
-    val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-    return when (prefs.getString("text_size", "default")) {
-        "small" -> 13f; "large" -> 18f; "largest" -> 21f; else -> 15f
+    return remember {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        when (prefs.getString("text_size", "default")) {
+            "small" -> 13f; "large" -> 18f; "largest" -> 21f; else -> 15f
+        }
     }
 }
 
@@ -1415,6 +1454,9 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
     val ctx = LocalContext.current
     val isIn = m.incoming
     val fontSize = textSizeSp()
+    val senderName = remember(m.address) {
+        if (isGroup && isIn) SmsRepository.getContactName(ctx, m.address ?: "") ?: (m.address ?: "?") else ""
+    }
     val shape = RoundedCornerShape(
         topStart = 20.dp, topEnd = 20.dp,
         bottomEnd = if (isIn) 20.dp else 4.dp,
@@ -1428,7 +1470,6 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
         if (!isIn) Spacer(Modifier.width(56.dp))
         if (isIn && isGroup) {
             Box(Modifier.size(28.dp).clip(CircleShape).background(avatarColor(m.address ?: "")), contentAlignment = Alignment.Center) {
-                val senderName = SmsRepository.getContactName(ctx, m.address ?: "") ?: (m.address ?: "?")
                 Text(initial(senderName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
             Spacer(Modifier.width(6.dp))
@@ -1442,7 +1483,6 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
         ) {
             Column {
                 if (isIn && isGroup) {
-                    val senderName = SmsRepository.getContactName(ctx, m.address ?: "") ?: (m.address ?: "")
                     Text(senderName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = avatarColor(m.address ?: ""),
                         modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -2292,6 +2332,7 @@ fun DetailInfoRow(label: String, value: String) {
 // ━━━━━━━━━━━━━━━━ FULL-SCREEN MEDIA VIEWER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @Composable
 fun MediaViewerOverlay(uris: List<Uri>, startIdx: Int, onChangeIdx: (Int) -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
     var idx by remember { mutableIntStateOf(startIdx.coerceIn(0, uris.size - 1)) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
@@ -2334,7 +2375,7 @@ fun MediaViewerOverlay(uris: List<Uri>, startIdx: Int, onChangeIdx: (Int) -> Uni
             IconButton({
                 try {
                     val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "image/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                    onDismiss()
+                    ctx.startActivity(Intent.createChooser(shareIntent, "Share"))
                 } catch (_: Exception) {}
             }) { Icon(Icons.Default.Share, null, tint = Color.White) }
             if (idx < uris.size - 1) IconButton({ idx++; onChangeIdx(idx) }) { Icon(Icons.Default.ArrowForward, null, tint = Color.White) }
