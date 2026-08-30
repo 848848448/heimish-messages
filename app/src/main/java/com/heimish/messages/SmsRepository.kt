@@ -27,7 +27,8 @@ data class Message(
     val isMms: Boolean = false,
     val imageUri: Uri? = null,
     val address: String? = null,
-    val mediaMime: String? = null
+    val mediaMime: String? = null,
+    val status: Int = -1
 )
 
 object SmsRepository {
@@ -100,7 +101,7 @@ object SmsRepository {
         // SMS
         ctx.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS),
+            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS),
             Telephony.Sms.THREAD_ID + " = ?", arrayOf(threadId.toString()),
             Telephony.Sms.DATE + " ASC"
         )?.use { c ->
@@ -109,13 +110,15 @@ object SmsRepository {
             val iDate = c.getColumnIndex(Telephony.Sms.DATE)
             val iType = c.getColumnIndex(Telephony.Sms.TYPE)
             val iAddr = c.getColumnIndex(Telephony.Sms.ADDRESS)
+            val iStat = c.getColumnIndex(Telephony.Sms.STATUS)
             while (c.moveToNext()) {
                 out.add(Message(
                     id       = c.getLong(iId),
                     body     = c.getString(iBody) ?: "",
                     date     = c.getLong(iDate),
                     incoming = c.getInt(iType) == Telephony.Sms.MESSAGE_TYPE_INBOX,
-                    address  = if (iAddr >= 0) c.getString(iAddr) else null
+                    address  = if (iAddr >= 0) c.getString(iAddr) else null,
+                    status   = if (iStat >= 0) c.getInt(iStat) else -1
                 ))
             }
         }

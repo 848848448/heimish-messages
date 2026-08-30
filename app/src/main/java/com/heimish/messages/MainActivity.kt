@@ -458,7 +458,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                             modifier = Modifier.weight(1f))
                     }
                 } else {
-                    Surface(onClick = { showSearch = true }, shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2, tonalElevation = 2.dp,
+                    Surface(onClick = { showSearch = true }, shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2, tonalElevation = 2.dp, shadowElevation = 2.dp,
                         modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(22.dp))
@@ -879,6 +879,48 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "image") } }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "video") } }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            pendingMediaUri = it
+            pendingMediaType = "file"
+            showAttach = false
+        }
+    }
+    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (uri != null) {
+            try {
+                val cursor = ctx.contentResolver.query(uri, null, null, null, null)
+                cursor?.use { c ->
+                    if (c.moveToFirst()) {
+                        val nameIdx = c.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME)
+                        val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
+                        val contactId = c.getColumnIndex(android.provider.ContactsContract.Contacts._ID).let { idx -> if (idx >= 0) c.getString(idx) else null }
+                        var phone = ""
+                        if (contactId != null) {
+                            ctx.contentResolver.query(
+                                android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+                                android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = ?",
+                                arrayOf(contactId), null
+                            )?.use { pc ->
+                                if (pc.moveToFirst()) {
+                                    val phoneIdx = pc.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                                    phone = if (phoneIdx >= 0) pc.getString(phoneIdx) ?: "" else ""
+                                }
+                            }
+                        }
+                        val contactText = if (phone.isNotBlank()) "$name\n$phone" else name
+                        if (contactText.isNotBlank()) {
+                            draft = contactText
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                Toast.makeText(ctx, "Could not read contact", Toast.LENGTH_SHORT).show()
+            }
+            showAttach = false
+        }
+    }
 
     // Floating context menu (long-press on message)
     if (ctxMsg != null) {
@@ -1054,15 +1096,18 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                     }
                     if (pendingMediaUri != null) {
                         Row(Modifier.fillMaxWidth().background(ThemeState.brandLt2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (pendingMediaType == "image") {
-                                AsyncImage(pendingMediaUri, "preview", Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
-                            } else {
-                                Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(ThemeState.textPrimary), contentAlignment = Alignment.Center) {
+                            when (pendingMediaType) {
+                                "image" -> AsyncImage(pendingMediaUri, "preview", Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
+                                "file" -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(ThemeState.brand.copy(.15f)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.InsertDriveFile, null, tint = ThemeState.brand, modifier = Modifier.size(32.dp))
+                                }
+                                else -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(ThemeState.textPrimary), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.PlayCircle, null, tint = Color.White, modifier = Modifier.size(32.dp))
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
-                            Text(if (pendingMediaType == "image") "Photo ready" else "Video ready", fontSize = 14.sp, color = ThemeState.textSecond, modifier = Modifier.weight(1f))
+                            Text(when (pendingMediaType) { "image" -> "Photo ready"; "file" -> "File ready"; else -> "Video ready" },
+                                fontSize = 14.sp, color = ThemeState.textSecond, modifier = Modifier.weight(1f))
                             IconButton({ pendingMediaUri = null }) { Icon(Icons.Default.Close, null, tint = Red) }
                         }
                     }
@@ -1150,15 +1195,14 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                                 showEmoji = true; showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Brand) { showEmoji = true; showAttach = false } }
-                            item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Brand) { ctx.startActivity(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }) } }
+                            item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Brand) { filePicker.launch("*/*"); showAttach = false } }
                             item { AttachBtn(Icons.Default.LocationOn, "Location", Brand) {
-                                val locIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0"))
-                                if (locIntent.resolveActivity(ctx.packageManager) != null) ctx.startActivity(locIntent)
-                                else ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com")))
+                                draft = "https://maps.google.com"
+                                Toast.makeText(ctx, "Location link added", Toast.LENGTH_SHORT).show()
                                 showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.Contacts, "Contacts", Brand) {
-                                ctx.startActivity(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI))
+                                contactPicker.launch(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI))
                                 showAttach = false
                             } }
                             item { AttachBtn(Icons.Default.Schedule, "Schedule", Brand) {
@@ -1626,7 +1670,17 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                     Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) ThemeState.textHint else if (ThemeState.isDark) Color.White.copy(.7f) else ThemeState.textHint)
                     if (!isIn) {
                         Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Default.DoneAll, null, tint = if (ThemeState.isDark) Color.White.copy(.85f) else ThemeState.brand, modifier = Modifier.size(14.dp))
+                        val delivered = m.status == 0
+                        Icon(
+                            if (delivered) Icons.Default.DoneAll else Icons.Default.Done,
+                            null,
+                            tint = if (delivered) {
+                                if (ThemeState.isDark) Color.White.copy(.85f) else ThemeState.brand
+                            } else {
+                                ThemeState.textHint
+                            },
+                            modifier = Modifier.size(14.dp)
+                        )
                     }
                 }
             }
@@ -2246,7 +2300,17 @@ fun AdminInfoRow(label: String, value: String) {
 @Composable
 fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     val isGroup = conv.address.contains(";")
+    var isMuted by remember {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        mutableStateOf(prefs.getBoolean("muted_${conv.threadId}", false))
+    }
+    val starredIds = remember { StarredStore.get(ctx) }
+    val msgs = remember { SmsRepository.loadMessages(ctx, conv.threadId) }
+    val starredCount = remember(starredIds, msgs) { msgs.count { it.id in starredIds } }
+    val mediaCount = remember(msgs) { msgs.count { it.imageUri != null } }
+
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
@@ -2269,8 +2333,16 @@ fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     ContactAction(Icons.Default.Phone, "Call") { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${conv.address}"))) }
                     ContactAction(Icons.Default.Videocam, "Video") { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conv.address}"))) }
-                    ContactAction(Icons.Default.Search, "Search") {}
-                    ContactAction(Icons.Default.Notifications, "Mute") { Toast.makeText(ctx, "Notifications muted", Toast.LENGTH_SHORT).show() }
+                    ContactAction(Icons.Default.Search, "Search") { onBack() }
+                    ContactAction(
+                        if (isMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
+                        if (isMuted) "Unmute" else "Mute"
+                    ) {
+                        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+                        isMuted = !isMuted
+                        prefs.edit().putBoolean("muted_${conv.threadId}", isMuted).apply()
+                        Toast.makeText(ctx, if (isMuted) "Notifications muted" else "Notifications on", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 Spacer(Modifier.height(20.dp))
             }
@@ -2295,13 +2367,33 @@ fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
                 Spacer(Modifier.height(8.dp))
-                DetailRow(Icons.Default.Notifications, "Notifications", "On") {}
-                DetailRow(Icons.Default.Image, "Media & files", "Photos, videos, files") {}
-                DetailRow(Icons.Default.Star, "Starred messages", "None") {}
+                DetailRow(
+                    if (isMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
+                    "Notifications",
+                    if (isMuted) "Off" else "On"
+                ) {
+                    val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+                    isMuted = !isMuted
+                    prefs.edit().putBoolean("muted_${conv.threadId}", isMuted).apply()
+                    Toast.makeText(ctx, if (isMuted) "Muted" else "Unmuted", Toast.LENGTH_SHORT).show()
+                }
+                DetailRow(Icons.Default.Image, "Media & files", "$mediaCount item${if (mediaCount != 1) "s" else ""}") {
+                    Toast.makeText(ctx, "$mediaCount media item${if (mediaCount != 1) "s" else ""} in this conversation", Toast.LENGTH_SHORT).show()
+                }
+                DetailRow(Icons.Default.Star, "Starred messages", "$starredCount message${if (starredCount != 1) "s" else ""}") {
+                    if (starredCount == 0) Toast.makeText(ctx, "No starred messages", Toast.LENGTH_SHORT).show()
+                    else {
+                        val starredMsgs = msgs.filter { it.id in starredIds }
+                        val summary = starredMsgs.joinToString("\n") { "- ${it.body.take(50)}" }
+                        Toast.makeText(ctx, "$starredCount starred message${if (starredCount != 1) "s" else ""}", Toast.LENGTH_LONG).show()
+                    }
+                }
                 HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
                 Spacer(Modifier.height(8.dp))
                 DetailRow(Icons.Default.Block, "Block & report spam", "", Red) {
+                    scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conv.threadId) }
                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show()
+                    onBack()
                 }
             }
         }
@@ -2311,7 +2403,7 @@ fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
 @Composable
 fun ContactAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(8.dp)) {
-        Surface(shape = CircleShape, color = ThemeState.brandLt2, modifier = Modifier.size(48.dp)) {
+        Surface(shape = CircleShape, color = ThemeState.brandLt2, shadowElevation = 2.dp, modifier = Modifier.size(48.dp)) {
             Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = ThemeState.brand, modifier = Modifier.size(22.dp)) }
         }
         Spacer(Modifier.height(6.dp))
@@ -2328,6 +2420,7 @@ fun DetailRow(icon: ImageVector, title: String, sub: String, tint: Color = Theme
             Text(title, fontSize = 15.sp, color = if (tint == Red) Red else ThemeState.textPrimary)
             if (sub.isNotBlank()) Text(sub, fontSize = 13.sp, color = ThemeState.textHint)
         }
+        if (tint != Red) Icon(Icons.Default.ChevronRight, null, tint = ThemeState.textHint, modifier = Modifier.size(20.dp))
     }
 }
 
