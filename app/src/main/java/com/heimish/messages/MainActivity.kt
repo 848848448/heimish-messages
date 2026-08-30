@@ -458,7 +458,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                             modifier = Modifier.weight(1f))
                     }
                 } else {
-                    Surface(onClick = { showSearch = true }, shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2, tonalElevation = 2.dp, shadowElevation = 2.dp,
+                    Surface(onClick = { showSearch = true }, shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp, shadowElevation = 0.dp,
                         modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(22.dp))
@@ -486,17 +486,23 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(onClick = onNew, containerColor = ThemeState.brand, contentColor = Color.White, shape = RoundedCornerShape(16.dp),
-                elevation = FloatingActionButtonDefaults.elevation(6.dp, 8.dp),
+                elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp),
                 icon = { Icon(Icons.Filled.Chat, null) }, text = { Text("Start chat", fontWeight = FontWeight.SemiBold) })
         }
     ) { pad ->
+        var loaded by remember { mutableStateOf(false) }
+        LaunchedEffect(list) { if (list.isNotEmpty()) loaded = true }
         Box(Modifier.padding(pad)) {
             if (filtered.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ThemeState.textHint, modifier = Modifier.size(64.dp))
-                        Spacer(Modifier.height(12.dp))
-                        Text(if (search.isBlank()) "No messages yet" else "No results", color = ThemeState.textHint)
+                    if (!loaded && search.isBlank()) {
+                        CircularProgressIndicator(color = ThemeState.brand, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ThemeState.textHint, modifier = Modifier.size(64.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text(if (search.isBlank()) "No messages yet" else "No results", color = ThemeState.textHint)
+                        }
                     }
                 }
             } else {
@@ -507,7 +513,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     items(filtered, key = { it.threadId }) { conv ->
                         SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it },
                             onArchive = { tid -> ArchiveStore.add(ctx, tid); archived.value = ArchiveStore.get(ctx) })
-                        if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = ThemeState.divLt)
+                        if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 78.dp), thickness = 0.5.dp, color = ThemeState.divLt)
                     }
                 }
             }
@@ -647,7 +653,7 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.size(52.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
                 Text(initial(c.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             }
             Spacer(Modifier.width(14.dp))
@@ -665,7 +671,7 @@ fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh:
                         modifier = Modifier.weight(1f))
                     if (c.unread) {
                         Spacer(Modifier.width(8.dp))
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(ThemeState.brand))
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(ThemeState.brand))
                     }
                 }
             }
@@ -1050,7 +1056,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
             }
         },
         bottomBar = {
-            Surface(color = ThemeState.surf, shadowElevation = 2.dp) {
+            Surface(color = ThemeState.surf, shadowElevation = 0.dp) {
                 Column(Modifier.navigationBarsPadding().imePadding()) {
                     if (replyTo != null) {
                         Row(Modifier.fillMaxWidth().background(ThemeState.brandLt2).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1133,7 +1139,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                         Surface(
                             shape = CircleShape,
                             color = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
-                            shadowElevation = 3.dp,
+                            shadowElevation = 0.dp,
                             modifier = Modifier.size(46.dp).combinedClickable(
                                 onClick = { if (hasCont) doSend() else startRecording() },
                                 onLongClick = { if (hasCont) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); showScheduleDialog = true } }
@@ -1190,6 +1196,11 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         }
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
+            if (msgs.isEmpty()) {
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = ThemeState.brand, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
+                }
+            }
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -1662,7 +1673,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
         val reaction = ReactionStore.get(ctx, m.id)
         if (reaction != null) {
             Box(Modifier.offset(y = (-6).dp).then(if (isIn) Modifier.padding(start = 12.dp) else Modifier.padding(end = 12.dp))) {
-                Surface(shape = RoundedCornerShape(12.dp), color = ThemeState.surf, shadowElevation = 2.dp, border = BorderStroke(.5.dp, ThemeState.divLt)) {
+                Surface(shape = RoundedCornerShape(12.dp), color = ThemeState.surf, shadowElevation = 1.dp, border = BorderStroke(.5.dp, ThemeState.divLt)) {
                     Text(reaction, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                 }
             }
@@ -1754,7 +1765,7 @@ fun ForwardScreen(body: String, onDone: () -> Unit) {
         },
         bottomBar = {
             if (selected.isNotEmpty()) {
-                Surface(color = ThemeState.surf, shadowElevation = 4.dp) {
+                Surface(color = ThemeState.surf, shadowElevation = 0.dp) {
                     Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("${selected.size} recipient${if (selected.size > 1) "s" else ""}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
@@ -2280,7 +2291,8 @@ fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
         mutableStateOf(prefs.getBoolean("muted_${conv.threadId}", false))
     }
     val starredIds = remember { StarredStore.get(ctx) }
-    val msgs = remember { SmsRepository.loadMessages(ctx, conv.threadId) }
+    var msgs by remember { mutableStateOf(emptyList<Message>()) }
+    LaunchedEffect(conv.threadId) { msgs = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conv.threadId) } }
     val starredCount = remember(starredIds, msgs) { msgs.count { it.id in starredIds } }
     val mediaCount = remember(msgs) { msgs.count { it.imageUri != null } }
 
@@ -2376,7 +2388,7 @@ fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
 @Composable
 fun ContactAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(8.dp)) {
-        Surface(shape = CircleShape, color = ThemeState.brandLt2, shadowElevation = 2.dp, modifier = Modifier.size(48.dp)) {
+        Surface(shape = CircleShape, color = ThemeState.brandLt2, shadowElevation = 0.dp, modifier = Modifier.size(48.dp)) {
             Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = ThemeState.brand, modifier = Modifier.size(22.dp)) }
         }
         Spacer(Modifier.height(6.dp))
