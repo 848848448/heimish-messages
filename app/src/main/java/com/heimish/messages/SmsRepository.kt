@@ -82,21 +82,24 @@ object SmsRepository {
         // MMS threads not already in SMS list
         ctx.contentResolver.query(
             Uri.parse("content://mms"),
-            arrayOf("thread_id", "date", "read"),
+            arrayOf("_id", "thread_id", "date", "read"),
             null, null, "date DESC"
         )?.use { c ->
+            val iId     = c.getColumnIndex("_id")
             val iThread = c.getColumnIndex("thread_id")
             val iDate   = c.getColumnIndex("date")
             val iRead   = c.getColumnIndex("read")
             while (c.moveToNext()) {
                 val thread = c.getLong(iThread)
                 if (!seen.add(thread)) continue
+                val mmsId = c.getLong(iId)
                 val addr = mmsAddress(ctx, thread)
+                val snippet = mmsSnippet(ctx, mmsId)
                 out.add(Conversation(
                     threadId    = thread,
                     address     = addr,
                     displayName = cachedContactName(ctx, addr) ?: addr,
-                    snippet     = "📷 MMS",
+                    snippet     = snippet,
                     date        = c.getLong(iDate) * 1000L,
                     unread      = c.getInt(iRead) == 0
                 ))
@@ -456,6 +459,33 @@ object SmsRepository {
         }.getOrDefault("")
     }
 
+    private fun mmsSnippet(ctx: Context, mmsId: Long): String {
+        var text = ""
+        var hasMedia = false
+        runCatching {
+            ctx.contentResolver.query(
+                Uri.parse("content://mms/$mmsId/part"),
+                arrayOf("ct", "text"), null, null, null
+            )?.use { c ->
+                val iCt   = c.getColumnIndex("ct")
+                val iText = c.getColumnIndex("text")
+                while (c.moveToNext()) {
+                    val ct = c.getString(iCt) ?: ""
+                    when {
+                        ct == "text/plain" -> text = c.getString(iText) ?: ""
+                        ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/") -> hasMedia = true
+                    }
+                }
+            }
+        }
+        return when {
+            text.isNotBlank() && hasMedia -> "📎 $text"
+            text.isNotBlank() -> text
+            hasMedia -> "📷 MMS"
+            else -> "MMS"
+        }
+    }
+
     data class MmsParts(val text: String, val mediaUri: Uri?, val mediaMime: String?)
 
     private fun mmsParts(ctx: Context, mmsId: Long): MmsParts {
@@ -512,18 +542,7 @@ object SmsRepository {
         }
 
         fun getContactName(ctx: Context, address: String): String? {
-            try {
-                val uri = android.net.Uri.withAppendedPath(
-                    android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                    android.net.Uri.encode(address))
-                val cursor = ctx.contentResolver.query(uri,
-                    arrayOf(android.provider.ContactsContract.PhoneLookup.DISPLAY_NAME),
-                    null, null, null)
-                cursor?.use {
-                    if (it.moveToFirst()) return it.getString(0)
-                }
-            } catch (_: Exception) {}
-            return null
+            return cachedContactName(ctx, address)
         }
 
 

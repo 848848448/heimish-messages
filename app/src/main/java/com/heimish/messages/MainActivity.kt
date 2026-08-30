@@ -107,7 +107,7 @@ private val DkBrandLt2  = Color(0xFF1F2937)
 private val DkBubbleIn  = Color(0xFF303030)
 private val DkBubbleOut = Color(0xFF004A77)
 private val DkBgSurf    = Color(0xFF1C1B1F)
-private val DkSurf      = Color(0xFF1C1B1F)
+private val DkSurf      = Color(0xFF28272C)
 private val DkTextPri   = Color(0xFFE3E3E3)
 private val DkTextSec   = Color(0xFFC4C7C5)
 private val DkTextHint  = Color(0xFF8E918F)
@@ -780,6 +780,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<java.io.File?>(null) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    var initialLoadDone by remember { mutableStateOf(false) }
 
     // Camera capture
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -796,6 +797,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
             val wasAtBottom = listState.firstVisibleItemIndex <= 2
             val hadNew = filtered.size > msgs.size
             msgs = filtered
+            initialLoadDone = true
             if (wasAtBottom && hadNew) {
                 listState.scrollToItem(0)
             }
@@ -1196,7 +1198,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         }
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
-            if (msgs.isEmpty()) {
+            if (msgs.isEmpty() && !initialLoadDone) {
                 Box(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = ThemeState.brand, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
                 }
@@ -1218,8 +1220,10 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             listOf("\u05d0\u05b8\u05e7\u05e2\u05d9!", "\ud83d\udc4d", "\u05d9\u05d0\u05b8!", "\u05e9\u05d9\u05d9\u05df!").forEach { reply ->
                                 Surface(
                                     onClick = {
-                                        draft = reply
-                                        scope.launch { doSend() }
+                                        scope.launch(Dispatchers.IO) {
+                                            SmsRepository.sendSms(ctx, conversation.address, reply)
+                                            withContext(Dispatchers.Main) { reload() }
+                                        }
                                     },
                                     shape = RoundedCornerShape(20.dp),
                                     color = ThemeState.brandLt2,
@@ -1870,7 +1874,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
             item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Email, "Your email", AdminEmails.getUserEmail(ctx).ifBlank { "Not set" }) { onSub("email") } }
-            item { SettRow(Icons.Default.Info, "About", "Version 3.2") { onSub("about") } }
+            item { SettRow(Icons.Default.Info, "About", "Version 3.3") { onSub("about") } }
         }
     }
 }
@@ -2011,7 +2015,7 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                 }
                 "about" -> {
                     item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = ThemeState.textPrimary) }
-                    item { Text("Version 3.2", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
+                    item { Text("Version 3.3", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
                     item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = ThemeState.textSecond) }
                     item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = ThemeState.textHint) }
                 }
