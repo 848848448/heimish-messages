@@ -1,23 +1,30 @@
 package com.heimish.messages
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Telephony
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +35,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,6 +47,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -70,16 +79,18 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import org.json.JSONArray
+import org.json.JSONObject
 
 // ── Google Messages Material 3 Expressive Colors (EXACT match) ───────────────
-private val Brand       = Color(0xFF0B57D0)  // Primary blue
-private val BrandDk     = Color(0xFF0842A0)  // Darker blue for pressed states
-private val BrandSurf   = Color(0xFFD3E3FD)  // App bar / surface tint
-private val BrandLt     = Color(0xFFD3E3FD)  // Light blue background
-private val BrandLt2    = Color(0xFFEDF2FA)  // Very light blue
-private val BubbleIn    = Color(0xFFE3E3E3)  // Received bubble — light gray
-private val BubbleOut   = Color(0xFF0B57D0)  // Sent bubble — dark blue
-private val BgSurf      = Color(0xFFF6F8FC)  // Page background
+private val Brand       = Color(0xFF0B57D0)
+private val BrandDk     = Color(0xFF0842A0)
+private val BrandSurf   = Color(0xFFD3E3FD)
+private val BrandLt     = Color(0xFFD3E3FD)
+private val BrandLt2    = Color(0xFFEDF2FA)
+private val BubbleIn    = Color(0xFFE3E3E3)
+private val BubbleOut   = Color(0xFFD3E3FD)
+private val BgSurf      = Color(0xFFF6F8FC)
 private val Surf        = Color.White
 private val TextPrimary = Color(0xFF1F1F1F)
 private val TextSecond  = Color(0xFF444746)
@@ -89,6 +100,21 @@ private val DivLt       = Color(0xFFE8EAED)
 private val Red         = Color(0xFFB3261E)
 private val Green       = Color(0xFF146C2E)
 
+// Dark theme colors
+private val DkBrand     = Color(0xFFA8C7FA)
+private val DkBrandSurf = Color(0xFF1A2744)
+private val DkBrandLt   = Color(0xFF1A2744)
+private val DkBrandLt2  = Color(0xFF1F2937)
+private val DkBubbleIn  = Color(0xFF303030)
+private val DkBubbleOut = Color(0xFF004A77)
+private val DkBgSurf    = Color(0xFF1C1B1F)
+private val DkSurf      = Color(0xFF28272C)
+private val DkTextPri   = Color(0xFFE3E3E3)
+private val DkTextSec   = Color(0xFFC4C7C5)
+private val DkTextHint  = Color(0xFF8E918F)
+private val DkDivClr    = Color(0xFF444746)
+private val DkDivLt     = Color(0xFF303030)
+
 private val GMColors = lightColorScheme(
     primary = Brand, onPrimary = Color.White,
     secondary = Brand, background = BgSurf,
@@ -96,18 +122,66 @@ private val GMColors = lightColorScheme(
     surfaceVariant = BrandLt2
 )
 
+private val GMDarkColors = darkColorScheme(
+    primary = DkBrand, onPrimary = Color.Black,
+    secondary = DkBrand, background = DkBgSurf,
+    surface = DkSurf, onSurface = DkTextPri, outline = DkDivClr,
+    surfaceVariant = DkBrandLt2
+)
+
+object ThemeState {
+    var isDark by mutableStateOf(false)
+    val brand get() = if (isDark) DkBrand else Brand
+    val brandDk get() = if (isDark) Color(0xFF7EAAEE) else BrandDk
+    val brandSurf get() = if (isDark) DkBrandSurf else BrandSurf
+    val brandLt get() = if (isDark) DkBrandLt else BrandLt
+    val brandLt2 get() = if (isDark) DkBrandLt2 else BrandLt2
+    val bubbleIn get() = if (isDark) DkBubbleIn else BubbleIn
+    val bubbleOut get() = if (isDark) DkBubbleOut else BubbleOut
+    val bgSurf get() = if (isDark) DkBgSurf else BgSurf
+    val surf get() = if (isDark) DkSurf else Surf
+    val textPrimary get() = if (isDark) DkTextPri else TextPrimary
+    val textSecond get() = if (isDark) DkTextSec else TextSecond
+    val textHint get() = if (isDark) DkTextHint else TextHint
+    val divClr get() = if (isDark) DkDivClr else DivClr
+    val divLt get() = if (isDark) DkDivLt else DivLt
+}
+
 class MainActivity : ComponentActivity() {
     private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { recreate() }
+    companion object {
+        var pendingOpenThread by mutableStateOf<Conversation?>(null)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = BrandSurf.toArgb()
+        handleNotificationIntent(intent)
+        val prefs = getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val theme = prefs.getString("theme", "system") ?: "system"
+        ThemeState.isDark = when (theme) {
+            "dark" -> true
+            "light" -> false
+            else -> resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        window.statusBarColor = ThemeState.brandSurf.toArgb()
         SmsSyncService.start(this)
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNow(this)
         setContent {
-            MaterialTheme(colorScheme = GMColors) {
-                Surface(Modifier.fillMaxSize(), color = BrandSurf) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
+            MaterialTheme(colorScheme = if (ThemeState.isDark) GMDarkColors else GMColors) {
+                Surface(Modifier.fillMaxSize(), color = ThemeState.brandSurf) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
             }
+        }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleNotificationIntent(intent)
+    }
+    private fun handleNotificationIntent(intent: Intent?) {
+        val threadId = intent?.getLongExtra("thread_id", -1) ?: -1
+        if (threadId > 0) {
+            val address = intent?.getStringExtra("address") ?: ""
+            val sender = intent?.getStringExtra("sender") ?: address
+            pendingOpenThread = Conversation(threadId, address, sender, "", System.currentTimeMillis(), false)
         }
     }
     private fun requestDefault() {
@@ -128,10 +202,14 @@ fun isDefaultSmsApp(ctx: Context) = Telephony.Sms.getDefaultSmsPackage(ctx) == c
 sealed class Screen {
     data object List : Screen()
     data class Chat(val conv: Conversation) : Screen()
+    data class ContactDetail(val conv: Conversation) : Screen()
     data object NewConv : Screen()
     data object Settings : Screen()
     data class SettingSub(val key: String) : Screen()
     data object Admin : Screen()
+    data class ImagePreview(val conv: Conversation, val uri: Uri, val mediaType: String = "image") : Screen()
+    data class ForwardMsg(val body: String) : Screen()
+    data object Archived : Screen()
 }
 
 @Composable
@@ -140,11 +218,28 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     var hasPerms by remember { mutableStateOf(Permissions.granted(ctx)) }
     val permL = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { hasPerms = Permissions.granted(ctx) }
     LaunchedEffect(Unit) { if (!hasPerms) permL.launch(Permissions.ALL) }
-    var screen by remember { mutableStateOf<Screen>(Screen.List) }
+    var screen by remember { mutableStateOf<Screen>(
+        if (MainActivity.pendingOpenThread != null) {
+            val conv = MainActivity.pendingOpenThread!!
+            MainActivity.pendingOpenThread = null
+            Screen.Chat(conv)
+        } else Screen.List
+    ) }
+
+    val pending = MainActivity.pendingOpenThread
+    LaunchedEffect(pending) {
+        if (pending != null) {
+            screen = Screen.Chat(pending)
+            MainActivity.pendingOpenThread = null
+        }
+    }
 
     BackHandler(enabled = screen !is Screen.List) {
         screen = when (screen) {
-            is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin -> Screen.List
+            is Screen.Chat, Screen.NewConv, Screen.Settings, Screen.Admin, Screen.Archived -> Screen.List
+            is Screen.ContactDetail -> Screen.Chat((screen as Screen.ContactDetail).conv)
+            is Screen.ImagePreview -> Screen.Chat((screen as Screen.ImagePreview).conv)
+            is Screen.ForwardMsg -> Screen.List
             is Screen.SettingSub -> Screen.Settings
             else -> Screen.List
         }
@@ -153,13 +248,22 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     when {
         !isDefault -> SetupScreen(onRequestDefault)
         !hasPerms  -> SetupPerms { permL.launch(Permissions.ALL) }
-        else -> when (val s = screen) {
-            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin })
-            is Screen.Chat  -> ThreadScreen(s.conv) { screen = Screen.List }
-            Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
-            Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
-            is Screen.SettingSub -> SettingSubScreen(s.key) { screen = Screen.Settings }
-            Screen.Admin    -> AdminScreen { screen = Screen.List }
+        else -> {
+            when (screen) {
+                Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived })
+                is Screen.Chat  -> ThreadScreen((screen as Screen.Chat).conv,
+                    onDetails = { screen = Screen.ContactDetail((screen as Screen.Chat).conv) },
+                    onImagePreview = { uri, type -> screen = Screen.ImagePreview((screen as Screen.Chat).conv, uri, type) },
+                    onForward = { body -> screen = Screen.ForwardMsg(body) }) { screen = Screen.List }
+                is Screen.ContactDetail -> ContactDetailScreen((screen as Screen.ContactDetail).conv) { screen = Screen.Chat((screen as Screen.ContactDetail).conv) }
+                Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
+                Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
+                is Screen.SettingSub -> SettingSubScreen((screen as Screen.SettingSub).key) { screen = Screen.Settings }
+                Screen.Admin    -> AdminScreen { screen = Screen.List }
+                is Screen.ImagePreview -> ImagePreviewScreen((screen as Screen.ImagePreview).conv, (screen as Screen.ImagePreview).uri, (screen as Screen.ImagePreview).mediaType) { screen = Screen.Chat((screen as Screen.ImagePreview).conv) }
+                is Screen.ForwardMsg -> ForwardScreen((screen as Screen.ForwardMsg).body) { screen = Screen.List }
+                Screen.Archived -> ArchivedScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
+            }
         }
     }
 }
@@ -203,38 +307,144 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     LaunchedEffect(Unit) { while (true) { delay(1000); if (Permissions.granted(ctx)) onGrant() } }
 }
 
+// ── Archive helpers ──────────────────────────────────────────────────────────
+object ArchiveStore {
+    private const val KEY = "archived_threads"
+    fun get(ctx: Context): Set<Long> {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY, emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
+    }
+    fun add(ctx: Context, threadId: Long) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.add(threadId.toString())
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+    fun remove(ctx: Context, threadId: Long) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.remove(threadId.toString())
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+}
+
+// ── Starred messages store ──────────────────────────────────────────────────
+object StarredStore {
+    private const val KEY = "starred_messages"
+    fun get(ctx: Context): Set<Long> {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY, emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
+    }
+    fun toggle(ctx: Context, msgId: Long): Boolean {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        val added = if (set.contains(msgId.toString())) { set.remove(msgId.toString()); false } else { set.add(msgId.toString()); true }
+        prefs.edit().putStringSet(KEY, set).apply()
+        return added
+    }
+    fun isStarred(ctx: Context, msgId: Long): Boolean = msgId.toString() in (ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getStringSet(KEY, emptySet()) ?: emptySet())
+}
+
+// ── Reaction store (local-only emoji reactions) ────────────────────────────
+object ReactionStore {
+    private const val PREFIX = "reaction_"
+    fun get(ctx: Context, msgId: Long): String? {
+        return ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("$PREFIX$msgId", null)
+    }
+    fun set(ctx: Context, msgId: Long, emoji: String) {
+        ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putString("$PREFIX$msgId", emoji).apply()
+    }
+    fun remove(ctx: Context, msgId: Long) {
+        ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().remove("$PREFIX$msgId").apply()
+    }
+}
+
+// ━━━━━━━━━━━━━━━━ ADMIN EMAIL GATE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+object AdminEmails {
+    private const val KEY = "admin_emails"
+    private const val USER_EMAIL_KEY = "user_email"
+    private val DEFAULT_ADMIN = "avrumy5872877@gmail.com"
+
+    fun getAdminEmails(ctx: Context): Set<String> {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY, null) ?: setOf(DEFAULT_ADMIN)
+    }
+
+    fun addAdmin(ctx: Context, email: String) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = getAdminEmails(ctx).toMutableSet()
+        set.add(email.trim().lowercase())
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+
+    fun removeAdmin(ctx: Context, email: String) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val set = getAdminEmails(ctx).toMutableSet()
+        set.remove(email.trim().lowercase())
+        if (set.isEmpty()) set.add(DEFAULT_ADMIN)
+        prefs.edit().putStringSet(KEY, set).apply()
+    }
+
+    fun isAdmin(ctx: Context): Boolean {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val userEmail = prefs.getString(USER_EMAIL_KEY, "") ?: ""
+        if (userEmail.isBlank()) return false
+        return userEmail.trim().lowercase() in getAdminEmails(ctx).map { it.trim().lowercase() }
+    }
+
+    fun getUserEmail(ctx: Context): String {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        return prefs.getString(USER_EMAIL_KEY, "") ?: ""
+    }
+
+    fun setUserEmail(ctx: Context, email: String) {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString(USER_EMAIL_KEY, email.trim()).apply()
+    }
+}
+
 // ━━━━━━━━━━━━━━━━ CONVERSATION LIST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit) {
+fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit = {}) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(emptyList<Conversation>()) }
     var search by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    // Long-press context menu state
     var ctxConv by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
+    val archived = remember { mutableStateOf(ArchiveStore.get(ctx)) }
 
-    fun refresh() { scope.launch { isRefreshing = true; list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; isRefreshing = false } }
+    fun refresh() { scope.launch { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } } }
     LaunchedEffect(Unit) { refresh() }
-    LaunchedEffect(Unit) { while (true) { delay(5000); list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } } }
+    DisposableEffect(Unit) {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { refresh() }
+        }
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://sms"), true, observer)
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://mms"), true, observer)
+        onDispose {
+            ctx.contentResolver.unregisterContentObserver(observer)
+        }
+    }
 
-    val filtered = if (search.isBlank()) list else list.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) }
+    val visible = list.filter { it.threadId !in archived.value }
+    val filtered = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.address.contains(search, true) || it.snippet.contains(search, true) }
 
     // Long-press context menu dialog
     if (ctxConv != null) {
         val c = ctxConv!!
         AlertDialog(
             onDismissRequest = { ctxConv = null },
-            containerColor = Surf,
+            containerColor = ThemeState.surf,
             shape = RoundedCornerShape(28.dp),
-            title = { Text(c.displayName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text(c.displayName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = ThemeState.textPrimary) },
             text = {
                 Column {
                     MenuBtn(Icons.Default.PushPin, "Pin") { Toast.makeText(ctx, "Pinned", Toast.LENGTH_SHORT).show(); ctxConv = null }
                     MenuBtn(Icons.Default.Archive, "Archive") {
+                        ArchiveStore.add(ctx, c.threadId); archived.value = ArchiveStore.get(ctx)
                         Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show(); ctxConv = null
                     }
                     MenuBtn(if (c.unread) Icons.Default.DoneAll else Icons.Default.MarkEmailUnread,
@@ -256,60 +466,123 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         )
     }
 
-    Scaffold(containerColor = BrandSurf,
+    Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BrandSurf, titleContentColor = TextPrimary, actionIconContentColor = TextPrimary),
-                title = {
-                    if (showSearch) TextField(search, { search = it }, placeholder = { Text("Search conversations…", color = TextHint) }, singleLine = true,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = Brand), modifier = Modifier.fillMaxWidth())
-                    else Text("Messages", fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                },
-                actions = {
-                    IconButton({ showSearch = !showSearch; if (!showSearch) search = "" }) { Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, null) }
-                    if (!showSearch) {
-                        Box {
-                            IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
-                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf)) {
-                                DropdownMenuItem({ Text("Settings") }, { showMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Default.Settings, null) })
-                                DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
-                                DropdownMenuItem({ Text("Mark all read") }, {
-                                    showMenu = false
-                                    scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
-                                    refresh()
-                                }, leadingIcon = { Icon(Icons.Default.DoneAll, null) })
+            Column(Modifier.background(ThemeState.brandSurf).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                if (showSearch) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton({ showSearch = false; search = "" }) { Icon(Icons.Default.ArrowBack, null, tint = ThemeState.textPrimary) }
+                        TextField(search, { search = it }, placeholder = { Text("Search conversations…", color = ThemeState.textHint) }, singleLine = true,
+                            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = ThemeState.brand),
+                            modifier = Modifier.weight(1f))
+                    }
+                } else {
+                    Surface(onClick = { showSearch = true }, shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp, shadowElevation = 0.dp,
+                        modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Search messages", color = ThemeState.textHint, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            Box {
+                                IconButton({ showMenu = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreVert, null, tint = ThemeState.textPrimary) }
+                                DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
+                                    DropdownMenuItem({ Text("Settings") }, { showMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Default.Settings, null) })
+                                    if (AdminEmails.isAdmin(ctx)) {
+                                        DropdownMenuItem({ Text("Admin Panel") }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) })
+                                    }
+                                    DropdownMenuItem({ Text("Archived") }, { showMenu = false; onArchived() }, leadingIcon = { Icon(Icons.Default.Archive, null) })
+                                    DropdownMenuItem({ Text("Mark all read") }, {
+                                        showMenu = false
+                                        scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
+                                        refresh()
+                                    }, leadingIcon = { Icon(Icons.Default.DoneAll, null) })
+                                }
                             }
                         }
                     }
                 }
-            )
+            }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onNew, containerColor = Brand, contentColor = Color.White, shape = RoundedCornerShape(16.dp),
+            ExtendedFloatingActionButton(onClick = onNew, containerColor = ThemeState.brand, contentColor = Color.White, shape = RoundedCornerShape(16.dp),
+                elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp),
                 icon = { Icon(Icons.Filled.Chat, null) }, text = { Text("Start chat", fontWeight = FontWeight.SemiBold) })
         }
     ) { pad ->
+        var loaded by remember { mutableStateOf(false) }
+        LaunchedEffect(list) { if (list.isNotEmpty()) loaded = true }
         Box(Modifier.padding(pad)) {
-            if (filtered.isEmpty() && !isRefreshing) {
+            if (filtered.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Outlined.ChatBubbleOutline, null, tint = TextHint, modifier = Modifier.size(64.dp))
-                        Spacer(Modifier.height(12.dp))
-                        Text(if (search.isBlank()) "No messages yet" else "No results", color = TextHint)
+                    if (!loaded && search.isBlank()) {
+                        CircularProgressIndicator(color = ThemeState.brand, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ThemeState.textHint, modifier = Modifier.size(64.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text(if (search.isBlank()) "No messages yet" else "No results", color = ThemeState.textHint)
+                        }
                     }
                 }
             } else {
-                Column(Modifier.fillMaxSize()) {
-                    if (isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brand)
-                    LazyColumn(
-                        Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf),
-                        state = rememberLazyListState()
-                    ) {
-                        items(filtered, key = { it.threadId }) { conv ->
-                            SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it })
-                            if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 76.dp), thickness = 0.5.dp, color = DivLt)
-                        }
+                LazyColumn(
+                    Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf),
+                    state = rememberLazyListState()
+                ) {
+                    items(filtered, key = { it.threadId }) { conv ->
+                        SwipeableConvRow(conv, onOpen, onRefresh = { refresh() }, onLongPress = { ctxConv = it },
+                            onArchive = { tid -> ArchiveStore.add(ctx, tid); archived.value = ArchiveStore.get(ctx) })
+                        if (filtered.last() != conv) HorizontalDivider(Modifier.padding(start = 78.dp), thickness = 0.5.dp, color = ThemeState.divLt)
                     }
+                }
+            }
+        }
+    }
+}
+
+// ── Archived conversations screen ───────────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var allConvs by remember { mutableStateOf(emptyList<Conversation>()) }
+    val archived = remember { mutableStateOf(ArchiveStore.get(ctx)) }
+    LaunchedEffect(Unit) { allConvs = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } }
+    val visible = allConvs.filter { it.threadId in archived.value }
+
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+            title = { Text("Archived") }) }
+    ) { pad ->
+        if (visible.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Archive, null, tint = ThemeState.textHint, modifier = Modifier.size(56.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("No archived conversations", color = ThemeState.textHint, fontSize = 15.sp)
+                }
+            }
+        } else {
+            LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
+                items(visible, key = { it.threadId }) { conv ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(48.dp).clip(CircleShape).background(avatarColor(conv.address)), contentAlignment = Alignment.Center) {
+                            Text(initial(conv.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(conv.displayName, fontWeight = FontWeight.Medium, fontSize = 15.sp, color = ThemeState.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(conv.snippet, fontSize = 13.sp, color = ThemeState.textHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        IconButton(onClick = {
+                            ArchiveStore.remove(ctx, conv.threadId); archived.value = ArchiveStore.get(ctx)
+                            Toast.makeText(ctx, "Unarchived", Toast.LENGTH_SHORT).show()
+                        }) { Icon(Icons.Default.Unarchive, null, tint = ThemeState.textSecond) }
+                    }
+                    HorizontalDivider(Modifier.padding(start = 78.dp), thickness = .5.dp, color = ThemeState.divLt)
                 }
             }
         }
@@ -319,71 +592,106 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
 // ── Swipeable conversation row (swipe left = archive) ────────────────────────
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh: () -> Unit, onLongPress: (Conversation) -> Unit) {
+fun SwipeableConvRow(c: Conversation, onOpen: (Conversation) -> Unit, onRefresh: () -> Unit, onLongPress: (Conversation) -> Unit, onArchive: (Long) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    var offsetX by remember { mutableFloatStateOf(0f) }
+    val swipeAnim = remember { Animatable(0f) }
     val threshold = 150f
+    val swipeAction = remember {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        prefs.getString("swipe_action", "archive") ?: "archive"
+    }
+
+    val swipeIcon = when (swipeAction) {
+        "delete" -> Icons.Default.Delete
+        "read" -> Icons.Default.DoneAll
+        "none" -> Icons.Default.Archive
+        else -> Icons.Default.Archive
+    }
+    val swipeLabel = when (swipeAction) {
+        "delete" -> "Delete"
+        "read" -> "Read"
+        "none" -> ""
+        else -> "Archive"
+    }
+    val swipeEnabled = swipeAction != "none"
+    val offsetX = swipeAnim.value
 
     Box(
         Modifier.fillMaxWidth().background(
-            if (offsetX < -20f) Color(0xFF5F6368) else Color.Transparent
+            if (offsetX < -20f) when (swipeAction) {
+                "delete" -> Color(0xFFB3261E)
+                else -> Color(0xFF5F6368)
+            } else Color.Transparent
         )
     ) {
-        // Archive icon behind
-        if (offsetX < -20f) {
+        if (offsetX < -20f && swipeEnabled) {
             Box(Modifier.fillMaxSize().padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Archive, null, tint = Color.White, modifier = Modifier.size(24.dp))
-                    Text("Archive", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Icon(swipeIcon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Text(swipeLabel, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
-        // The actual row
         Row(
             Modifier.fillMaxWidth()
                 .offset { IntOffset(offsetX.roundToInt().coerceAtMost(0), 0) }
-                .background(Surf)
+                .background(ThemeState.surf)
                 .combinedClickable(
                     onClick = { onOpen(c) },
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress(c) }
                 )
                 .pointerInput(c.threadId) {
-                    detectHorizontalDragGestures(
+                    if (swipeEnabled) detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (offsetX < -threshold) {
-                                Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show()
+                            if (swipeAnim.value < -threshold) {
+                                when (swipeAction) {
+                                    "archive" -> {
+                                        onArchive(c.threadId)
+                                        Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show()
+                                    }
+                                    "delete" -> {
+                                        scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, c.threadId) }
+                                        Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show()
+                                    }
+                                    "read" -> {
+                                        scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId) }
+                                        Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                                 onRefresh()
                             }
-                            offsetX = 0f
+                            scope.launch { swipeAnim.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 500f)) }
                         },
-                        onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(-200f, 0f) }
+                        onHorizontalDrag = { _, dx ->
+                            val target = (swipeAnim.value + dx).coerceIn(-200f, 0f)
+                            scope.launch { swipeAnim.snapTo(target) }
+                        }
                     )
                 }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar
-            Box(Modifier.size(52.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(avatarColor(c.address)), contentAlignment = Alignment.Center) {
                 Text(initial(c.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) Brand else TextHint)
+                        color = ThemeState.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(shortTime(c.date), fontSize = 12.sp, color = if (c.unread) ThemeState.brand else ThemeState.textHint)
                 }
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(c.snippet.ifBlank { " " }, fontSize = 14.sp, color = if (c.unread) TextPrimary else TextHint,
+                    Text(c.snippet.ifBlank { " " }, fontSize = 14.sp, color = if (c.unread) ThemeState.textPrimary else ThemeState.textHint,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal,
                         modifier = Modifier.weight(1f))
                     if (c.unread) {
                         Spacer(Modifier.width(8.dp))
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(Brand))
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(ThemeState.brand))
                     }
                 }
             }
@@ -409,15 +717,15 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         onOpen(Conversation(threadId, number, name, "", System.currentTimeMillis(), false))
     }
 
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
             title = { Text("New conversation") }) }
     ) { pad ->
         Column(Modifier.padding(pad)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                 FilledTonalButton(onClick = { isGroup = !isGroup }, shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = if (isGroup) BrandSurf else BrandLt2)) {
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = if (isGroup) ThemeState.brandSurf else ThemeState.brandLt2)) {
                     Icon(if (isGroup) Icons.Default.GroupRemove else Icons.Default.GroupAdd, null, Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (isGroup) "Cancel group" else "Create group")
@@ -428,23 +736,23 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                     selected.forEach { (name, num) ->
                         AssistChip(onClick = { selected = selected.filter { it.second != num } }, label = { Text(name, fontSize = 13.sp) },
                             trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
-                            colors = AssistChipDefaults.assistChipColors(containerColor = BrandSurf))
+                            colors = AssistChipDefaults.assistChipColors(containerColor = ThemeState.brandSurf))
                     }
                     if (selected.size >= 2) {
                         Button(onClick = {
                             val addr = selected.joinToString(";") { it.second }
                             val names = selected.joinToString(", ") { it.first }
                             onOpen(Conversation(addr.hashCode().toLong(), addr, names, "", System.currentTimeMillis(), false))
-                        }, colors = ButtonDefaults.buttonColors(Brand), shape = RoundedCornerShape(20.dp)) { Text("Start", fontSize = 13.sp) }
+                        }, colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) { Text("Start", fontSize = 13.sp) }
                     }
                 }
             }
             OutlinedTextField(to, { to = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 placeholder = { Text("To: name or number") }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = BrandLt2, unfocusedContainerColor = BrandLt2, focusedBorderColor = Brand, unfocusedBorderColor = Color.Transparent),
+                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Phone),
                 keyboardActions = KeyboardActions(onDone = { if (to.isNotBlank() && !isGroup) openConv(contacts.find { it.second == to.trim() }?.first ?: to.trim(), to.trim()) }))
-            LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf)) {
+            LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
                 items(filtered) { (name, number) ->
                     Row(Modifier.fillMaxWidth().clickable {
                         if (isGroup) { if (selected.none { it.second == number }) selected = selected + (name to number); to = "" }
@@ -454,10 +762,10 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                             Text(initial(name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         }
                         Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium); Text(number, fontSize = 13.sp, color = TextHint) }
-                        if (isGroup && selected.any { it.second == number }) Icon(Icons.Default.CheckCircle, null, tint = Brand)
+                        Column(Modifier.weight(1f)) { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = ThemeState.textPrimary); Text(number, fontSize = 13.sp, color = ThemeState.textHint) }
+                        if (isGroup && selected.any { it.second == number }) Icon(Icons.Default.CheckCircle, null, tint = ThemeState.brand)
                     }
-                    HorizontalDivider(Modifier.padding(start = 74.dp), thickness = .5.dp, color = DivLt)
+                    HorizontalDivider(Modifier.padding(start = 74.dp), thickness = .5.dp, color = ThemeState.divLt)
                 }
             }
         }
@@ -467,7 +775,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 // ━━━━━━━━━━━━━━━━ THREAD / CHAT SCREEN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
+fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImagePreview: (Uri, String) -> Unit = { _, _ -> }, onForward: (String) -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var msgs by remember { mutableStateOf(emptyList<Message>()) }
     var draft by remember { mutableStateOf("") }
@@ -483,12 +791,37 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var pendingMediaType by remember { mutableStateOf("image") }
     var replyTo by remember { mutableStateOf<Message?>(null) }
     var showSearch by remember { mutableStateOf(false) }
+    var viewerIdx by remember { mutableIntStateOf(-1) }
+    var selectedIds by remember { mutableStateOf(setOf<Long>()) }
+    val inSelectMode = selectedIds.isNotEmpty()
+    var showMsgDetail by remember { mutableStateOf<Message?>(null) }
+    var isRecording by remember { mutableStateOf(false) }
+    var recordingSeconds by remember { mutableIntStateOf(0) }
+    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<java.io.File?>(null) }
+    var showScheduleDialog by remember { mutableStateOf(false) }
+    var initialLoadDone by remember { mutableStateOf(false) }
+
+    // Camera capture
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success && cameraUri != null) onImagePreview(cameraUri!!, "image")
+    }
+
     var searchQuery by remember { mutableStateOf("") }
 
     fun reload() {
-        val raw = SmsRepository.loadMessages(ctx, conversation.threadId)
-        msgs = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-        scope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
+        scope.launch {
+            val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId) }
+            val filtered = raw.filter { it.body.isNotBlank() || it.imageUri != null }
+            val wasAtBottom = listState.firstVisibleItemIndex <= 2
+            val hadNew = filtered.size > msgs.size
+            msgs = filtered
+            initialLoadDone = true
+            if (wasAtBottom && hadNew) {
+                listState.scrollToItem(0)
+            }
+        }
     }
 
     fun doSend() {
@@ -510,74 +843,199 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         }
     }
 
-    BackHandler { onBack() }
-    LaunchedEffect(Unit) { reload(); SmsRepository.markThreadRead(ctx, conversation.threadId) }
-    LaunchedEffect(Unit) { while (true) { delay(3000); reload() } }
-
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false } }
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "video"; showAttach = false } }
-
-    // Context menu dialog (long-press on message)
-    if (ctxMsg != null) {
-        val m = ctxMsg!!
-        AlertDialog(
-            onDismissRequest = { ctxMsg = null },
-            containerColor = Surf,
-            shape = RoundedCornerShape(28.dp),
-            title = { Text(m.body.take(60).ifBlank { "Message" }, fontSize = 14.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-            text = {
-                Column {
-                    // Reaction bar
-                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        listOf("\ud83d\ude02", "\ud83d\udc4d", "\u2764\ufe0f", "\ud83d\ude2e", "\ud83d\ude22", "\ud83d\ude21").forEach { emoji ->
-                            Box(Modifier.size(44.dp).clip(CircleShape).background(BrandLt2).clickable {
-                                Toast.makeText(ctx, "$emoji Reacted", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                            }, contentAlignment = Alignment.Center) {
-                                Text(emoji, fontSize = 22.sp)
-                            }
-                        }
-                    }
-                    HorizontalDivider(color = DivLt, thickness = .5.dp)
-                    Spacer(Modifier.height(4.dp))
-                    MenuBtn(Icons.Default.Reply, "Reply") { replyTo = m; ctxMsg = null }
-                    MenuBtn(Icons.Default.ContentCopy, "Copy") {
-                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.body))
-                        Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                    }
-                    MenuBtn(Icons.Default.Forward, "Forward") {
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
-                        ctxMsg = null
-                    }
-                    MenuBtn(Icons.Default.Star, "Star", Color(0xFFFFC107)) { Toast.makeText(ctx, "\u2b50 Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null }
-                    MenuBtn(Icons.Default.PushPin, "Pin") { Toast.makeText(ctx, "Pinned", Toast.LENGTH_SHORT).show(); ctxMsg = null }
-                    MenuBtn(Icons.Default.Delete, "Delete", Red) {
-                        scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m.id) }
-                        ctxMsg = null; reload()
-                    }
-                }
-            },
-            confirmButton = { TextButton({ ctxMsg = null }) { Text("Cancel") } }
-        )
+    fun startRecording() {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(ctx, "Audio recording permission required", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val file = java.io.File(ctx.cacheDir, "voice_${System.currentTimeMillis()}.3gp")
+        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(ctx) else @Suppress("DEPRECATION") MediaRecorder()
+        recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+        recorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+        recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+        recorder.setOutputFile(file.absolutePath)
+        try {
+            recorder.prepare()
+            recorder.start()
+            mediaRecorder = recorder
+            recordingFile = file
+            isRecording = true
+        } catch (e: Exception) {
+            Toast.makeText(ctx, "Recording failed", Toast.LENGTH_SHORT).show()
+            file.delete()
+        }
     }
 
-    Scaffold(containerColor = BrandSurf,
+    fun stopAndSendRecording() {
+        try { mediaRecorder?.stop() } catch (_: Exception) {}
+        try { mediaRecorder?.release() } catch (_: Exception) {}
+        mediaRecorder = null
+        isRecording = false
+        val file = recordingFile ?: return
+        recordingFile = null
+        val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        scope.launch(Dispatchers.IO) {
+            SmsRepository.sendMms(ctx, conversation.address, uri, "🎤 Voice message (${recordingSeconds}s)", overrideMime = "audio/3gpp")
+            withContext(Dispatchers.Main) { reload() }
+        }
+    }
+
+    fun cancelRecording() {
+        try { mediaRecorder?.stop() } catch (_: Exception) {}
+        try { mediaRecorder?.release() } catch (_: Exception) {}
+        mediaRecorder = null
+        recordingFile?.delete()
+        recordingFile = null
+        isRecording = false
+    }
+
+    BackHandler { if (inSelectMode) selectedIds = emptySet() else onBack() }
+    LaunchedEffect(Unit) { reload(); SmsRepository.markThreadRead(ctx, conversation.threadId) }
+    DisposableEffect(conversation.threadId) {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { scope.launch { reload() } }
+        }
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://sms"), true, observer)
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://mms"), true, observer)
+        onDispose { ctx.contentResolver.unregisterContentObserver(observer) }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "image") } }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { onImagePreview(it, "video") } }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            pendingMediaUri = it
+            pendingMediaType = "file"
+            showAttach = false
+        }
+    }
+    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (uri != null) {
+            try {
+                val cursor = ctx.contentResolver.query(uri, null, null, null, null)
+                cursor?.use { c ->
+                    if (c.moveToFirst()) {
+                        val nameIdx = c.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME)
+                        val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
+                        val contactId = c.getColumnIndex(android.provider.ContactsContract.Contacts._ID).let { idx -> if (idx >= 0) c.getString(idx) else null }
+                        var phone = ""
+                        if (contactId != null) {
+                            ctx.contentResolver.query(
+                                android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+                                android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = ?",
+                                arrayOf(contactId), null
+                            )?.use { pc ->
+                                if (pc.moveToFirst()) {
+                                    val phoneIdx = pc.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                                    phone = if (phoneIdx >= 0) pc.getString(phoneIdx) ?: "" else ""
+                                }
+                            }
+                        }
+                        val contactText = if (phone.isNotBlank()) "$name\n$phone" else name
+                        if (contactText.isNotBlank()) {
+                            draft = contactText
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                Toast.makeText(ctx, "Could not read contact", Toast.LENGTH_SHORT).show()
+            }
+            showAttach = false
+        }
+    }
+
+    // Floating context menu (long-press on message)
+    if (ctxMsg != null) {
+        val m = ctxMsg!!
+        Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { ctxMsg = null }) {
+            Column(
+                Modifier.align(if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 16.dp).widthIn(max = 300.dp)
+            ) {
+                // Floating reaction bar
+                Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 8.dp, color = ThemeState.surf) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        listOf("\ud83d\ude02", "\ud83d\udc4d", "\u2764\ufe0f", "\ud83d\ude2e", "\ud83d\ude22", "\ud83d\ude21").forEach { emoji ->
+                            val current = ReactionStore.get(ctx, m.id)
+                            Box(Modifier.size(42.dp).clip(CircleShape).background(if (current == emoji) ThemeState.brandLt2 else Color.Transparent).clickable {
+                                if (current == emoji) ReactionStore.remove(ctx, m.id)
+                                else ReactionStore.set(ctx, m.id, emoji)
+                                ctxMsg = null
+                            }, contentAlignment = Alignment.Center) { Text(emoji, fontSize = 24.sp) }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                // Action menu
+                Surface(shape = RoundedCornerShape(16.dp), shadowElevation = 8.dp, color = ThemeState.surf) {
+                    Column(Modifier.padding(vertical = 4.dp)) {
+                        MenuBtn(Icons.Default.Reply, "Reply") { replyTo = m; ctxMsg = null }
+                        MenuBtn(Icons.Default.ContentCopy, "Copy") {
+                            (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.body))
+                            Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
+                        }
+                        MenuBtn(Icons.Default.Forward, "Forward") { onForward(m.body); ctxMsg = null }
+                        MenuBtn(Icons.Default.CheckBox, "Select") { selectedIds = setOf(m.id); ctxMsg = null }
+                        MenuBtn(if (StarredStore.isStarred(ctx, m.id)) Icons.Default.StarBorder else Icons.Default.Star,
+                            if (StarredStore.isStarred(ctx, m.id)) "Unstar" else "Star", Color(0xFFFFC107)) {
+                            val added = StarredStore.toggle(ctx, m.id)
+                            Toast.makeText(ctx, if (added) "Starred" else "Unstarred", Toast.LENGTH_SHORT).show(); ctxMsg = null
+                        }
+                        MenuBtn(Icons.Default.Info, "Details") { showMsgDetail = m; ctxMsg = null }
+                        MenuBtn(Icons.Default.Delete, "Delete", Red) {
+                            scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m.id) }
+                            ctxMsg = null; reload()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+    Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
-            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextPrimary),
+            if (inSelectMode) {
+                TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brand, titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White),
+                    navigationIcon = { IconButton({ selectedIds = emptySet() }) { Icon(Icons.Default.Close, null) } },
+                    title = { Text("${selectedIds.size}", fontWeight = FontWeight.Bold) },
+                    actions = {
+                        IconButton({
+                            val selMsgs = msgs.filter { it.id in selectedIds }
+                            val text = selMsgs.joinToString("\n") { it.body }
+                            (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msgs", text))
+                            Toast.makeText(ctx, "Copied ${selMsgs.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet()
+                        }) { Icon(Icons.Default.ContentCopy, null) }
+                        IconButton({
+                            val selMsgs = msgs.filter { it.id in selectedIds }
+                            val text = selMsgs.joinToString("\n") { it.body }
+                            onForward(text); selectedIds = emptySet()
+                        }) { Icon(Icons.Default.Forward, null) }
+                        IconButton({
+                            selectedIds.forEach { id -> StarredStore.toggle(ctx, id) }
+                            Toast.makeText(ctx, "Starred ${selectedIds.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet()
+                        }) { Icon(Icons.Default.Star, null) }
+                        IconButton({
+                            scope.launch(Dispatchers.IO) { selectedIds.forEach { id -> SmsRepository.deleteMessage(ctx, id) } }
+                            Toast.makeText(ctx, "Deleted ${selectedIds.size} messages", Toast.LENGTH_SHORT).show(); selectedIds = emptySet(); reload()
+                        }) { Icon(Icons.Default.Delete, null) }
+                    }
+                )
+            } else {
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary, actionIconContentColor = ThemeState.textPrimary),
                 navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.Default.ArrowBack, null) } },
                 title = {
                     if (showSearch) {
-                        TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat\u2026", color = TextHint) }, singleLine = true,
-                            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = Brand), modifier = Modifier.fillMaxWidth())
-                    } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conversation.address}")))
-                    }) {
+                        TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat\u2026", color = ThemeState.textHint) }, singleLine = true,
+                            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, cursorColor = ThemeState.brand), modifier = Modifier.fillMaxWidth())
+                    } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onDetails() }) {
                         Box(Modifier.size(40.dp).clip(CircleShape).background(avatarColor(conversation.address)), contentAlignment = Alignment.Center) {
                             Text(initial(conversation.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
-                            Text(conversation.address, fontSize = 12.sp, color = TextHint)
+                            Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, color = ThemeState.textPrimary)
                         }
                     }
                 },
@@ -589,9 +1047,24 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         IconButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conversation.address}"))) }) { Icon(Icons.Default.Videocam, null) }
                         Box {
                             IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
-                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf)) {
+                            DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(ThemeState.surf)) {
+                                DropdownMenuItem({ Text("Details") }, { showMenu = false; onDetails() }, leadingIcon = { Icon(Icons.Default.Info, null) })
                                 DropdownMenuItem({ Text("Search") }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null) })
-                                DropdownMenuItem({ Text("Block & report") }, {
+                                DropdownMenuItem({ Text("Starred") }, {
+                                    showMenu = false
+                                    val starredIds = StarredStore.get(ctx)
+                                    val starredMsgs = msgs.filter { it.id in starredIds }
+                                    if (starredMsgs.isEmpty()) Toast.makeText(ctx, "No starred messages", Toast.LENGTH_SHORT).show()
+                                    else {
+                                        val summary = starredMsgs.joinToString("\n\n") { "${msgTime(it.date)}: ${it.body.take(80)}" }
+                                        Toast.makeText(ctx, "${starredMsgs.size} starred messages", Toast.LENGTH_LONG).show()
+                                    }
+                                }, leadingIcon = { Icon(Icons.Default.Star, null) })
+                                DropdownMenuItem({ Text("Archive") }, {
+                                    showMenu = false; ArchiveStore.add(ctx, conversation.threadId)
+                                    Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show(); onBack()
+                                }, leadingIcon = { Icon(Icons.Default.Archive, null) })
+                                DropdownMenuItem({ Text("Block & report spam") }, {
                                     showMenu = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }
                                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
                                 }, leadingIcon = { Icon(Icons.Default.Block, null, tint = Red) })
@@ -604,93 +1077,164 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     }
                 }
             )
+            }
         },
         bottomBar = {
-            Surface(color = Surf, shadowElevation = 2.dp) {
+            Surface(color = ThemeState.surf, shadowElevation = 0.dp) {
                 Column(Modifier.navigationBarsPadding().imePadding()) {
-                    // Reply indicator
                     if (replyTo != null) {
-                        Row(Modifier.fillMaxWidth().background(BrandLt2).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(Brand))
+                        Row(Modifier.fillMaxWidth().background(ThemeState.brandLt2).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp)).background(ThemeState.brand))
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text("Reply", fontSize = 12.sp, color = Brand, fontWeight = FontWeight.SemiBold)
-                                Text(replyTo!!.body.take(60), fontSize = 13.sp, color = TextSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Reply", fontSize = 12.sp, color = ThemeState.brand, fontWeight = FontWeight.SemiBold)
+                                Text(replyTo!!.body.take(60), fontSize = 13.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton({ replyTo = null }, Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, Modifier.size(16.dp), tint = TextHint) }
+                            IconButton({ replyTo = null }, Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, Modifier.size(16.dp), tint = ThemeState.textHint) }
                         }
                     }
-                    // Media preview
                     if (pendingMediaUri != null) {
-                        Row(Modifier.fillMaxWidth().background(BrandLt2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (pendingMediaType == "image") {
-                                AsyncImage(pendingMediaUri, "preview", Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
-                            } else {
-                                Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(TextPrimary), contentAlignment = Alignment.Center) {
+                        Row(Modifier.fillMaxWidth().background(ThemeState.brandLt2).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            when (pendingMediaType) {
+                                "image" -> AsyncImage(pendingMediaUri, "preview", Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
+                                "file" -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(ThemeState.brand.copy(.15f)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.InsertDriveFile, null, tint = ThemeState.brand, modifier = Modifier.size(32.dp))
+                                }
+                                else -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(ThemeState.textPrimary), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Default.PlayCircle, null, tint = Color.White, modifier = Modifier.size(32.dp))
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
-                            Text(if (pendingMediaType == "image") "Photo ready" else "Video ready", fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
+                            Text(when (pendingMediaType) { "image" -> "Photo ready"; "file" -> "File ready"; else -> "Video ready" },
+                                fontSize = 14.sp, color = ThemeState.textSecond, modifier = Modifier.weight(1f))
                             IconButton({ pendingMediaUri = null }) { Icon(Icons.Default.Close, null, tint = Red) }
                         }
                     }
-                    // Compose bar: [+] [field with emoji + gallery] [mic/send]
-                    Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                        // + button (blue circle)
-                        IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(Brand)) {
-                            Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    if (isRecording) {
+                        LaunchedEffect(isRecording) { recordingSeconds = 0; while (true) { delay(1000); recordingSeconds++ } }
+                        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton({ cancelRecording() }, Modifier.size(44.dp)) { Icon(Icons.Default.Delete, null, tint = Red, modifier = Modifier.size(24.dp)) }
+                            Surface(
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                shape = RoundedCornerShape(28.dp),
+                                color = ThemeState.brandLt2
+                            ) {
+                                Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                    Box(Modifier.size(10.dp).clip(CircleShape).background(Red))
+                                    Spacer(Modifier.width(10.dp))
+                                    val mins = recordingSeconds / 60; val secs = recordingSeconds % 60
+                                    Text("${mins}:${secs.toString().padStart(2, '0')}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                                    Spacer(Modifier.width(14.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(1.5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        repeat(20) { i ->
+                                            val h = ((i * 7 + recordingSeconds * 3) % 15 + 3).dp
+                                            Box(Modifier.width(2.5.dp).height(h).clip(RoundedCornerShape(2.dp)).background(ThemeState.brand))
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            FloatingActionButton(
+                                onClick = { stopAndSendRecording() },
+                                modifier = Modifier.size(48.dp), containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
+                                elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
+                            ) { Icon(Icons.Default.Send, null, Modifier.size(22.dp)) }
+                        }
+                    } else {
+                    val hasCont = draft.isNotBlank() || pendingMediaUri != null
+                    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(28.dp),
+                            color = ThemeState.brandLt2,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 4.dp, end = 4.dp)) {
+                                IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, modifier = Modifier.padding(bottom = 4.dp).size(40.dp)) {
+                                    Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, null, tint = ThemeState.textSecond, modifier = Modifier.size(24.dp))
+                                }
+                                Box(Modifier.weight(1f).padding(bottom = 2.dp)) {
+                                    BasicTextField(
+                                        value = draft,
+                                        onValueChange = { draft = it },
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = ThemeState.textPrimary),
+                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(ThemeState.brand),
+                                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                                        keyboardActions = KeyboardActions(onSend = { doSend() }),
+                                        maxLines = 4,
+                                        decorationBox = { inner ->
+                                            if (draft.isBlank()) {
+                                                Text("Text message", color = ThemeState.textHint, fontSize = 16.sp)
+                                            }
+                                            inner()
+                                        }
+                                    )
+                                }
+                                IconButton(onClick = { showEmoji = !showEmoji; showAttach = false }, modifier = Modifier.padding(bottom = 4.dp).size(40.dp)) {
+                                    Icon(Icons.Default.EmojiEmotions, null, tint = ThemeState.textHint, modifier = Modifier.size(24.dp))
+                                }
+                                if (!hasCont) {
+                                    IconButton(onClick = { imagePicker.launch("image/*") }, modifier = Modifier.padding(bottom = 4.dp).size(40.dp)) {
+                                        Icon(Icons.Default.CameraAlt, null, tint = ThemeState.textHint, modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                            }
                         }
                         Spacer(Modifier.width(6.dp))
-                        // Input field (rounded 28dp)
-                        OutlinedTextField(
-                            draft, { draft = it }, Modifier.weight(1f),
-                            placeholder = { Text("Message", color = TextHint) },
-                            shape = RoundedCornerShape(28.dp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = BrandLt2, unfocusedContainerColor = BrandLt2, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
-                            leadingIcon = { IconButton({ showEmoji = !showEmoji; showAttach = false }) { Icon(Icons.Default.EmojiEmotions, null, tint = TextHint) } },
-                            trailingIcon = { IconButton({ imagePicker.launch("image/*") }) { Icon(Icons.Default.Image, null, tint = TextHint) } },
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { doSend() }),
-                            maxLines = 4
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        // Mic / Send
-                        val hasCont = draft.isNotBlank() || pendingMediaUri != null
                         FloatingActionButton(
-                            onClick = { if (hasCont) doSend() },
-                            modifier = Modifier.size(46.dp),
-                            containerColor = if (hasCont) Brand else BrandLt2,
-                            contentColor = if (hasCont) Color.White else Brand,
+                            onClick = { if (hasCont) doSend() else startRecording() },
+                            modifier = Modifier.size(48.dp).combinedClickable(
+                                onClick = { if (hasCont) doSend() else startRecording() },
+                                onLongClick = { if (hasCont) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); showScheduleDialog = true } }
+                            ),
+                            containerColor = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
+                            contentColor = Color.White,
                             shape = CircleShape,
-                            elevation = FloatingActionButtonDefaults.elevation(0.dp)
-                        ) { Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp)) }
+                            elevation = FloatingActionButtonDefaults.elevation(2.dp, 4.dp)
+                        ) {
+                            Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp))
+                        }
                     }
-                    // Attachment sheet (5x2 grid — M3 Expressive: same bg as app bar, pill-shaped monochrome buttons)
+                    }
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         LazyVerticalGrid(
-                            GridCells.Fixed(5),
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(BrandSurf).padding(horizontal = 12.dp, vertical = 16.dp),
+                            GridCells.Fixed(4),
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.brandSurf).padding(horizontal = 12.dp, vertical = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             item { AttachBtn(Icons.Default.Image, "Gallery", Brand) { imagePicker.launch("image/*") } }
-                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Green) { ctx.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)) } }
-                            item { AttachBtn(Icons.Default.Gif, "GIFs", Color(0xFF8E24AA)) { Toast.makeText(ctx, "GIFs coming soon", Toast.LENGTH_SHORT).show() } }
-                            item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Color(0xFFE65100)) { Toast.makeText(ctx, "Stickers coming soon", Toast.LENGTH_SHORT).show() } }
-                            item { AttachBtn(Icons.Default.AutoAwesome, "Magic", Color(0xFF1E88E5)) { Toast.makeText(ctx, "Magic Compose coming soon", Toast.LENGTH_SHORT).show() } }
-                            item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Color(0xFF6D4C41)) { ctx.startActivity(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }) } }
-                            item { AttachBtn(Icons.Default.LocationOn, "Location", Color(0xFFD32F2F)) {
-                                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=My+Location")))
+                            item { AttachBtn(Icons.Default.Videocam, "Video", Brand) { videoPicker.launch("video/*") } }
+                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Brand) {
+                                val file = java.io.File(ctx.cacheDir, "camera_${System.currentTimeMillis()}.jpg")
+                                cameraUri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+                                cameraLauncher.launch(cameraUri!!)
+                                showAttach = false
                             } }
-                            item { AttachBtn(Icons.Default.Contacts, "Contacts", Color(0xFF00897B)) {
-                                ctx.startActivity(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI))
+                            item { AttachBtn(Icons.Default.Gif, "GIFs", Brand) {
+                                showEmoji = true; showAttach = false
                             } }
-                            item { AttachBtn(Icons.Default.Schedule, "Schedule", Color(0xFF5E35B1)) { Toast.makeText(ctx, "Schedule send coming soon", Toast.LENGTH_SHORT).show() } }
-                            item { AttachBtn(Icons.Default.Videocam, "Video", Color(0xFF039BE5)) { videoPicker.launch("video/*") } }
+                            item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Brand) { showEmoji = true; showAttach = false } }
+                            item { AttachBtn(Icons.Default.Mic, "Voice", Brand) { showAttach = false; startRecording() } }
+                            item { AttachBtn(Icons.Default.InsertDriveFile, "Files", Brand) { filePicker.launch("*/*"); showAttach = false } }
+                            item { AttachBtn(Icons.Default.LocationOn, "Location", Brand) {
+                                draft = "https://maps.google.com"
+                                Toast.makeText(ctx, "Location link added", Toast.LENGTH_SHORT).show()
+                                showAttach = false
+                            } }
+                            item { AttachBtn(Icons.Default.Contacts, "Contacts", Brand) {
+                                contactPicker.launch(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI))
+                                showAttach = false
+                            } }
+                            item { AttachBtn(Icons.Default.Schedule, "Schedule", Brand) {
+                                if (draft.isNotBlank()) { showScheduleDialog = true }
+                                else Toast.makeText(ctx, "Type your message first, then schedule", Toast.LENGTH_SHORT).show()
+                                showAttach = false
+                            } }
                         }
                     }
-                    // Emoji picker
                     AnimatedVisibility(showEmoji, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         EmojiPicker { draft += it; showEmoji = false }
                     }
@@ -698,64 +1242,186 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
         }
     ) { pad ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf).padding(horizontal = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
-        ) {
-            val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
-            val grouped = displayMsgs.groupByDate()
-            grouped.forEach { (day, dayMsgs) ->
-                item(key = "day_$day") { DayHeader(day) }
-                items(dayMsgs, key = { it.id }) { m ->
-                    SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m })
+        Box(Modifier.fillMaxSize().padding(pad)) {
+            if (msgs.isEmpty() && !initialLoadDone) {
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = ThemeState.brand, strokeWidth = 3.dp, modifier = Modifier.size(36.dp))
                 }
             }
-            // Smart replies after last incoming message
-            if (msgs.isNotEmpty() && msgs.last().incoming) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("\u05d0\u05b8\u05e7\u05e2\u05d9!", "\ud83d\udc4d", "\u05d9\u05d0\u05b8!", "\u05e9\u05d9\u05d9\u05df!").forEach { reply ->
-                            Surface(
-                                onClick = {
-                                    draft = reply
-                                    scope.launch { doSend() }
-                                },
-                                shape = RoundedCornerShape(20.dp),
-                                color = BrandLt2,
-                                border = BorderStroke(1.dp, DivLt)
-                            ) {
-                                Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = Brand, fontWeight = FontWeight.Medium)
+            LazyColumn(
+                state = listState,
+                reverseLayout = true,
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(horizontal = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
+            ) {
+                val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
+                val grouped = displayMsgs.groupByDate()
+                val isGroupChat = conversation.address.contains(";")
+
+                if (msgs.isNotEmpty() && msgs.last().incoming) {
+                    item(key = "quick_replies") {
+                        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("\u05d0\u05b8\u05e7\u05e2\u05d9!", "\ud83d\udc4d", "\u05d9\u05d0\u05b8!", "\u05e9\u05d9\u05d9\u05df!").forEach { reply ->
+                                Surface(
+                                    onClick = {
+                                        scope.launch(Dispatchers.IO) {
+                                            SmsRepository.sendSms(ctx, conversation.address, reply)
+                                            withContext(Dispatchers.Main) { reload() }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = ThemeState.brandLt2,
+                                    border = BorderStroke(1.dp, ThemeState.divLt)
+                                ) {
+                                    Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = ThemeState.brand, fontWeight = FontWeight.Medium)
+                                }
                             }
                         }
                     }
                 }
+
+                grouped.asReversed().forEach { (day, dayMsgs) ->
+                    items(dayMsgs.asReversed(), key = { it.id }) { m ->
+                        if (inSelectMode) {
+                            Row(Modifier.fillMaxWidth().clickable {
+                                selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id
+                            }.background(if (m.id in selectedIds) ThemeState.brandLt2 else Color.Transparent).padding(start = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(m.id in selectedIds, { selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id },
+                                    colors = CheckboxDefaults.colors(checkedColor = ThemeState.brand))
+                                Box(Modifier.weight(1f)) { MessageBubble(m, {}, null, isGroupChat) }
+                            }
+                        } else {
+                            SwipeToReplyBubble(m, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
+                                onImageClick = { uri ->
+                                    val imageUris = msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) }.map { it.imageUri!! }
+                                    viewerIdx = imageUris.indexOf(uri).coerceAtLeast(0)
+                                }, isGroup = isGroupChat)
+                        }
+                    }
+                    item(key = "day_$day") { DayHeader(day) }
+                }
+            }
+            val showScrollDown by remember { derivedStateOf { listState.firstVisibleItemIndex > 5 } }
+            AnimatedVisibility(showScrollDown, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp), enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+                SmallFloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    containerColor = ThemeState.surf,
+                    contentColor = ThemeState.textSecond,
+                    shape = CircleShape
+                ) { Icon(Icons.Default.KeyboardArrowDown, null) }
             }
         }
+    }
+    }
+    val imageUris = remember(msgs) { msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) }.map { it.imageUri!! } }
+    if (viewerIdx >= 0 && imageUris.isNotEmpty()) MediaViewerOverlay(imageUris, viewerIdx, onChangeIdx = { viewerIdx = it }) { viewerIdx = -1 }
+
+    // Schedule send dialog
+    if (showScheduleDialog) {
+        val schedOptions = listOf(
+            "In 15 minutes" to 15L,
+            "In 30 minutes" to 30L,
+            "In 1 hour" to 60L,
+            "In 2 hours" to 120L,
+            "Tomorrow morning (8:00 AM)" to -1L
+        )
+        AlertDialog(
+            onDismissRequest = { showScheduleDialog = false },
+            containerColor = ThemeState.surf, shape = RoundedCornerShape(28.dp),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Schedule, null, tint = ThemeState.brand, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Schedule message", fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                }
+            },
+            text = {
+                Column {
+                    Text("\"${draft.take(40)}${if (draft.length > 40) "…" else ""}\"", fontSize = 13.sp, color = ThemeState.textHint,
+                        modifier = Modifier.padding(bottom = 12.dp))
+                    schedOptions.forEach { (label, mins) ->
+                        val sendAt = if (mins == -1L) {
+                            val cal = Calendar.getInstance()
+                            cal.add(Calendar.DAY_OF_YEAR, 1)
+                            cal.set(Calendar.HOUR_OF_DAY, 8)
+                            cal.set(Calendar.MINUTE, 0)
+                            cal.set(Calendar.SECOND, 0)
+                            cal.timeInMillis
+                        } else System.currentTimeMillis() + mins * 60_000
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                            val body = draft.trim()
+                            if (body.isNotEmpty()) {
+                                ScheduledSendReceiver.schedule(ctx, conversation.address, body, sendAt)
+                                val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+                                Toast.makeText(ctx, "Scheduled for ${timeFmt.format(Date(sendAt))}", Toast.LENGTH_LONG).show()
+                                draft = ""; showScheduleDialog = false
+                            }
+                        }.padding(vertical = 14.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Schedule, null, tint = ThemeState.textSecond, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Text(label, fontSize = 15.sp, color = ThemeState.textPrimary)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton({ showScheduleDialog = false }) { Text("Cancel", color = ThemeState.brand) } }
+        )
+    }
+
+    // Message details dialog
+    if (showMsgDetail != null) {
+        val md = showMsgDetail!!
+        AlertDialog(
+            onDismissRequest = { showMsgDetail = null },
+            containerColor = ThemeState.surf, shape = RoundedCornerShape(28.dp),
+            title = { Text("Message details", fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DetailInfoRow("Type", if (md.isMms) "MMS" else "SMS")
+                    DetailInfoRow("Status", if (md.incoming) "Received" else "Sent")
+                    DetailInfoRow("Time", SimpleDateFormat("EEEE, MMM d, yyyy h:mm:ss a", Locale.getDefault()).format(Date(md.date)))
+                    if (md.address != null) DetailInfoRow("Address", md.address)
+                    DetailInfoRow("Size", "${md.body.length} chars")
+                    if (md.imageUri != null) DetailInfoRow("Attachment", "Image")
+                    DetailInfoRow("Starred", if (StarredStore.isStarred(ctx, md.id)) "Yes" else "No")
+                    val reaction = ReactionStore.get(ctx, md.id)
+                    if (reaction != null) DetailInfoRow("Reaction", reaction)
+                }
+            },
+            confirmButton = { TextButton({ showMsgDetail = null }) { Text("Close", color = ThemeState.brand) } }
+        )
     }
 }
 
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
 @Composable
-fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit) {
-    var offsetX by remember { mutableFloatStateOf(0f) }
+fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit, onImageClick: ((Uri) -> Unit)? = null, isGroup: Boolean = false) {
+    val offsetAnim = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
     val threshold = 100f
     Box(Modifier.fillMaxWidth().pointerInput(m.id) {
         detectHorizontalDragGestures(
-            onDragEnd = { if (abs(offsetX) > threshold) onReply(); offsetX = 0f },
+            onDragEnd = {
+                val cur = offsetAnim.value
+                if (abs(cur) > threshold) onReply()
+                scope.launch { offsetAnim.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 400f)) }
+            },
             onHorizontalDrag = { _, dx ->
-                offsetX = if (m.incoming) (offsetX + dx).coerceIn(0f, 200f) else (offsetX + dx).coerceIn(-200f, 0f)
+                val target = if (m.incoming) (offsetAnim.value + dx).coerceIn(0f, 200f) else (offsetAnim.value + dx).coerceIn(-200f, 0f)
+                scope.launch { offsetAnim.snapTo(target) }
             }
         )
     }) {
-        if (abs(offsetX) > 20f) {
+        val off = offsetAnim.value
+        if (abs(off) > 20f) {
             Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd) {
-                Icon(Icons.Default.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
+                Icon(Icons.Default.Reply, null, tint = ThemeState.brand.copy(alpha = (abs(off) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
             }
         }
-        Box(Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }) {
-            MessageBubble(m, onLongClick)
+        Box(Modifier.offset { IntOffset(off.roundToInt(), 0) }) {
+            MessageBubble(m, onLongClick, onImageClick, isGroup)
         }
     }
 }
@@ -764,32 +1430,31 @@ fun SwipeToReplyBubble(m: Message, onReply: () -> Unit, onLongClick: () -> Unit)
 // ── Attachment button (pill-shaped, monochrome — M3 Expressive style) ────────
 @Composable
 fun AttachBtn(icon: ImageVector, label: String, @Suppress("UNUSED_PARAMETER") tint: Color, onClick: () -> Unit) {
-    // M3 Expressive: pill-shaped, monochrome icons, no colorful backgrounds
     Column(Modifier.clickable(onClick = onClick).padding(horizontal = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = Color(0xFFF0F0F0),
+            color = if (ThemeState.isDark) Color(0xFF2D2D2D) else Color(0xFFF0F0F0),
             modifier = Modifier.size(width = 56.dp, height = 48.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = Color(0xFF444746), modifier = Modifier.size(22.dp))
+                Icon(icon, null, tint = ThemeState.textSecond, modifier = Modifier.size(22.dp))
             }
         }
         Spacer(Modifier.height(4.dp))
-        Text(label, fontSize = 10.sp, color = TextSecond, maxLines = 1)
+        Text(label, fontSize = 10.sp, color = ThemeState.textSecond, maxLines = 1)
     }
 }
 
 @Composable
-fun MenuBtn(icon: ImageVector, label: String, tint: Color = TextPrimary, onClick: () -> Unit) {
+fun MenuBtn(icon: ImageVector, label: String, tint: Color = ThemeState.textPrimary, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(14.dp))
-        Text(label, fontSize = 15.sp, color = if (tint == Red) Red else TextPrimary)
+        Text(label, fontSize = 15.sp, color = if (tint == Red) Red else ThemeState.textPrimary)
     }
 }
 
-// ━━━━━━━━━━━━━━━━ EMOJI PICKER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━ EMOJI / GIF / STICKERS PICKER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @Composable
 fun EmojiPicker(onPick: (String) -> Unit) {
     val emojis = listOf(
@@ -801,18 +1466,55 @@ fun EmojiPicker(onPick: (String) -> Unit) {
         "\ud83d\ude07","\ud83e\udd29","\ud83d\ude1c","\ud83e\udee3","\ud83e\udd7a","\ud83d\ude24","\ud83d\ude43","\ud83d\ude2c","\ud83e\udd2b","\ud83e\udee0",
         "\ud83d\udc94","\ud83d\udc95","\ud83d\udc96","\ud83e\udee0","\ud83d\udc4f","\ud83e\udd1e","\u270c\ufe0f","\ud83e\udd1f","\ud83e\udee5","\ud83d\udc40"
     )
-    Surface(color = BrandSurf, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
+    var tab by remember { mutableIntStateOf(0) }
+    var search by remember { mutableStateOf("") }
+    val stickers = listOf("\ud83c\udf89","\ud83e\udd73","\ud83e\udd19","\u2728","\ud83d\udc96","\ud83c\udf08","\ud83e\udd84","\ud83c\udf8a","\ud83c\udf7e","\ud83e\udd42",
+        "\ud83c\udf86","\ud83c\udf87","\ud83e\udde8","\ud83e\ude84","\ud83e\udee6","\ud83e\udd0c","\ud83d\udcab","\u26a1","\ud83c\udf1f","\ud83d\udc9d")
+
+    Surface(color = ThemeState.brandSurf, shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
         Column {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("\ud83d\ude0a Emoji" to true, "GIF" to false, "Stickers" to false).forEach { (label, active) ->
-                    Box(Modifier.clip(RoundedCornerShape(20.dp)).background(if (active) BrandSurf else Color.Transparent).clickable {}.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                        Text(label, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal, color = if (active) Brand else TextHint)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("Emoji", "GIFs", "Stickers").forEachIndexed { i, label ->
+                    Surface(onClick = { tab = i }, shape = RoundedCornerShape(20.dp),
+                        color = if (tab == i) ThemeState.brand else Color.Transparent) {
+                        Text(label, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 13.sp,
+                            fontWeight = if (tab == i) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (tab == i) Color.White else ThemeState.textHint)
                     }
                 }
             }
-            LazyVerticalGrid(GridCells.Fixed(8), Modifier.fillMaxWidth().heightIn(max = 200.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                items(emojis) { e ->
-                    Box(Modifier.size(44.dp).clickable { onPick(e) }, contentAlignment = Alignment.Center) { Text(e, fontSize = 24.sp) }
+            OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).height(42.dp),
+                placeholder = { Text("Search\u2026", fontSize = 13.sp) }, singleLine = true,
+                shape = RoundedCornerShape(20.dp), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(18.dp)) })
+            when (tab) {
+                0 -> LazyVerticalGrid(GridCells.Fixed(8), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    items(emojis) { e -> Box(Modifier.size(44.dp).clickable { onPick(e) }, contentAlignment = Alignment.Center) { Text(e, fontSize = 24.sp) } }
+                }
+                1 -> {
+                    val gifEmojis = listOf("👍","👏","🎉","🔥","❤️","😂","😢","😡","🤔","😎","🙏","💪","👋","🥳","😍","💯","✨","🌟","🎊","🎶")
+                    LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        items(gifEmojis) { g ->
+                            Box(Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(ThemeState.brandLt2).clickable { onPick(g) }.padding(4.dp),
+                                contentAlignment = Alignment.Center) { Text(g, fontSize = 28.sp) }
+                        }
+                    }
+                    if (search.isNotBlank()) {
+                        val gifCtx = LocalContext.current
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            Surface(onClick = { gifCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tenor.com/search/${search}"))) },
+                                shape = RoundedCornerShape(20.dp), color = ThemeState.brand) {
+                                Text("Search \"$search\" on Tenor", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                            }
+                        }
+                    } else Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                        Text("Type to search GIFs", fontSize = 13.sp, color = ThemeState.textHint)
+                    }
+                }
+                2 -> LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    items(stickers) { s -> Box(Modifier.size(60.dp).clickable { onPick(s) }, contentAlignment = Alignment.Center) { Text(s, fontSize = 36.sp) } }
                 }
             }
         }
@@ -820,13 +1522,28 @@ fun EmojiPicker(onPick: (String) -> Unit) {
 }
 
 // ━━━━━━━━━━━━━━━━ MESSAGE BUBBLE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+fun textSizeSp(): Float {
+    val ctx = LocalContext.current
+    return remember {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        when (prefs.getString("text_size", "default")) {
+            "small" -> 13f; "large" -> 18f; "largest" -> 21f; else -> 15f
+        }
+    }
+}
+
 private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+)", RegexOption.IGNORE_CASE)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(m: Message, onLongClick: () -> Unit) {
+fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> Unit)? = null, isGroup: Boolean = false) {
     val ctx = LocalContext.current
     val isIn = m.incoming
+    val fontSize = textSizeSp()
+    val senderName = remember(m.address) {
+        if (isGroup && isIn) SmsRepository.getContactName(ctx, m.address ?: "") ?: (m.address ?: "?") else ""
+    }
     val shape = RoundedCornerShape(
         topStart = 20.dp, topEnd = 20.dp,
         bottomEnd = if (isIn) 20.dp else 4.dp,
@@ -838,22 +1555,109 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
         horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
     ) {
         if (!isIn) Spacer(Modifier.width(56.dp))
-        Box(Modifier.widthIn(max = 300.dp).clip(shape).background(if (isIn) BubbleIn else BubbleOut)) {
+        if (isIn && isGroup) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(avatarColor(m.address ?: "")), contentAlignment = Alignment.Center) {
+                Text(initial(senderName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+            Spacer(Modifier.width(6.dp))
+        }
+        Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = shape,
+            color = if (isIn) ThemeState.bubbleIn else ThemeState.bubbleOut,
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp
+        ) {
             Column {
-                // Image (empty bubble if only image)
-                if (m.imageUri != null) {
-                    AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
-                        if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-                    ), contentScale = ContentScale.Crop)
+                if (isIn && isGroup) {
+                    Text(senderName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = avatarColor(m.address ?: ""),
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                // Text with link detection
-                if (m.body.isNotBlank()) {
-                    val textColor = if (isIn) TextPrimary else Color.White
-                    val linkColor = if (isIn) Brand else Color(0xFFBBDEFB)
+                if (m.imageUri != null) {
+                    val mime = m.mediaMime ?: ""
+                    val isAudio = mime.startsWith("audio/") || mime == "video/3gpp" || mime == "video/3gp" || m.body.contains("Voice message")
+                    when {
+                        isAudio -> {
+                            Row(Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isIn) ThemeState.brand else Color.White.copy(alpha = .2f),
+                                    modifier = Modifier.size(40.dp).clickable {
+                                        try {
+                                            val playMime = if (mime.startsWith("audio/")) mime else "audio/3gpp"
+                                            val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(m.imageUri, playMime)
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            ctx.startActivity(playIntent)
+                                        } catch (_: Exception) {
+                                            Toast.makeText(ctx, "No audio player found", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.PlayArrow, null, tint = if (isIn) Color.White else Color.White, modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(1.5.dp), verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.height(28.dp)) {
+                                        val barColor = if (isIn) ThemeState.brand.copy(.4f) else Color.White.copy(.5f)
+                                        val barActive = if (isIn) ThemeState.brand else Color.White.copy(.85f)
+                                        repeat(32) { i ->
+                                            val h = ((i * 7 + 3) % 15 + 3).dp
+                                            Box(Modifier.width(2.5.dp).height(h).clip(RoundedCornerShape(2.dp))
+                                                .background(if (i < 10) barActive else barColor))
+                                        }
+                                    }
+                                    Spacer(Modifier.height(2.dp))
+                                    val durationText = m.body.let {
+                                        val match = Regex("(\\d+)s").find(it)
+                                        if (match != null) {
+                                            val secs = match.groupValues[1].toIntOrNull() ?: 0
+                                            "${secs / 60}:${(secs % 60).toString().padStart(2, '0')}"
+                                        } else "0:00"
+                                    }
+                                    Text(durationText, fontSize = 11.sp,
+                                        color = if (isIn) ThemeState.textHint else if (ThemeState.isDark) Color.White.copy(.6f) else ThemeState.textHint)
+                                }
+                            }
+                        }
+                        mime.startsWith("video/") -> {
+                            Box(Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
+                                if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                            ).background(Color.Black).clickable {
+                                try {
+                                    val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(m.imageUri, mime)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    ctx.startActivity(playIntent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(ctx, "No video player found", Toast.LENGTH_SHORT).show()
+                                }
+                            }, contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.PlayCircle, null, tint = Color.White.copy(.9f), modifier = Modifier.size(56.dp))
+                                Text("Video", color = Color.White.copy(.7f), fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
+                            }
+                        }
+                        else -> {
+                            AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(
+                                if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                            ).clickable { onImageClick?.invoke(m.imageUri!!) }, contentScale = ContentScale.Crop)
+                        }
+                    }
+                }
+                val showBody = m.body.isNotBlank() && !(m.imageUri != null && (m.mediaMime?.let { it.startsWith("audio/") || it == "video/3gpp" || it == "video/3gp" } == true || m.body.contains("Voice message")))
+                if (showBody) {
+                    val textColor = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary
+                    val linkColor = if (isIn) ThemeState.brand else if (ThemeState.isDark) Color(0xFFBBDEFB) else ThemeState.brand
                     val urls = URL_REGEX.findAll(m.body).toList()
 
                     if (urls.isEmpty()) {
-                        Text(m.body, color = textColor, fontSize = 15.sp, lineHeight = 21.sp,
+                        Text(m.body, color = textColor, fontSize = fontSize.sp, lineHeight = (fontSize + 6).sp,
                             modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 10.dp, bottom = 2.dp))
                     } else {
                         val annotated = buildAnnotatedString {
@@ -867,31 +1671,74 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
                             }
                             if (last < m.body.length) withStyle(SpanStyle(color = textColor)) { append(m.body.substring(last)) }
                         }
-                        ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
+                        ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = fontSize.sp, lineHeight = (fontSize + 6).sp),
                             modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 10.dp, bottom = 2.dp),
                             onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) } })
-                        // Link preview card
                         val url = urls.first().value
                         val domain = try { java.net.URL(url).host.removePrefix("www.") } catch (_: Exception) { url }
+                        var linkTitle by remember { mutableStateOf<String?>(null) }
+                        LaunchedEffect(url) {
+                            linkTitle = withContext(Dispatchers.IO) {
+                                try {
+                                    val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                                    conn.connectTimeout = 3000; conn.readTimeout = 3000
+                                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                                    val html = conn.inputStream.bufferedReader().readText().take(8000)
+                                    conn.disconnect()
+                                    val titleMatch = Regex("<title[^>]*>([^<]+)</title>", RegexOption.IGNORE_CASE).find(html)
+                                    titleMatch?.groupValues?.get(1)?.trim()
+                                } catch (_: Exception) { null }
+                            }
+                        }
                         Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(if (isIn) Color(0xFFD5D5D5) else BrandDk)
+                            .background(if (isIn) ThemeState.bubbleIn.copy(alpha = .7f) else if (ThemeState.isDark) ThemeState.brandDk else Color(0xFFBFD7F6))
                             .clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.padding(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Language, null, tint = if (isIn) TextSecond else Color.White.copy(.8f), modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(domain, fontSize = 12.sp, color = if (isIn) TextSecond else Color.White.copy(.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column {
+                                if (linkTitle != null) {
+                                    Text(linkTitle!!, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                        color = if (isIn) ThemeState.textPrimary else if (ThemeState.isDark) Color.White else ThemeState.textPrimary,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Spacer(Modifier.height(4.dp))
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Language, null, tint = ThemeState.textSecond, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(domain, fontSize = 12.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }
                 }
-                // Timestamp + SMS label + delivery ticks (Google Messages style)
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp).fillMaxWidth(),
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp).align(Alignment.End),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) TextHint else Color.White.copy(.7f))
-                    if (!isIn) {
-                        Text(if (m.isMms) " \u00b7 MMS " else " \u00b7 SMS ", fontSize = 11.sp, color = Color.White.copy(.7f))
-                        Icon(Icons.Default.DoneAll, null, tint = Color.White.copy(.85f), modifier = Modifier.size(14.dp))
+                    if (StarredStore.isStarred(ctx, m.id)) {
+                        Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(3.dp))
                     }
+                    Text(msgTime(m.date), fontSize = 11.sp, color = if (isIn) ThemeState.textHint else if (ThemeState.isDark) Color.White.copy(.7f) else ThemeState.textHint)
+                    if (!isIn) {
+                        Spacer(Modifier.width(4.dp))
+                        val delivered = m.status == 0
+                        Icon(
+                            if (delivered) Icons.Default.DoneAll else Icons.Default.Done,
+                            null,
+                            tint = if (delivered) {
+                                if (ThemeState.isDark) Color.White.copy(.85f) else ThemeState.brand
+                            } else {
+                                ThemeState.textHint
+                            },
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+        }
+        // Reaction badge under bubble
+        val reaction = ReactionStore.get(ctx, m.id)
+        if (reaction != null) {
+            Box(Modifier.offset(y = (-6).dp).then(if (isIn) Modifier.padding(start = 12.dp) else Modifier.padding(end = 12.dp))) {
+                Surface(shape = RoundedCornerShape(12.dp), color = ThemeState.surf, shadowElevation = 1.dp, border = BorderStroke(.5.dp, ThemeState.divLt)) {
+                    Text(reaction, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                 }
             }
         }
@@ -899,28 +1746,195 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
     }
 }
 
+// ━━━━━━━━━━━━━━━━ IMAGE PREVIEW (with caption) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ImagePreviewScreen(conv: Conversation, uri: Uri, mediaType: String, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var caption by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+
+    Scaffold(containerColor = Color.Black,
+        topBar = {
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(Color.Black.copy(.7f), titleContentColor = Color.White, navigationIconContentColor = Color.White, actionIconContentColor = Color.White),
+                navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                title = { Text(conv.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+        },
+        bottomBar = {
+            Surface(color = Color.Black.copy(.85f)) {
+                Column(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth(),
+                        placeholder = { Text("Add a caption", color = Color.White.copy(.5f)) }, singleLine = false, maxLines = 3,
+                        shape = RoundedCornerShape(28.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.White.copy(.1f), unfocusedContainerColor = Color.White.copy(.1f),
+                            focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, cursorColor = Color.White))
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        FloatingActionButton(
+                            onClick = {
+                                if (!sending) {
+                                    sending = true
+                                    scope.launch(Dispatchers.IO) {
+                                        SmsRepository.sendMms(ctx, conv.address, uri, caption)
+                                        withContext(Dispatchers.Main) { sending = false; onBack() }
+                                    }
+                                }
+                            },
+                            containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
+                            modifier = Modifier.size(52.dp)
+                        ) {
+                            if (sending) CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Send, null, Modifier.size(22.dp))
+                        }
+                    }
+                }
+            }
+        }
+    ) { pad ->
+        Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
+            if (mediaType == "image") {
+                AsyncImage(uri, "preview", Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit)
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.PlayCircle, null, tint = Color.White, modifier = Modifier.size(64.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Video selected", color = Color.White.copy(.7f), fontSize = 14.sp)
+                }
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━ FORWARD / SELECT RECIPIENTS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ForwardScreen(body: String, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var contacts by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
+    var selected by remember { mutableStateOf(listOf<Pair<String, String>>()) }
+    var search by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { contacts = withContext(Dispatchers.IO) { SmsRepository.loadContactsList(ctx) } }
+    val filtered = if (search.isBlank()) contacts else contacts.filter { it.first.contains(search, true) || it.second.contains(search, true) }
+
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = {
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+                navigationIcon = { IconButton(onDone) { Icon(Icons.Default.ArrowBack, null) } },
+                title = { Text("Forward to…") })
+        },
+        bottomBar = {
+            if (selected.isNotEmpty()) {
+                Surface(color = ThemeState.surf, shadowElevation = 0.dp) {
+                    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${selected.size} recipient${if (selected.size > 1) "s" else ""}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                            Text(body.take(60) + if (body.length > 60) "…" else "", fontSize = 12.sp, color = ThemeState.textHint, maxLines = 1)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        FloatingActionButton(
+                            onClick = {
+                                if (!sending) {
+                                    sending = true
+                                    scope.launch(Dispatchers.IO) {
+                                        selected.forEach { (_, num) -> SmsRepository.sendSms(ctx, num, body) }
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(ctx, "Forwarded to ${selected.size} contact${if (selected.size > 1) "s" else ""}", Toast.LENGTH_SHORT).show()
+                                            sending = false; onDone()
+                                        }
+                                    }
+                                }
+                            },
+                            containerColor = ThemeState.brand, contentColor = Color.White, shape = CircleShape,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            if (sending) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Send, null, Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+        }
+    ) { pad ->
+        Column(Modifier.padding(pad)) {
+            if (selected.isNotEmpty()) {
+                FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    selected.forEach { (name, num) ->
+                        AssistChip(onClick = { selected = selected.filter { it.second != num } }, label = { Text(name, fontSize = 13.sp) },
+                            trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = ThemeState.brandSurf))
+                    }
+                }
+            }
+            Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(28.dp), color = ThemeState.brandLt2) {
+                Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    TextField(search, { search = it }, Modifier.weight(1f), placeholder = { Text("Search contacts", color = ThemeState.textHint) }, singleLine = true,
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = ThemeState.brand))
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            // Message preview
+            Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), color = ThemeState.brandLt2) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.FormatQuote, null, tint = ThemeState.brand, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(body.take(120) + if (body.length > 120) "…" else "", fontSize = 13.sp, color = ThemeState.textSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            LazyColumn(Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
+                items(filtered) { (name, number) ->
+                    val isSelected = selected.any { it.second == number }
+                    Row(Modifier.fillMaxWidth().clickable {
+                        if (isSelected) selected = selected.filter { it.second != number }
+                        else selected = selected + (name to number)
+                    }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(44.dp).clip(CircleShape).background(avatarColor(number)), contentAlignment = Alignment.Center) {
+                            Text(initial(name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = ThemeState.textPrimary); Text(number, fontSize = 13.sp, color = ThemeState.textHint) }
+                        if (isSelected) Icon(Icons.Default.CheckCircle, null, tint = ThemeState.brand)
+                    }
+                    HorizontalDivider(Modifier.padding(start = 74.dp), thickness = .5.dp, color = ThemeState.divLt)
+                }
+            }
+        }
+    }
+}
+
 // ━━━━━━━━━━━━━━━━ SETTINGS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    val ctx = LocalContext.current
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
             title = { Text("Settings") }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf)) {
+        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf)) {
             item { SettRow(Icons.Default.Notifications, "Notifications", "Sounds, vibration") { onSub("notifications") } }
             item { SettRow(Icons.Default.Chat, "Bubbles", "Chat colors and style") { onSub("bubbles") } }
-            item { HorizontalDivider(color = DivLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Palette, "Theme", "System default") { onSub("theme") } }
             item { SettRow(Icons.Default.FormatSize, "Text size", "Default") { onSub("textsize") } }
-            item { HorizontalDivider(color = DivLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Link, "Automatic previews", "Web link previews") { onSub("previews") } }
             item { SettRow(Icons.Default.Shield, "Protection & Safety", "Spam, blocked contacts") { onSub("safety") } }
             item { SettRow(Icons.Default.SwipeRight, "Swipe actions", "Archive on swipe") { onSub("swipe") } }
-            item { HorizontalDivider(color = DivLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
-            item { SettRow(Icons.Default.Info, "About", "Version 2.7") { onSub("about") } }
+            item { HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
+            item { SettRow(Icons.Default.Email, "Your email", AdminEmails.getUserEmail(ctx).ifBlank { "Not set" }) { onSub("email") } }
+            item { SettRow(Icons.Default.Info, "About", "Version 3.3") { onSub("about") } }
         }
     }
 }
@@ -931,13 +1945,13 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     val title = when (key) { "notifications" -> "Notifications"; "bubbles" -> "Bubbles"; "theme" -> "Theme"; "textsize" -> "Text size"
-        "previews" -> "Previews"; "safety" -> "Safety"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; else -> "Settings" }
+        "previews" -> "Previews"; "safety" -> "Safety"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; "email" -> "Your email"; else -> "Settings" }
 
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }, title = { Text(title) }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf).padding(16.dp)) {
+        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(16.dp)) {
             when (key) {
                 "notifications" -> {
                     item { ToggleRow("Allow notifications", "notif_allow", prefs) }
@@ -950,13 +1964,13 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                         Button(onClick = {
                             Notifications.showTestNotification(ctx)
                             Toast.makeText(ctx, "Test notification sent", Toast.LENGTH_SHORT).show()
-                        }, colors = ButtonDefaults.buttonColors(Brand), shape = RoundedCornerShape(20.dp)) {
+                        }, colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) {
                             Text("Test notification")
                         }
                     }
                 }
                 "bubbles" -> {
-                    item { Text("Chat bubble color", fontWeight = FontWeight.SemiBold, fontSize = 16.sp); Spacer(Modifier.height(12.dp)) }
+                    item { Text("Chat bubble color", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = ThemeState.textPrimary); Spacer(Modifier.height(12.dp)) }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             listOf(Brand, Color(0xFF1E8E3E), Color(0xFF8C4A2E), Color(0xFF6A2E8C), Color(0xFFD93025), Color(0xFF185ABC), Color(0xFFE65100), Color(0xFF00897B)).forEach { clr ->
@@ -969,21 +1983,34 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                     }
                     item {
                         Spacer(Modifier.height(20.dp))
-                        Text("Preview", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextHint)
+                        Text("Preview", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = ThemeState.textHint)
                         Spacer(Modifier.height(8.dp))
                         // Live preview bubble
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)).background(BubbleOut).padding(12.dp)) {
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp)).background(ThemeState.bubbleOut).padding(12.dp)) {
                             Column {
-                                Text("Hello!", color = Color.White, fontSize = 15.sp)
-                                Text("3:25 PM \u00b7 SMS \u2713\u2713", color = Color.White.copy(.7f), fontSize = 11.sp, modifier = Modifier.align(Alignment.End))
+                                Text("Hello!", color = if (ThemeState.isDark) Color.White else ThemeState.textPrimary, fontSize = 15.sp)
+                                Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("3:25 PM", color = ThemeState.textHint, fontSize = 11.sp)
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(Icons.Default.DoneAll, null, tint = ThemeState.brand, modifier = Modifier.size(14.dp))
+                                }
                             }
                         }
                     }
                 }
                 "theme" -> {
-                    item { RadioRow("System default", prefs.getString("theme", "system") == "system") { prefs.edit().putString("theme", "system").apply() } }
-                    item { RadioRow("Light", prefs.getString("theme", "system") == "light") { prefs.edit().putString("theme", "light").apply() } }
-                    item { RadioRow("Dark", prefs.getString("theme", "system") == "dark") { prefs.edit().putString("theme", "dark").apply() } }
+                    item { RadioRow("System default", prefs.getString("theme", "system") == "system") {
+                        prefs.edit().putString("theme", "system").apply()
+                        ThemeState.isDark = ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                    } }
+                    item { RadioRow("Light", prefs.getString("theme", "system") == "light") {
+                        prefs.edit().putString("theme", "light").apply()
+                        ThemeState.isDark = false
+                    } }
+                    item { RadioRow("Dark", prefs.getString("theme", "system") == "dark") {
+                        prefs.edit().putString("theme", "dark").apply()
+                        ThemeState.isDark = true
+                    } }
                 }
                 "textsize" -> {
                     item { RadioRow("Small", prefs.getString("text_size", "default") == "small") { prefs.edit().putString("text_size", "small").apply() } }
@@ -1004,7 +2031,7 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                         Spacer(Modifier.height(16.dp))
                         Text("Blocked numbers", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                         Spacer(Modifier.height(4.dp))
-                        Text("Manage blocked numbers", color = TextHint, fontSize = 13.sp)
+                        Text("Manage blocked numbers", color = ThemeState.textHint, fontSize = 13.sp)
                     }
                 }
                 "swipe" -> {
@@ -1029,11 +2056,28 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                         }
                     }
                 }
+                "email" -> {
+                    item {
+                        var emailInput by remember { mutableStateOf(AdminEmails.getUserEmail(ctx)) }
+                        Text("Enter your email address", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("This email determines access to admin features.", fontSize = 13.sp, color = ThemeState.textHint)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(emailInput, { emailInput = it }, Modifier.fillMaxWidth(), placeholder = { Text("your@email.com") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { AdminEmails.setUserEmail(ctx, emailInput); Toast.makeText(ctx, "Email saved", Toast.LENGTH_SHORT).show() }),
+                            shape = RoundedCornerShape(28.dp),
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.brandLt2, unfocusedContainerColor = ThemeState.brandLt2, focusedBorderColor = ThemeState.brand, unfocusedBorderColor = Color.Transparent))
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { AdminEmails.setUserEmail(ctx, emailInput); Toast.makeText(ctx, "Email saved", Toast.LENGTH_SHORT).show() },
+                            colors = ButtonDefaults.buttonColors(ThemeState.brand), shape = RoundedCornerShape(20.dp)) { Text("Save") }
+                    }
+                }
                 "about" -> {
-                    item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                    item { Text("Version 2.7", fontSize = 14.sp, color = TextHint); Spacer(Modifier.height(16.dp)) }
-                    item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = TextSecond) }
-                    item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = TextHint) }
+                    item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = ThemeState.textPrimary) }
+                    item { Text("Version 3.3", fontSize = 14.sp, color = ThemeState.textHint); Spacer(Modifier.height(16.dp)) }
+                    item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = ThemeState.textSecond) }
+                    item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = ThemeState.textHint) }
                 }
             }
         }
@@ -1043,54 +2087,461 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
 @Composable fun ToggleRow(label: String, key: String, prefs: android.content.SharedPreferences) {
     var on by remember { mutableStateOf(prefs.getBoolean(key, true)) }
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, fontSize = 15.sp); Switch(on, { on = it; prefs.edit().putBoolean(key, it).apply() }, colors = SwitchDefaults.colors(checkedTrackColor = Brand))
+        Text(label, fontSize = 15.sp, color = ThemeState.textPrimary); Switch(on, { on = it; prefs.edit().putBoolean(key, it).apply() }, colors = SwitchDefaults.colors(checkedTrackColor = ThemeState.brand))
     }
 }
 @Composable fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected, onClick, colors = RadioButtonDefaults.colors(selectedColor = Brand)); Spacer(Modifier.width(12.dp)); Text(label, fontSize = 15.sp)
+        RadioButton(selected, onClick, colors = RadioButtonDefaults.colors(selectedColor = ThemeState.brand)); Spacer(Modifier.width(12.dp)); Text(label, fontSize = 15.sp, color = ThemeState.textPrimary)
     }
 }
 @Composable fun SettRow(icon: ImageVector, title: String, sub: String, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = TextSecond, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) { Text(title, fontSize = 15.sp); Text(sub, fontSize = 13.sp, color = TextHint) }
-        Icon(Icons.Default.ChevronRight, null, tint = TextHint)
+        Icon(icon, null, tint = ThemeState.textSecond, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) { Text(title, fontSize = 15.sp, color = ThemeState.textPrimary); Text(sub, fontSize = 13.sp, color = ThemeState.textHint) }
+        Icon(Icons.Default.ChevronRight, null, tint = ThemeState.textHint)
     }
 }
 
-// ━━━━━━━━━━━━━━━━ ADMIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━ ADMIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+data class AdminContact(val name: String, val addr: String, val device: String = "")
+
+fun parseContactsResponse(json: String): List<AdminContact> {
+    val result = mutableListOf<AdminContact>()
+    try {
+        val arr = try { JSONArray(json) } catch (_: Exception) {
+            val obj = JSONObject(json)
+            obj.optJSONArray("contacts") ?: obj.optJSONArray("results") ?: return emptyList()
+        }
+        for (i in 0 until arr.length()) {
+            val c = arr.getJSONObject(i)
+            result.add(AdminContact(
+                name = c.optString("name", ""),
+                addr = c.optString("addr", c.optString("number", "")),
+                device = c.optString("device", "")
+            ))
+        }
+    } catch (_: Exception) { }
+    return result
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
-    val ctx = LocalContext.current; var q by remember { mutableStateOf("") }; var res by remember { mutableStateOf("") }; val scope = rememberCoroutineScope()
-    Scaffold(containerColor = BrandSurf,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(BrandSurf, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } }, title = { Text("Admin Panel") }) }
+    val ctx = LocalContext.current
+    var query by remember { mutableStateOf("") }
+    var contacts by remember { mutableStateOf<List<AdminContact>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var hasSearched by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun doSearch(q: String) {
+        if (q.length < 2) { contacts = emptyList(); hasSearched = false; return }
+        isLoading = true; errorMsg = null; hasSearched = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val url = java.net.URL("https://heimish-contacts.avrumy5872877.workers.dev/contacts?q=${java.net.URLEncoder.encode(q, "UTF-8")}")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.setRequestProperty("Authorization", "Bearer hm_admin_avrumy_2024")
+                conn.connectTimeout = 10000; conn.readTimeout = 10000
+                val body = conn.inputStream.bufferedReader().readText(); conn.disconnect()
+                val parsed = parseContactsResponse(body)
+                withContext(Dispatchers.Main) { contacts = parsed; isLoading = false }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { errorMsg = e.message ?: "Connection error"; isLoading = false }
+            }
+        }
+    }
+
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+                navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                title = { Text("Admin Panel", fontWeight = FontWeight.Bold) }
+            )
+        }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(Surf).padding(16.dp)) {
+        LazyColumn(
+            Modifier.padding(pad).fillMaxSize().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Contact Search Card
             item {
-                Text("CONTACT SEARCH", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextHint, letterSpacing = 1.sp)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(q, {
-                    q = it; scope.launch(Dispatchers.IO) {
-                        try {
-                            val url = java.net.URL("https://heimish-contacts.avrumy5872877.workers.dev/contacts?q=${java.net.URLEncoder.encode(it, "UTF-8")}")
-                            val conn = url.openConnection() as java.net.HttpURLConnection
-                            conn.setRequestProperty("Authorization", "Bearer hm_admin_avrumy_2024")
-                            val r = conn.inputStream.bufferedReader().readText(); conn.disconnect()
-                            withContext(Dispatchers.Main) { res = r }
-                        } catch (e: Exception) { withContext(Dispatchers.Main) { res = "Error: ${e.message}" } }
+                Surface(shape = RoundedCornerShape(20.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Contact Search", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Search by name or phone number", fontSize = 13.sp, color = ThemeState.textSecond)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            query, { query = it; doSearch(it) },
+                            Modifier.fillMaxWidth(),
+                            placeholder = { Text("Name or number\u2026") },
+                            leadingIcon = { Icon(Icons.Default.Search, null, tint = ThemeState.textHint) },
+                            trailingIcon = {
+                                if (query.isNotEmpty()) IconButton({ query = ""; contacts = emptyList(); hasSearched = false }) {
+                                    Icon(Icons.Default.Close, null, tint = ThemeState.textHint, modifier = Modifier.size(20.dp))
+                                }
+                            },
+                            singleLine = true, shape = RoundedCornerShape(28.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = ThemeState.surf, unfocusedContainerColor = ThemeState.surf,
+                                focusedBorderColor = ThemeState.brand, unfocusedBorderColor = ThemeState.divLt
+                            )
+                        )
                     }
-                }, Modifier.fillMaxWidth(), placeholder = { Text("Search\u2026") }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                    colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = BrandLt2, unfocusedContainerColor = BrandLt2, focusedBorderColor = Brand, unfocusedBorderColor = Color.Transparent))
-                Spacer(Modifier.height(12.dp)); Text(res.take(2000), fontSize = 13.sp, color = TextSecond)
+                }
+            }
+
+            // Loading
+            if (isLoading) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = ThemeState.brand, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
+                    }
+                }
+            }
+
+            // Error
+            if (errorMsg != null) {
+                item {
+                    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFFFCE4EC)) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, null, tint = Red, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(errorMsg ?: "", fontSize = 13.sp, color = Red)
+                        }
+                    }
+                }
+            }
+
+            // Results
+            if (!isLoading && hasSearched && contacts.isEmpty() && errorMsg == null) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Search, null, tint = ThemeState.textHint, modifier = Modifier.size(40.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Text("No contacts found", color = ThemeState.textHint, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+
+            if (contacts.isNotEmpty()) {
+                item {
+                    Text("${contacts.size} result${if (contacts.size != 1) "s" else ""}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ThemeState.textHint,
+                        modifier = Modifier.padding(start = 4.dp))
+                }
+                items(contacts.size) { idx ->
+                    val c = contacts[idx]
+                    Surface(shape = RoundedCornerShape(16.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(44.dp).clip(CircleShape).background(avatarColor(c.name)), contentAlignment = Alignment.Center) {
+                                Text(initial(c.name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(c.name.ifBlank { "Unknown" }, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = ThemeState.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(c.addr, fontSize = 13.sp, color = ThemeState.textSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (c.device.isNotBlank()) Text(c.device, fontSize = 11.sp, color = ThemeState.textHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton(onClick = {
+                                val clip = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clip.setPrimaryClip(ClipData.newPlainText("number", c.addr))
+                                Toast.makeText(ctx, "Copied ${c.addr}", Toast.LENGTH_SHORT).show()
+                            }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Default.ContentCopy, null, tint = ThemeState.brand, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Admin Emails Card
+            item {
+                Surface(shape = RoundedCornerShape(20.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Admin Emails", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Devices with these emails can access the admin panel", fontSize = 13.sp, color = ThemeState.textSecond)
+                        Spacer(Modifier.height(12.dp))
+
+                        var adminEmails by remember { mutableStateOf(AdminEmails.getAdminEmails(ctx)) }
+                        var newEmail by remember { mutableStateOf("") }
+
+                        adminEmails.forEach { email ->
+                            Surface(shape = RoundedCornerShape(12.dp), color = ThemeState.surf, modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Email, null, tint = ThemeState.brand, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(email, fontSize = 14.sp, color = ThemeState.textPrimary, modifier = Modifier.weight(1f))
+                                    if (adminEmails.size > 1) {
+                                        IconButton(onClick = { AdminEmails.removeAdmin(ctx, email); adminEmails = AdminEmails.getAdminEmails(ctx) }, modifier = Modifier.size(28.dp)) {
+                                            Icon(Icons.Default.Close, null, tint = Red, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(newEmail, { newEmail = it }, Modifier.weight(1f),
+                                placeholder = { Text("Add email\u2026") }, singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
+                                }),
+                                shape = RoundedCornerShape(28.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = ThemeState.surf, unfocusedContainerColor = ThemeState.surf,
+                                    focusedBorderColor = ThemeState.brand, unfocusedBorderColor = ThemeState.divLt))
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(onClick = {
+                                if (newEmail.contains("@")) { AdminEmails.addAdmin(ctx, newEmail); adminEmails = AdminEmails.getAdminEmails(ctx); newEmail = "" }
+                                else Toast.makeText(ctx, "Enter a valid email", Toast.LENGTH_SHORT).show()
+                            }, modifier = Modifier.size(40.dp).clip(CircleShape).background(ThemeState.brand)) {
+                                Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Device Info Card
+            item {
+                Surface(shape = RoundedCornerShape(20.dp), color = ThemeState.brandLt2, tonalElevation = 0.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Device Info", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = ThemeState.textPrimary)
+                        Spacer(Modifier.height(12.dp))
+                        AdminInfoRow("Model", Build.MODEL)
+                        AdminInfoRow("Android", Build.VERSION.RELEASE)
+                        AdminInfoRow("Default SMS", "${isDefaultSmsApp(ctx)}")
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { ContactsSyncService.syncNow(ctx); Toast.makeText(ctx, "Syncing\u2026", Toast.LENGTH_SHORT).show() },
+                            colors = ButtonDefaults.buttonColors(containerColor = ThemeState.brand),
+                            shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()
+                        ) { Icon(Icons.Default.Sync, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Sync Contacts Now") }
+                    }
+                }
+            }
+
+            item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+}
+
+@Composable
+fun AdminInfoRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(label, fontSize = 14.sp, color = ThemeState.textHint, modifier = Modifier.width(100.dp))
+        Text(value, fontSize = 14.sp, color = ThemeState.textPrimary, fontWeight = FontWeight.Medium)
+    }
+}
+
+// ━━━━━━━━━━━━━━━━ CONTACT DETAIL ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ContactDetailScreen(conv: Conversation, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val isGroup = conv.address.contains(";")
+    var isMuted by remember {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        mutableStateOf(prefs.getBoolean("muted_${conv.threadId}", false))
+    }
+    val starredIds = remember { StarredStore.get(ctx) }
+    var msgs by remember { mutableStateOf(emptyList<Message>()) }
+    LaunchedEffect(conv.threadId) { msgs = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conv.threadId) } }
+    val starredCount = remember(starredIds, msgs) { msgs.count { it.id in starredIds } }
+    val mediaCount = remember(msgs) { msgs.count { it.imageUri != null } }
+
+    Scaffold(containerColor = ThemeState.brandSurf,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(ThemeState.brandSurf, titleContentColor = ThemeState.textPrimary, navigationIconContentColor = ThemeState.textPrimary),
+            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, null) } },
+            title = { Text(if (isGroup) "Group details" else "Contact details") }) }
+    ) { pad ->
+        LazyColumn(Modifier.padding(pad).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(ThemeState.surf).padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            item {
+                Spacer(Modifier.height(16.dp))
+                Box(Modifier.size(80.dp).clip(CircleShape).background(avatarColor(conv.address)), contentAlignment = Alignment.Center) {
+                    if (isGroup) Icon(Icons.Default.Group, null, tint = Color.White, modifier = Modifier.size(40.dp))
+                    else Text(initial(conv.displayName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 32.sp)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(conv.displayName, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = ThemeState.textPrimary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                if (!isGroup) { Spacer(Modifier.height(4.dp)); Text(conv.address, fontSize = 14.sp, color = ThemeState.textHint, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+                Spacer(Modifier.height(20.dp))
             }
             item {
-                Spacer(Modifier.height(24.dp)); Text("DEVICE INFO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextHint, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp))
-                Text("Model: ${Build.MODEL}", fontSize = 14.sp); Text("Android: ${Build.VERSION.RELEASE}", fontSize = 14.sp, color = TextSecond)
-                Text("Default SMS: ${isDefaultSmsApp(ctx)}", fontSize = 14.sp, color = TextSecond); Spacer(Modifier.height(12.dp))
-                Button({ ContactsSyncService.syncNow(ctx); Toast.makeText(ctx, "Syncing\u2026", Toast.LENGTH_SHORT).show() }, colors = ButtonDefaults.buttonColors(Brand), shape = RoundedCornerShape(20.dp)) { Text("Sync contacts") }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    ContactAction(Icons.Default.Phone, "Call") { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${conv.address}"))) }
+                    ContactAction(Icons.Default.Videocam, "Video") { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tel:${conv.address}"))) }
+                    ContactAction(Icons.Default.Search, "Search") { onBack() }
+                    ContactAction(
+                        if (isMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
+                        if (isMuted) "Unmute" else "Mute"
+                    ) {
+                        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+                        isMuted = !isMuted
+                        prefs.edit().putBoolean("muted_${conv.threadId}", isMuted).apply()
+                        Toast.makeText(ctx, if (isMuted) "Notifications muted" else "Notifications on", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
+            }
+            if (isGroup) {
+                val members = conv.address.split(";")
+                item {
+                    Text("MEMBERS (${members.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ThemeState.textHint, letterSpacing = 1.sp, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                }
+                items(members) { num ->
+                    val name = SmsRepository.getContactName(ctx, num.trim()) ?: num.trim()
+                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(40.dp).clip(CircleShape).background(avatarColor(num)), contentAlignment = Alignment.Center) {
+                            Text(initial(name), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column { Text(name, fontSize = 15.sp, color = ThemeState.textPrimary); Text(num.trim(), fontSize = 13.sp, color = ThemeState.textHint) }
+                    }
+                }
+            }
+            item {
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
+                Spacer(Modifier.height(8.dp))
+                DetailRow(
+                    if (isMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
+                    "Notifications",
+                    if (isMuted) "Off" else "On"
+                ) {
+                    val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+                    isMuted = !isMuted
+                    prefs.edit().putBoolean("muted_${conv.threadId}", isMuted).apply()
+                    Toast.makeText(ctx, if (isMuted) "Muted" else "Unmuted", Toast.LENGTH_SHORT).show()
+                }
+                DetailRow(Icons.Default.Image, "Media & files", "$mediaCount item${if (mediaCount != 1) "s" else ""}") {
+                    Toast.makeText(ctx, "$mediaCount media item${if (mediaCount != 1) "s" else ""} in this conversation", Toast.LENGTH_SHORT).show()
+                }
+                DetailRow(Icons.Default.Star, "Starred messages", "$starredCount message${if (starredCount != 1) "s" else ""}") {
+                    if (starredCount == 0) Toast.makeText(ctx, "No starred messages", Toast.LENGTH_SHORT).show()
+                    else {
+                        val starredMsgs = msgs.filter { it.id in starredIds }
+                        val summary = starredMsgs.joinToString("\n") { "- ${it.body.take(50)}" }
+                        Toast.makeText(ctx, "$starredCount starred message${if (starredCount != 1) "s" else ""}", Toast.LENGTH_LONG).show()
+                    }
+                }
+                HorizontalDivider(color = ThemeState.divLt, thickness = .5.dp)
+                Spacer(Modifier.height(8.dp))
+                DetailRow(Icons.Default.Block, "Block & report spam", "", Red) {
+                    scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conv.threadId) }
+                    Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show()
+                    onBack()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ContactAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(8.dp)) {
+        Surface(shape = CircleShape, color = ThemeState.brandLt2, shadowElevation = 0.dp, modifier = Modifier.size(48.dp)) {
+            Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = ThemeState.brand, modifier = Modifier.size(22.dp)) }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 12.sp, color = ThemeState.textSecond)
+    }
+}
+
+@Composable
+fun DetailRow(icon: ImageVector, title: String, sub: String, tint: Color = ThemeState.textSecond, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, color = if (tint == Red) Red else ThemeState.textPrimary)
+            if (sub.isNotBlank()) Text(sub, fontSize = 13.sp, color = ThemeState.textHint)
+        }
+        if (tint != Red) Icon(Icons.Default.ChevronRight, null, tint = ThemeState.textHint, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+fun DetailInfoRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, fontSize = 14.sp, color = ThemeState.textHint, modifier = Modifier.weight(.35f))
+        Text(value, fontSize = 14.sp, color = ThemeState.textPrimary, modifier = Modifier.weight(.65f))
+    }
+}
+
+// ━━━━━━━━━━━━━━━━ FULL-SCREEN MEDIA VIEWER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+fun MediaViewerOverlay(uris: List<Uri>, startIdx: Int, onChangeIdx: (Int) -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    var idx by remember { mutableIntStateOf(startIdx.coerceIn(0, uris.size - 1)) }
+    val animX = remember { Animatable(0f) }
+    val animY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val uri = uris.getOrNull(idx) ?: return onDismiss()
+
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - abs(animY.value) / 600f).coerceIn(0.3f, 1f)))
+        .pointerInput(uris.size) {
+            detectHorizontalDragGestures(
+                onDragEnd = {
+                    when {
+                        animX.value < -100f && idx < uris.size - 1 -> { idx++; onChangeIdx(idx) }
+                        animX.value > 100f && idx > 0 -> { idx--; onChangeIdx(idx) }
+                    }
+                    scope.launch { animX.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 300f)) }
+                },
+                onHorizontalDrag = { _, dx -> scope.launch { animX.snapTo(animX.value + dx) } }
+            )
+        }
+        .pointerInput(Unit) {
+            detectVerticalDragGestures(
+                onDragEnd = {
+                    if (abs(animY.value) > 150f) onDismiss()
+                    else scope.launch { animY.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 300f)) }
+                },
+                onVerticalDrag = { _, dy ->
+                    val target = (animY.value + dy).coerceIn(-400f, 400f)
+                    scope.launch { animY.snapTo(target) }
+                }
+            )
+        }
+        .clickable { onDismiss() }
+    ) {
+        AsyncImage(uri, "full", Modifier.fillMaxSize()
+            .offset { IntOffset(animX.value.roundToInt(), animY.value.roundToInt()) }
+            .graphicsLayer { alpha = (1f - abs(animX.value) / 400f).coerceIn(0.5f, 1f) },
+            contentScale = ContentScale.Fit)
+        IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+            .clip(CircleShape).background(Color.Black.copy(.4f))) {
+            Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(28.dp))
+        }
+        if (uris.size > 1) {
+            Text("${idx + 1} / ${uris.size}", color = Color.White.copy(.8f), fontSize = 14.sp,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp))
+        }
+        Row(Modifier.align(Alignment.BottomCenter).padding(24.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (idx > 0) IconButton({ idx--; onChangeIdx(idx) }, modifier = Modifier.clip(CircleShape).background(Color.White.copy(.15f))) {
+                Icon(Icons.Default.ArrowBack, null, tint = Color.White)
+            }
+            IconButton({
+                try {
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "image/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    ctx.startActivity(Intent.createChooser(shareIntent, "Share"))
+                } catch (_: Exception) {}
+            }, modifier = Modifier.clip(CircleShape).background(Color.White.copy(.15f))) { Icon(Icons.Default.Share, null, tint = Color.White) }
+            if (idx < uris.size - 1) IconButton({ idx++; onChangeIdx(idx) }, modifier = Modifier.clip(CircleShape).background(Color.White.copy(.15f))) {
+                Icon(Icons.Default.ArrowForward, null, tint = Color.White)
             }
         }
     }
@@ -1099,18 +2550,33 @@ fun AdminScreen(onBack: () -> Unit) {
 // ━━━━━━━━━━━━━━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
     if (isEmpty()) return emptyList()
-    val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-    val today = fmt.format(Date()); val yest = fmt.format(Date(System.currentTimeMillis() - 86_400_000))
-    val g = LinkedHashMap<String, MutableList<Message>>()
-    forEach { m -> val l = when (val d = fmt.format(Date(m.date))) { today -> "Today"; yest -> "Yesterday"; else -> d }; g.getOrPut(l) { mutableListOf() }.add(m) }
-    return g.map { it.key to it.value }
+    val dateFmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    val dayFmt = SimpleDateFormat("EEEE, MMM d", Locale.getDefault())
+    val today = dateFmt.format(Date())
+    val yest = dateFmt.format(Date(System.currentTimeMillis() - 86_400_000))
+    val groups = mutableListOf<Pair<String, MutableList<Message>>>()
+    var lastDay = ""
+    forEach { m ->
+        val d = Date(m.date)
+        val ds = dateFmt.format(d)
+        if (ds != lastDay) {
+            val label = when (ds) {
+                today -> "Today"
+                yest -> "Yesterday"
+                else -> dayFmt.format(d)
+            }
+            groups.add(label to mutableListOf(m))
+            lastDay = ds
+        } else {
+            groups.last().second.add(m)
+        }
+    }
+    return groups
 }
 
 @Composable fun DayHeader(label: String) {
-    Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.clip(RoundedCornerShape(16.dp)).background(BrandLt2).border(0.5.dp, DivLt, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 5.dp)) {
-            Text(label, fontSize = 12.sp, color = TextSecond, fontWeight = FontWeight.Medium)
-        }
+    Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Text(label, fontSize = 12.sp, color = ThemeState.textHint, fontWeight = FontWeight.Medium, letterSpacing = 0.3.sp)
     }
 }
 private val palette = listOf(Color(0xFF0B57D0), Color(0xFF146C2E), Color(0xFF8C4A2E), Color(0xFF6A2E8C), Color(0xFFB3261E), Color(0xFF185ABC), Color(0xFF0D652D), Color(0xFF9C27B0))

@@ -1,1 +1,5 @@
 node_modules/
+.gradle/
+local.properties
+build/
+app/build/

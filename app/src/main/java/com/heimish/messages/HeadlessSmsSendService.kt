@@ -3,7 +3,6 @@ package com.heimish.messages
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import android.telephony.SmsManager
 
 /**
  * Handles the "respond via message" quick action from the phone/dialer screen.
@@ -15,7 +14,9 @@ class HeadlessSmsSendService : Service() {
         val text = intent?.getStringExtra(Intent.EXTRA_TEXT)
         val to = intent?.data?.schemeSpecificPart
         if (!text.isNullOrBlank() && !to.isNullOrBlank()) {
-            runCatching { getSystemService(SmsManager::class.java).sendTextMessage(to, null, text, null, null) }
+            runCatching {
+                SmsRepository.sendSms(this, to, text)
+            }
         }
         stopSelf(startId)
         return START_NOT_STICKY

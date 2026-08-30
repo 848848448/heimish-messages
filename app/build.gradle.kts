@@ -11,8 +11,8 @@ android {
         applicationId = "com.heimish.messages"
         minSdk = 24
         targetSdk = 34
-        versionCode = 14
-        versionName = "2.7"
+        versionCode = 19
+        versionName = "3.4"
     }
 
     buildTypes {

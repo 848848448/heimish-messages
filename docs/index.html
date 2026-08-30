@@ -57,8 +57,9 @@ body{font-family:'Google Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Robot
 .sw input{flex:1;background:none;border:none;font-size:15px;color:var(--text);outline:none;font-family:inherit}
 .sw input::placeholder{color:var(--meta-lt)}
 #clist{flex:1;overflow-y:auto;background:var(--surf);overflow-x:hidden;border-radius:24px 24px 0 0}
-.ci{display:flex;align-items:center;padding:8px 16px;gap:14px;cursor:pointer;position:relative;min-height:72px;transition:background .1s;overflow:hidden;border-radius:16px;margin:0 8px}
-.ci:active{background:var(--div2)}
+.ci{display:flex;align-items:center;padding:8px 16px;gap:14px;cursor:pointer;position:relative;min-height:72px;transition:background .15s,box-shadow .15s;overflow:hidden;border-radius:16px;margin:0 8px}
+.ci:hover{background:var(--div2)}
+.ci:active{background:var(--div2);box-shadow:inset 0 0 0 1px var(--div2)}
 .av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;flex-shrink:0;overflow:hidden}
 .ci-body{flex:1;min-width:0}
 .ci-r1{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px}
@@ -84,10 +85,10 @@ body{font-family:'Google Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Robot
 .brow.out{flex-direction:row-reverse;padding-left:56px}
 .bub{border-radius:20px;overflow:hidden;max-width:100%}
 .bub.in{background:var(--bin);border-bottom-left-radius:4px}
-.bub.out{background:var(--bout);border-bottom-right-radius:4px}
+.bub.out{background:var(--bout);border-bottom-right-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.08)}
 .bub img{width:100%;max-width:260px;display:block}
-.bt{font-size:15px;color:var(--text);line-height:1.5;word-break:break-word;white-space:pre-wrap;padding:10px 14px 2px}
-.bub.out .bt{color:#fff}
+.bt{font-size:15px;color:var(--text);line-height:1.5;word-break:break-word;white-space:pre-wrap;padding:10px 14px 2px;letter-spacing:.01em}
+.bub.out .bt{color:#fff;text-shadow:0 0.5px 1px rgba(0,0,0,.1)}
 .bf{display:flex;align-items:center;justify-content:flex-end;gap:3px;padding:2px 12px 8px}
 .btime{font-size:11px;color:var(--meta-lt)}
 .bub.out .btime{color:rgba(255,255,255,.7)}
@@ -1566,19 +1567,20 @@ function applySettings(){
   var th=setGet('theme','system');
   var dark = th==='dark' || (th==='system' && window.matchMedia && window.matchMedia('(prefers-color-scheme:dark)').matches);
   if(dark){
-    r.style.setProperty('--bg','#131314');r.style.setProperty('--surf','#1e1f20');
+    r.style.setProperty('--bg','#131314');r.style.setProperty('--surf','#1c1b1f');
     r.style.setProperty('--surf2','#2d2f31');r.style.setProperty('--text','#e3e3e3');
     r.style.setProperty('--text2','#c4c7c5');r.style.setProperty('--meta','#9aa0a6');
-    r.style.setProperty('--meta-lt','#80868b');r.style.setProperty('--div','#444746');
-    r.style.setProperty('--div2','#2d2f31');r.style.setProperty('--bin','#2d2f31');
-    r.style.setProperty('--brand-lt','#0842a0');r.style.setProperty('--brand-lt2','#1f3760');
+    r.style.setProperty('--meta-lt','#8e918f');r.style.setProperty('--div','#444746');
+    r.style.setProperty('--div2','#303030');r.style.setProperty('--bin','#303030');
+    r.style.setProperty('--bout','#004a77');
+    r.style.setProperty('--brand','#a8c7fa');r.style.setProperty('--brand-lt','#1a2744');r.style.setProperty('--brand-lt2','#1f2937');
   } else {
     r.style.setProperty('--bg','#f6f8fc');r.style.setProperty('--surf','#fff');
     r.style.setProperty('--surf2','#edf2fa');r.style.setProperty('--text','#1f1f1f');
     r.style.setProperty('--text2','#444746');r.style.setProperty('--meta','#444746');
     r.style.setProperty('--meta-lt','#747775');r.style.setProperty('--div','#c4c7c5');
     r.style.setProperty('--div2','#e8eaed');r.style.setProperty('--bin','#e3e3e3');
-    r.style.setProperty('--brand-lt','#d3e3fd');r.style.setProperty('--brand-lt2','#edf2fa');
+    r.style.setProperty('--brand','#0b57d0');r.style.setProperty('--brand-lt','#d3e3fd');r.style.setProperty('--brand-lt2','#edf2fa');
   }
   var fs=setGet('fontSize',100);
   document.body.style.fontSize=(fs/100)+'rem';
