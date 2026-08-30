@@ -193,6 +193,7 @@ object SmsRepository {
             val pduUri = androidx.core.content.FileProvider.getUriForFile(
                 ctx, "${ctx.packageName}.fileprovider", pduFile
             )
+            ctx.grantUriPermission("com.android.mms.service", pduUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
             val configOverrides = android.os.Bundle()
             configOverrides.putBoolean(android.telephony.SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, true)
@@ -270,38 +271,44 @@ object SmsRepository {
         // X-Mms-MMS-Version: 1.3
         out.write(0x8D); out.write(0x93)
 
-        // To
+        // From: Insert-address-token (let MMSC fill in sender)
+        out.write(0x89); out.write(0x01); out.write(0x81)
+
+        // Date
+        out.write(0x85)
+        val epochSec = (System.currentTimeMillis() / 1000).toInt()
+        writeLongInteger(out, epochSec)
+
+        // To: use Text-string encoding (ASCII address, no charset prefix needed)
         val cleanAddr = address.replace(Regex("[^0-9+]"), "")
         val addrStr = "$cleanAddr/TYPE=PLMN"
-        val addrBytes = addrStr.toByteArray()
-        out.write(0x97) // To (with value-length)
-        writeValueLength(out, addrBytes.size + 1)
-        out.write(addrBytes)
+        out.write(0x97)
+        out.write(addrStr.toByteArray())
         out.write(0x00)
 
-        // Subject (if caption)
+        // Subject (if caption) - use Value-length + Charset + Text-string for UTF-8
         if (caption.isNotBlank()) {
             out.write(0x96)
             val subjBytes = caption.take(40).toByteArray(Charsets.UTF_8)
-            writeValueLength(out, subjBytes.size + 1)
+            writeValueLength(out, subjBytes.size + 2)
+            out.write(0xEA.toByte().toInt()) // charset UTF-8 (106 as Short-integer: 106|0x80)
             out.write(subjBytes); out.write(0x00)
         }
 
-        // Content-Type: application/vnd.wap.multipart.related
-        // Use well-known value 0xB3 for multipart.related with parameters
-        val startContentId = "<mms_media>"
+        // Content-Type: application/vnd.wap.multipart.related (must be LAST header)
+        val startCid = "<smil_part>"
         val ctParams = java.io.ByteArrayOutputStream()
-        ctParams.write(0xB3) // application/vnd.wap.multipart.related
+        ctParams.write(0xB3) // well-known: application/vnd.wap.multipart.related
         // start parameter
-        ctParams.write(0x8A) // well-known param: Start
-        val startBytes = startContentId.toByteArray()
+        ctParams.write(0x8A)
+        val startBytes = startCid.toByteArray()
         ctParams.write(startBytes.size + 1)
         ctParams.write(startBytes); ctParams.write(0x00)
         // type parameter
-        ctParams.write(0x89) // well-known param: Type
-        val typeStr = mimeType.toByteArray()
-        ctParams.write(typeStr.size + 1)
-        ctParams.write(typeStr); ctParams.write(0x00)
+        ctParams.write(0x89)
+        val typeBytes = mimeType.toByteArray()
+        ctParams.write(typeBytes.size + 1)
+        ctParams.write(typeBytes); ctParams.write(0x00)
 
         out.write(0x84) // Content-Type header
         writeValueLength(out, ctParams.size())
@@ -313,12 +320,10 @@ object SmsRepository {
 
         // Media part
         val mediaPartHeaders = java.io.ByteArrayOutputStream()
-        // Content-Type
         mediaPartHeaders.write(mimeType.toByteArray()); mediaPartHeaders.write(0x00)
-        // Content-Id
-        mediaPartHeaders.write(0xC0.toByte().toInt()) // Content-Id header
-        val cid = startContentId.removeSurrounding("<", ">")
-        mediaPartHeaders.write(cid.toByteArray()); mediaPartHeaders.write(0x00)
+        mediaPartHeaders.write(0xC0.toByte().toInt())
+        val mediaCid = startCid.removeSurrounding("<", ">")
+        mediaPartHeaders.write(mediaCid.toByteArray()); mediaPartHeaders.write(0x00)
 
         writeUintVar(out, mediaPartHeaders.size())
         writeUintVar(out, mediaBytes.size)
@@ -329,7 +334,7 @@ object SmsRepository {
         if (caption.isNotBlank()) {
             val textBytes = caption.toByteArray(Charsets.UTF_8)
             val textPartHeaders = java.io.ByteArrayOutputStream()
-            textPartHeaders.write("text/plain".toByteArray()); textPartHeaders.write(0x00)
+            textPartHeaders.write("text/plain; charset=utf-8".toByteArray()); textPartHeaders.write(0x00)
             textPartHeaders.write(0xC0.toByte().toInt())
             textPartHeaders.write("text_0".toByteArray()); textPartHeaders.write(0x00)
 
@@ -340,6 +345,15 @@ object SmsRepository {
         }
 
         return out.toByteArray()
+    }
+
+    private fun writeLongInteger(out: java.io.ByteArrayOutputStream, value: Int) {
+        val bytes = mutableListOf<Byte>()
+        var v = value
+        while (v > 0) { bytes.add(0, (v and 0xFF).toByte()); v = v shr 8 }
+        if (bytes.isEmpty()) bytes.add(0)
+        out.write(bytes.size)
+        bytes.forEach { out.write(it.toInt()) }
     }
 
     private fun writeValueLength(out: java.io.ByteArrayOutputStream, length: Int) {

@@ -378,7 +378,6 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     var search by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var isRefreshing by remember { mutableStateOf(false) }
     var ctxConv by remember { mutableStateOf<Conversation?>(null) }
     val scope = rememberCoroutineScope()
     val archived = remember { mutableStateOf(ArchiveStore.get(ctx)) }
@@ -388,7 +387,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     LaunchedEffect(Unit) { while (true) { delay(30_000); val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; if (fresh != list) list = fresh } }
 
     val visible = list.filter { it.threadId !in archived.value }
-    val filtered = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) }
+    val filtered = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.address.contains(search, true) || it.snippet.contains(search, true) }
 
     // Long-press context menu dialog
     if (ctxConv != null) {
@@ -468,7 +467,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         }
     ) { pad ->
         Box(Modifier.padding(pad)) {
-            if (filtered.isEmpty() && !isRefreshing) {
+            if (filtered.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ThemeState.textHint, modifier = Modifier.size(64.dp))
