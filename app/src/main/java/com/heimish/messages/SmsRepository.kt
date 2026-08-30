@@ -8,6 +8,8 @@ import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Telephony
 import android.telephony.SmsManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
 
 data class Conversation(
@@ -184,10 +186,16 @@ object SmsRepository {
 
     fun sendMms(ctx: Context, address: String, mediaUri: Uri, caption: String = ""): Boolean {
         return runCatching {
-            val bytes = ctx.contentResolver.openInputStream(mediaUri)?.readBytes() ?: return false
-            val mimeType = ctx.contentResolver.getType(mediaUri) ?: "application/octet-stream"
+            val rawBytes = ctx.contentResolver.openInputStream(mediaUri)?.readBytes() ?: return false
+            var mimeType = ctx.contentResolver.getType(mediaUri) ?: "application/octet-stream"
             val sms = smsManager(ctx)
             val threadId = getOrCreateThreadId(ctx, address)
+
+            val bytes = if (mimeType.startsWith("image/")) {
+                val compressed = compressImage(rawBytes, 280_000)
+                mimeType = "image/jpeg"
+                compressed
+            } else rawBytes
 
             val pdu = buildSendReqPdu(address, bytes, mimeType, caption)
 
@@ -214,7 +222,7 @@ object SmsRepository {
                 put("read", 1)
                 put("seen", 1)
                 put("date", System.currentTimeMillis() / 1000)
-                put("ct_t", "application/vnd.wap.multipart.related")
+                put("ct_t", "application/vnd.wap.multipart.mixed")
             }
             val mmsInsertUri = ctx.contentResolver.insert(Uri.parse("content://mms"), mmsValues)
             val mmsId = mmsInsertUri?.lastPathSegment?.toLong()
@@ -263,26 +271,26 @@ object SmsRepository {
     private fun buildSendReqPdu(address: String, mediaBytes: ByteArray, mimeType: String, caption: String): ByteArray {
         val out = java.io.ByteArrayOutputStream()
 
+        // M-Send.req (0x80), Transaction-ID, MMS Version 1.3
         out.write(0x8C); out.write(0x80)
-
         out.write(0x98)
         val txnId = "T${System.currentTimeMillis()}"
         out.write(txnId.toByteArray()); out.write(0x00)
-
         out.write(0x8D); out.write(0x93)
 
+        // From: insert-address-token
         out.write(0x89); out.write(0x01); out.write(0x81)
 
+        // Date
         out.write(0x85)
-        val epochSec = (System.currentTimeMillis() / 1000).toInt()
-        writeLongInteger(out, epochSec)
+        writeLongInteger(out, (System.currentTimeMillis() / 1000).toInt())
 
+        // To
         val cleanAddr = address.replace(Regex("[^0-9+]"), "")
-        val addrStr = "$cleanAddr/TYPE=PLMN"
         out.write(0x97)
-        out.write(addrStr.toByteArray())
-        out.write(0x00)
+        out.write("$cleanAddr/TYPE=PLMN".toByteArray()); out.write(0x00)
 
+        // Subject (optional)
         if (caption.isNotBlank()) {
             out.write(0x96)
             val subjBytes = caption.take(40).toByteArray(Charsets.UTF_8)
@@ -291,57 +299,26 @@ object SmsRepository {
             out.write(subjBytes); out.write(0x00)
         }
 
-        val mediaTag = when {
-            mimeType.startsWith("image/") -> "img"
-            mimeType.startsWith("video/") -> "video"
-            mimeType.startsWith("audio/") -> "audio"
-            else -> "ref"
-        }
-        val smilXml = buildSmilXml(mediaTag, caption.isNotBlank())
-        val smilBytes = smilXml.toByteArray(Charsets.UTF_8)
+        // Content-Type: application/vnd.wap.multipart.mixed (0xA3 short-integer)
+        out.write(0x84); out.write(0xA3.toByte().toInt())
 
-        val ctParams = java.io.ByteArrayOutputStream()
-        ctParams.write(0xB3)
-        ctParams.write(0x8A)
-        val startBytes = "<smil>".toByteArray()
-        ctParams.write(startBytes.size + 1)
-        ctParams.write(startBytes); ctParams.write(0x00)
-        ctParams.write(0x89)
-        val typeBytes = "application/smil".toByteArray()
-        ctParams.write(typeBytes.size + 1)
-        ctParams.write(typeBytes); ctParams.write(0x00)
-
-        out.write(0x84)
-        writeValueLength(out, ctParams.size())
-        out.write(ctParams.toByteArray())
-
-        val partCount = 1 + 1 + (if (caption.isNotBlank()) 1 else 0)
+        // Part count
+        val partCount = 1 + (if (caption.isNotBlank()) 1 else 0)
         writeUintVar(out, partCount)
 
-        val smilPartHeaders = java.io.ByteArrayOutputStream()
-        smilPartHeaders.write("application/smil".toByteArray()); smilPartHeaders.write(0x00)
-        smilPartHeaders.write(0xC0.toByte().toInt())
-        smilPartHeaders.write("smil".toByteArray()); smilPartHeaders.write(0x00)
-        writeUintVar(out, smilPartHeaders.size())
-        writeUintVar(out, smilBytes.size)
-        out.write(smilPartHeaders.toByteArray())
-        out.write(smilBytes)
-
+        // Media part
         val mediaPartHeaders = java.io.ByteArrayOutputStream()
         mediaPartHeaders.write(mimeType.toByteArray()); mediaPartHeaders.write(0x00)
-        mediaPartHeaders.write(0xC0.toByte().toInt())
-        mediaPartHeaders.write("media".toByteArray()); mediaPartHeaders.write(0x00)
         writeUintVar(out, mediaPartHeaders.size())
         writeUintVar(out, mediaBytes.size)
         out.write(mediaPartHeaders.toByteArray())
         out.write(mediaBytes)
 
+        // Text part (optional)
         if (caption.isNotBlank()) {
             val textBytes = caption.toByteArray(Charsets.UTF_8)
             val textPartHeaders = java.io.ByteArrayOutputStream()
-            textPartHeaders.write("text/plain; charset=utf-8".toByteArray()); textPartHeaders.write(0x00)
-            textPartHeaders.write(0xC0.toByte().toInt())
-            textPartHeaders.write("text".toByteArray()); textPartHeaders.write(0x00)
+            textPartHeaders.write("text/plain".toByteArray()); textPartHeaders.write(0x00)
             writeUintVar(out, textPartHeaders.size())
             writeUintVar(out, textBytes.size)
             out.write(textPartHeaders.toByteArray())
@@ -349,21 +326,6 @@ object SmsRepository {
         }
 
         return out.toByteArray()
-    }
-
-    private fun buildSmilXml(mediaTag: String, hasText: Boolean): String {
-        val sb = StringBuilder("<smil><head><layout><root-layout/>")
-        if (hasText) {
-            sb.append("<region id=\"Image\" fit=\"meet\" top=\"0\" left=\"0\" height=\"80%\" width=\"100%\"/>")
-            sb.append("<region id=\"Text\" top=\"80%\" left=\"0\" height=\"20%\" width=\"100%\"/>")
-        } else {
-            sb.append("<region id=\"Image\" fit=\"meet\" top=\"0\" left=\"0\" height=\"100%\" width=\"100%\"/>")
-        }
-        sb.append("</layout></head><body><par dur=\"5000ms\">")
-        sb.append("<$mediaTag src=\"cid:media\" region=\"Image\"/>")
-        if (hasText) sb.append("<text src=\"cid:text\" region=\"Text\"/>")
-        sb.append("</par></body></smil>")
-        return sb.toString()
     }
 
     private fun writeLongInteger(out: java.io.ByteArrayOutputStream, value: Int) {
@@ -398,6 +360,27 @@ object SmsRepository {
             }
             bytes.reversed().forEach { out.write(it) }
         }
+    }
+
+    private fun compressImage(raw: ByteArray, maxSize: Int): ByteArray {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, opts)
+        var sampleSize = 1
+        while (opts.outWidth / sampleSize > 1024 || opts.outHeight / sampleSize > 1024) sampleSize *= 2
+        val decOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val bmp = BitmapFactory.decodeByteArray(raw, 0, raw.size, decOpts) ?: return raw
+        var quality = 85
+        while (quality >= 20) {
+            val baos = java.io.ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+            val result = baos.toByteArray()
+            if (result.size <= maxSize) { bmp.recycle(); return result }
+            quality -= 10
+        }
+        val baos = java.io.ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 20, baos)
+        bmp.recycle()
+        return baos.toByteArray()
     }
 
     // ── Mark read ─────────────────────────────────────────────────────────────
