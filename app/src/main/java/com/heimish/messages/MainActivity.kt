@@ -783,8 +783,7 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
         if (success && cameraUri != null) onImagePreview(cameraUri!!, "image")
     }
 
-    // Pull-down-to-dismiss
-    var pullY by remember { mutableFloatStateOf(0f) }
+    val pullAnim = remember { Animatable(0f) }
     val pullThreshold = 200f
     var searchQuery by remember { mutableStateOf("") }
 
@@ -931,22 +930,23 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
 
     Box(
         Modifier.fillMaxSize()
-            .offset { IntOffset(0, pullY.roundToInt()) }
+            .offset { IntOffset(0, pullAnim.value.roundToInt()) }
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onDragEnd = {
-                        if (pullY > pullThreshold) onBack()
-                        pullY = 0f
+                        if (pullAnim.value > pullThreshold) onBack()
+                        else scope.launch { pullAnim.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 400f)) }
                     },
                     onVerticalDrag = { change, dy ->
-                        if (pullY > 0f || (dy > 0f && !listState.canScrollBackward)) {
-                            pullY = (pullY + dy).coerceIn(0f, 400f)
+                        if (pullAnim.value > 0f || (dy > 0f && !listState.canScrollBackward)) {
+                            val target = (pullAnim.value + dy).coerceIn(0f, 400f)
+                            scope.launch { pullAnim.snapTo(target) }
                             change.consume()
                         }
                     }
                 )
             }
-            .graphicsLayer { alpha = 1f - (pullY / 600f).coerceAtMost(0.4f) }
+            .graphicsLayer { alpha = 1f - (pullAnim.value / 600f).coerceAtMost(0.4f) }
     ) {
     Scaffold(containerColor = ThemeState.brandSurf,
         topBar = {
@@ -990,7 +990,11 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, color = ThemeState.textPrimary)
-                            Text(conversation.address, fontSize = 12.sp, color = ThemeState.textHint)
+                            if (conversation.displayName == conversation.address || conversation.address.contains(";")) {
+                                // no contact name found or group — no subtitle needed
+                            } else {
+                                Text(conversation.address, fontSize = 12.sp, color = ThemeState.textHint)
+                            }
                         }
                     }
                 },
@@ -1112,12 +1116,18 @@ fun ThreadScreen(conversation: Conversation, onDetails: () -> Unit = {}, onImage
                             maxLines = 4
                         )
                         Spacer(Modifier.width(6.dp))
-                        Box(Modifier.size(46.dp).clip(CircleShape).background(if (hasCont) ThemeState.brand else Color(0xFF146C2E))
-                            .combinedClickable(
+                        Surface(
+                            shape = CircleShape,
+                            color = if (hasCont) ThemeState.brand else Color(0xFF146C2E),
+                            shadowElevation = 3.dp,
+                            modifier = Modifier.size(46.dp).combinedClickable(
                                 onClick = { if (hasCont) doSend() else startRecording() },
                                 onLongClick = { if (hasCont) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); showScheduleDialog = true } }
-                            ), contentAlignment = Alignment.Center) {
-                            Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp), tint = Color.White)
+                            )
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic, null, Modifier.size(22.dp), tint = Color.White)
+                            }
                         }
                     }
                     }
@@ -1607,7 +1617,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit, onImageClick: ((Uri) -> U
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp),
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     if (StarredStore.isStarred(ctx, m.id)) {
                         Icon(Icons.Default.Star, null, tint = Color(0xFFFFC107), modifier = Modifier.size(12.dp))
@@ -2334,51 +2344,63 @@ fun DetailInfoRow(label: String, value: String) {
 fun MediaViewerOverlay(uris: List<Uri>, startIdx: Int, onChangeIdx: (Int) -> Unit, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     var idx by remember { mutableIntStateOf(startIdx.coerceIn(0, uris.size - 1)) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
+    val animX = remember { Animatable(0f) }
+    val animY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
     val uri = uris.getOrNull(idx) ?: return onDismiss()
 
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - abs(offsetY) / 600f).coerceIn(0.3f, 1f)))
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - abs(animY.value) / 600f).coerceIn(0.3f, 1f)))
         .pointerInput(uris.size) {
             detectHorizontalDragGestures(
                 onDragEnd = {
                     when {
-                        offsetX < -100f && idx < uris.size - 1 -> { idx++; onChangeIdx(idx) }
-                        offsetX > 100f && idx > 0 -> { idx--; onChangeIdx(idx) }
+                        animX.value < -100f && idx < uris.size - 1 -> { idx++; onChangeIdx(idx) }
+                        animX.value > 100f && idx > 0 -> { idx--; onChangeIdx(idx) }
                     }
-                    offsetX = 0f
+                    scope.launch { animX.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 300f)) }
                 },
-                onHorizontalDrag = { _, dx -> offsetX += dx }
+                onHorizontalDrag = { _, dx -> scope.launch { animX.snapTo(animX.value + dx) } }
             )
         }
         .pointerInput(Unit) {
             detectVerticalDragGestures(
-                onDragEnd = { if (abs(offsetY) > 150f) onDismiss() else offsetY = 0f },
-                onVerticalDrag = { _, dy -> offsetY = (offsetY + dy).coerceIn(-400f, 400f) }
+                onDragEnd = {
+                    if (abs(animY.value) > 150f) onDismiss()
+                    else scope.launch { animY.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 300f)) }
+                },
+                onVerticalDrag = { _, dy ->
+                    val target = (animY.value + dy).coerceIn(-400f, 400f)
+                    scope.launch { animY.snapTo(target) }
+                }
             )
         }
         .clickable { onDismiss() }
     ) {
         AsyncImage(uri, "full", Modifier.fillMaxSize()
-            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-            .graphicsLayer { alpha = (1f - abs(offsetX) / 400f).coerceIn(0.5f, 1f) },
+            .offset { IntOffset(animX.value.roundToInt(), animY.value.roundToInt()) }
+            .graphicsLayer { alpha = (1f - abs(animX.value) / 400f).coerceIn(0.5f, 1f) },
             contentScale = ContentScale.Fit)
-        IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
+        IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+            .clip(CircleShape).background(Color.Black.copy(.4f))) {
             Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(28.dp))
         }
         if (uris.size > 1) {
             Text("${idx + 1} / ${uris.size}", color = Color.White.copy(.8f), fontSize = 14.sp,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp))
         }
-        Row(Modifier.align(Alignment.BottomCenter).padding(24.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-            if (idx > 0) IconButton({ idx--; onChangeIdx(idx) }) { Icon(Icons.Default.ArrowBack, null, tint = Color.White) }
+        Row(Modifier.align(Alignment.BottomCenter).padding(24.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (idx > 0) IconButton({ idx--; onChangeIdx(idx) }, modifier = Modifier.clip(CircleShape).background(Color.White.copy(.15f))) {
+                Icon(Icons.Default.ArrowBack, null, tint = Color.White)
+            }
             IconButton({
                 try {
                     val shareIntent = Intent(Intent.ACTION_SEND).apply { type = "image/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
                     ctx.startActivity(Intent.createChooser(shareIntent, "Share"))
                 } catch (_: Exception) {}
-            }) { Icon(Icons.Default.Share, null, tint = Color.White) }
-            if (idx < uris.size - 1) IconButton({ idx++; onChangeIdx(idx) }) { Icon(Icons.Default.ArrowForward, null, tint = Color.White) }
+            }, modifier = Modifier.clip(CircleShape).background(Color.White.copy(.15f))) { Icon(Icons.Default.Share, null, tint = Color.White) }
+            if (idx < uris.size - 1) IconButton({ idx++; onChangeIdx(idx) }, modifier = Modifier.clip(CircleShape).background(Color.White.copy(.15f))) {
+                Icon(Icons.Default.ArrowForward, null, tint = Color.White)
+            }
         }
     }
 }
