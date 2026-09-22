@@ -180,11 +180,7 @@ object SmsRepository {
             @Suppress("DEPRECATION")
             val sms = smsManager(ctx)
 
-            // Build MMS parts
-            val parts = ArrayList<android.telephony.SmsManager>() // placeholder
-
             // Use system MMS API (API 21+)
-            val sendReqUri = Uri.parse("content://mms/outbox")
             val threadId = getOrCreateThreadId(ctx, address)
 
             // Insert MMS into system
@@ -383,6 +379,13 @@ object SmsRepository {
 
         fun deleteThread(ctx: Context, threadId: Long) {
             try { ctx.contentResolver.delete(android.provider.Telephony.Sms.CONTENT_URI, "thread_id = ?", arrayOf(threadId.toString())) } catch (_: Exception) {}
+            try { ctx.contentResolver.delete(Uri.parse("content://mms"), "thread_id = ?", arrayOf(threadId.toString())) } catch (_: Exception) {}
+        }
+
+        /** Delete every SMS and MMS conversation. Only works as the default SMS app. */
+        fun deleteAllConversations(ctx: Context) {
+            try { ctx.contentResolver.delete(android.provider.Telephony.Sms.CONTENT_URI, null, null) } catch (_: Exception) {}
+            try { ctx.contentResolver.delete(Uri.parse("content://mms"), null, null) } catch (_: Exception) {}
         }
 
 }

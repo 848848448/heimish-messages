@@ -516,6 +516,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false } }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { pendingMediaUri = it; pendingMediaType = "video"; showAttach = false } }
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) cameraUri?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false }
+    }
 
     // Context menu dialog (long-press on message)
     if (ctxMsg != null) {
@@ -675,7 +679,17 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             item { AttachBtn(Icons.Default.Image, "Gallery", Brand) { imagePicker.launch("image/*") } }
-                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Green) { ctx.startActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)) } }
+                            item { AttachBtn(Icons.Default.CameraAlt, "Camera", Green) {
+                                val uri = runCatching {
+                                    val values = android.content.ContentValues().apply {
+                                        put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "heimish_${System.currentTimeMillis()}.jpg")
+                                        put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                                    }
+                                    ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                                }.getOrNull()
+                                if (uri != null) { cameraUri = uri; runCatching { cameraLauncher.launch(uri) } }
+                                else Toast.makeText(ctx, "Camera unavailable", Toast.LENGTH_SHORT).show()
+                            } }
                             item { AttachBtn(Icons.Default.Gif, "GIFs", Color(0xFF8E24AA)) { Toast.makeText(ctx, "GIFs coming soon", Toast.LENGTH_SHORT).show() } }
                             item { AttachBtn(Icons.Default.EmojiEmotions, "Stickers", Color(0xFFE65100)) { Toast.makeText(ctx, "Stickers coming soon", Toast.LENGTH_SHORT).show() } }
                             item { AttachBtn(Icons.Default.AutoAwesome, "Magic", Color(0xFF1E88E5)) { Toast.makeText(ctx, "Magic Compose coming soon", Toast.LENGTH_SHORT).show() } }
@@ -827,6 +841,9 @@ private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+)",
 fun MessageBubble(m: Message, onLongClick: () -> Unit) {
     val ctx = LocalContext.current
     val isIn = m.incoming
+    val bubbleColor = remember {
+        Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("bubble_color", BubbleOut.toArgb()))
+    }
     val shape = RoundedCornerShape(
         topStart = 20.dp, topEnd = 20.dp,
         bottomEnd = if (isIn) 20.dp else 4.dp,
@@ -838,7 +855,7 @@ fun MessageBubble(m: Message, onLongClick: () -> Unit) {
         horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
     ) {
         if (!isIn) Spacer(Modifier.width(56.dp))
-        Box(Modifier.widthIn(max = 300.dp).clip(shape).background(if (isIn) BubbleIn else BubbleOut)) {
+        Box(Modifier.widthIn(max = 300.dp).clip(shape).background(if (isIn) BubbleIn else bubbleColor)) {
             Column {
                 // Image (empty bubble if only image)
                 if (m.imageUri != null) {
@@ -920,7 +937,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.SwipeRight, "Swipe actions", "Archive on swipe") { onSub("swipe") } }
             item { HorizontalDivider(color = DivLt, thickness = .5.dp, modifier = Modifier.padding(horizontal = 16.dp)) }
             item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
-            item { SettRow(Icons.Default.Info, "About", "Version 2.7") { onSub("about") } }
+            item { SettRow(Icons.Default.Info, "About", "Version 3.3") { onSub("about") } }
         }
     }
 }
@@ -1020,18 +1037,34 @@ fun SettingSubScreen(key: String, onBack: () -> Unit) {
                     item { ToggleRow("Group MMS", "group_mms", prefs) }
                     item { ToggleRow("Auto-download on Wi-Fi", "mms_wifi", prefs) }
                     item {
+                        val scope = rememberCoroutineScope()
+                        var showConfirm by remember { mutableStateOf(false) }
                         Spacer(Modifier.height(16.dp))
-                        Button(onClick = {
-                            if (android.app.AlertDialog.Builder(ctx).create().let { false }) { /* never */ }
-                            Toast.makeText(ctx, "Delete all? Long-press to confirm.", Toast.LENGTH_LONG).show()
-                        }, colors = ButtonDefaults.buttonColors(Red), shape = RoundedCornerShape(20.dp)) {
+                        Button(onClick = { showConfirm = true }, colors = ButtonDefaults.buttonColors(Red), shape = RoundedCornerShape(20.dp)) {
                             Text("Delete all conversations")
+                        }
+                        if (showConfirm) {
+                            AlertDialog(
+                                onDismissRequest = { showConfirm = false },
+                                containerColor = Surf,
+                                shape = RoundedCornerShape(28.dp),
+                                title = { Text("Delete all conversations?") },
+                                text = { Text("This permanently deletes every SMS and MMS on this device. This can't be undone.") },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showConfirm = false
+                                        scope.launch(Dispatchers.IO) { SmsRepository.deleteAllConversations(ctx) }
+                                        Toast.makeText(ctx, "All conversations deleted", Toast.LENGTH_SHORT).show()
+                                    }) { Text("Delete", color = Red) }
+                                },
+                                dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("Cancel") } }
+                            )
                         }
                     }
                 }
                 "about" -> {
                     item { Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                    item { Text("Version 2.7", fontSize = 14.sp, color = TextHint); Spacer(Modifier.height(16.dp)) }
+                    item { Text("Version 3.3", fontSize = 14.sp, color = TextHint); Spacer(Modifier.height(16.dp)) }
                     item { Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = TextSecond) }
                     item { Spacer(Modifier.height(16.dp)); Text("\u00a9 2024-2026 Heimish Messages", fontSize = 13.sp, color = TextHint) }
                 }
@@ -1114,7 +1147,7 @@ fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
     }
 }
 private val palette = listOf(Color(0xFF0B57D0), Color(0xFF146C2E), Color(0xFF8C4A2E), Color(0xFF6A2E8C), Color(0xFFB3261E), Color(0xFF185ABC), Color(0xFF0D652D), Color(0xFF9C27B0))
-fun avatarColor(seed: String): Color = palette[abs(seed.hashCode()) % palette.size]
+fun avatarColor(seed: String): Color = palette[seed.hashCode().mod(palette.size)]
 fun initial(name: String): String = (name.firstOrNull()?.uppercaseChar() ?: '#').toString()
 fun msgTime(ms: Long): String { if (ms <= 0) return ""; return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms)) }
 fun shortTime(ms: Long): String {
