@@ -1,3 +1,6 @@
-name = "heimish-contacts"
+# DEPRECATED stub — the real Contacts worker is in ../worker
+# Name intentionally differs from the live worker ("heimish-contacts") so a stray
+# `wrangler deploy` from here can never overwrite production.
+name = "heimish-contacts-deprecated-stub"
 main = "index.js"
 compatibility_date = "2024-01-01"

@@ -1,13 +1,16 @@
 #!/bin/bash
-set -e
-cd /home/runner/work/heimish-messages/heimish-messages/contacts-worker
-npm install -g wrangler
-
-# Create KV namespace if not exists
-KV_ID=$(wrangler kv:namespace list 2>/dev/null | grep -A1 '"heimish-contacts"' | grep '"id"' | sed 's/.*"\([^"]*\)".*/\1/' | head -1)
-if [ -z "$KV_ID" ]; then
-  KV_ID=$(wrangler kv:namespace create "heimish-contacts" 2>&1 | grep 'id = ' | sed 's/.*id = "\([^"]*\)".*/\1/')
-fi
-echo "KV ID: $KV_ID"
-sed -i "s/PLACEHOLDER/$KV_ID/" wrangler.toml
-wrangler deploy
+# DEPRECATED / DISABLED
+#
+# This directory is a leftover stub. The real Contacts worker lives in ../worker
+# (full R2-backed implementation, deployed by .github/workflows/deploy-worker.yml).
+#
+# This script previously deployed a 5-line stub to the SAME worker name
+# ("heimish-contacts") using a KV config — which would have OVERWRITTEN the
+# live worker with a non-functional placeholder. It is intentionally disabled.
+#
+# To deploy the real worker:
+#   cd ../worker && wrangler deploy
+#
+echo "This deploy script is disabled. Use ../worker (the real Contacts worker) instead." >&2
+echo "Run:  cd ../worker && wrangler deploy" >&2
+exit 1
