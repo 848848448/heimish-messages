@@ -191,11 +191,11 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         )
     }
 
-    Scaffold(containerColor = Bg,
+    Scaffold(containerColor = Chrome,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, actionIconContentColor = TextSecond),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, actionIconContentColor = TextSecond),
                 title = { Text("Messages", fontWeight = FontWeight.Bold, fontSize = 24.sp) },
                 actions = {
                     Box {
@@ -223,7 +223,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 icon = { Icon(Icons.Filled.Chat, "New chat") }, text = { Text("Start chat", fontWeight = FontWeight.SemiBold) })
         }
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+        Column(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg).padding(top = 8.dp)) {
             // Google-style always-visible search bar
             TextField(
                 value = search, onValueChange = { search = it },

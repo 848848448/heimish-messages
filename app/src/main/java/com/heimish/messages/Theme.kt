@@ -107,10 +107,13 @@ internal val Surf: Color         get() = if (Black) Color(0xFF101010) else S?.su
 internal val SearchBg: Color     get() = if (Black) Color(0xFF1C1C1E) else S?.surfaceContainerHigh ?: if (D) Color(0xFF2F3033) else Color(0xFFF0F4F9)
 internal val SheetBg: Color      get() = if (Black) Color(0xFF101010) else S?.surfaceContainerLow ?: if (D) Color(0xFF1E1F20) else Color(0xFFF8FAFD)
 internal val BubbleIn: Color     get() = if (Black) Color(0xFF262628) else S?.surfaceContainerHighest ?: if (D) Color(0xFF444746) else Color(0xFFE9EEF6)
-internal val BubbleOut: Color    get() = S?.primary ?: if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
-internal val BubbleOutText: Color  get() = S?.onPrimary ?: if (D) Color(0xFF003258) else Color.White
-internal val BubbleOutSub: Color   get() = S?.onPrimary?.copy(.72f) ?: if (D) Color(0xFF003258).copy(.70f) else Color.White.copy(.72f)
-internal val BubbleOutLink: Color  get() = S?.onPrimary ?: if (D) Color(0xFF0842A0) else Color(0xFFCDE1FF)
+// Google Messages (2025): your messages are a soft blue with dark text, theirs are grey
+internal val BubbleOut: Color    get() = S?.primaryContainer ?: if (D) Color(0xFF004A77) else Color(0xFFD3E3FD)
+internal val BubbleOutText: Color  get() = S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF041E49)
+internal val BubbleOutSub: Color   get() = (S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF041E49)).copy(.68f)
+internal val BubbleOutLink: Color  get() = S?.primary ?: if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
+/** The tinted frame around the main lists (Google Messages' Material 3 Expressive look). */
+internal val Chrome: Color       get() = if (Black) Color.Black else S?.surfaceContainer ?: if (D) Color(0xFF1E1F20) else Color(0xFFF0F4F9)
 internal val TextPrimary: Color  get() = S?.onSurface ?: if (D) Color(0xFFE3E3E3) else Color(0xFF1F1F1F)
 internal val TextSecond: Color   get() = S?.onSurfaceVariant ?: if (D) Color(0xFFC4C7C5) else Color(0xFF444746)
 internal val TextHint: Color     get() = S?.outline ?: if (D) Color(0xFF8E918F) else Color(0xFF747775)
