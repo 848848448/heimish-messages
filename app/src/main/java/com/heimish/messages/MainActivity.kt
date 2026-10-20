@@ -372,7 +372,8 @@ fun rememberProviderTick(): Int {
     val ctx = LocalContext.current
     var t by remember { mutableIntStateOf(0) }
     DisposableEffect(Unit) {
-        val obs = object : ContentObserver(Handler(Looper.getMainLooper())) { override fun onChange(selfChange: Boolean) { t++ } }
+        val hnd = Handler(Looper.getMainLooper()); val bump = Runnable { t++ }
+        val obs = object : ContentObserver(hnd) { override fun onChange(selfChange: Boolean) { hnd.removeCallbacks(bump); hnd.postDelayed(bump, 350) } }
         ctx.contentResolver.registerContentObserver(Uri.parse("content://mms-sms/"), true, obs)
         val lc = (ctx as? ComponentActivity)?.lifecycle
         val lo = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) t++ }
