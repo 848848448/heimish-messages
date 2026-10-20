@@ -1271,6 +1271,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
     val title = when (key) { "notifications" -> "Notifications"; "bubbles" -> "Bubbles"; "theme" -> "Theme"; "textsize" -> "Text size"
         "previews" -> "Previews"; "safety" -> "Safety"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; else -> "Settings" }
     var blockedTick by remember { mutableIntStateOf(0) }
+    val blocked = remember(blockedTick) { BlockedStore.getAll(ctx).toList() }
     var themeNow by remember { mutableStateOf(prefs.getString("theme", "system") ?: "system") }
 
     Scaffold(containerColor = BrandSurf,
@@ -1354,7 +1355,6 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                         Text("Blocked numbers", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
                         Spacer(Modifier.height(4.dp))
                     }
-                    val blocked = remember(blockedTick) { BlockedStore.getAll(ctx).toList() }
                     if (blocked.isEmpty()) {
                         item { Text("No blocked numbers", color = TextHint, fontSize = 13.sp) }
                     } else {
