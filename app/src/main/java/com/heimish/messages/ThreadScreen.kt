@@ -38,6 +38,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.content.contentReceiver
+import androidx.compose.foundation.content.hasMediaType
+import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -567,7 +570,23 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         Row(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(24.dp)).background(SearchBg).padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
                             IconButton({ showEmoji = !showEmoji; showAttach = false }, Modifier.size(40.dp)) { Icon(Icons.Default.EmojiEmotions, "Emoji", tint = TextHint, modifier = Modifier.size(22.dp)) }
                             androidx.compose.foundation.text.BasicTextField(
-                                draft, { draft = it }, Modifier.weight(1f).padding(vertical = 11.dp),
+                                draft, { draft = it }, Modifier.weight(1f).padding(vertical = 11.dp)
+                                    // GIFs and stickers from the keyboard (Gboard etc.) become a picture message
+                                    .contentReceiver { tc ->
+                                        if (!tc.hasMediaType(androidx.compose.foundation.content.MediaType.Image)) return@contentReceiver tc
+                                        tc.consume { item ->
+                                            val u = item.uri ?: return@consume false
+                                            val local = runCatching {
+                                                val mt = ctx.contentResolver.getType(u) ?: "image/gif"
+                                                val ext = if (mt.contains("gif")) "gif" else if (mt.contains("webp")) "webp" else if (mt.contains("png")) "png" else "jpg"
+                                                val f = File(ctx.cacheDir, "kb_${System.currentTimeMillis()}.$ext")
+                                                ctx.contentResolver.openInputStream(u)?.use { ins -> f.outputStream().use { ins.copyTo(it) } }
+                                                Uri.fromFile(f)
+                                            }.getOrNull() ?: return@consume false
+                                            pendingMediaUri = local; pendingMediaType = "image"; extraMedia = emptyList()
+                                            true
+                                        }
+                                    },
                                 textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 16.sp, lineHeight = 22.sp),
                                 cursorBrush = androidx.compose.ui.graphics.SolidColor(Brand),
                                 // Enter makes a new line (like Google Messages) unless "Press Enter to send" is on
