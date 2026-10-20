@@ -7,6 +7,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.location.LocationManager
 import android.media.MediaRecorder
 import android.net.Uri
@@ -267,7 +270,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
                 Icon(Icons.Filled.Chat, null, tint = Color.White, modifier = Modifier.size(48.dp))
             }
             Spacer(Modifier.height(24.dp))
-            Text("Heimish Messages", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("Message", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(Modifier.height(10.dp))
             Text("Set as your default messaging app to get started", fontSize = 15.sp, color = Color.White.copy(.85f), textAlign = TextAlign.Center)
             Spacer(Modifier.height(36.dp))
@@ -316,8 +319,66 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
         if (photo != null) {
             AsyncImage(photo, name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
-            Text(initial(name), color = Color.White, fontWeight = FontWeight.Medium, fontSize = fontSize)
+            val ch = name.firstOrNull()
+            if (ch != null && ch.isLetter()) Text(initial(name), color = Color.White, fontWeight = FontWeight.Medium, fontSize = fontSize)
+            else Icon(Icons.Filled.Person, null, tint = Color.White, modifier = Modifier.size(size * 0.56f))
         }
+    }
+}
+
+// Re-fires whenever the SMS/MMS provider changes (new message, status update, read flag) or the app resumes.
+@Composable
+fun rememberProviderTick(): Int {
+    val ctx = LocalContext.current
+    var t by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val obs = object : ContentObserver(Handler(Looper.getMainLooper())) { override fun onChange(selfChange: Boolean) { t++ } }
+        ctx.contentResolver.registerContentObserver(Uri.parse("content://mms-sms/"), true, obs)
+        val lc = (ctx as? ComponentActivity)?.lifecycle
+        val lo = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) t++ }
+        lc?.addObserver(lo)
+        onDispose { ctx.contentResolver.unregisterContentObserver(obs); lc?.removeObserver(lo) }
+    }
+    return t
+}
+
+// One-tap in-app update card: downloads the newest GitHub release APK and opens the installer.
+@Composable
+fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var progress by remember { mutableStateOf<Float?>(null) }
+    var ready by remember { mutableStateOf<File?>(null) }
+    var err by remember { mutableStateOf<String?>(null) }
+    fun go() {
+        val f = ready
+        if (f != null) { if (Updater.canInstall(ctx)) Updater.install(ctx, f) else Updater.openInstallPermission(ctx); return }
+        if (progress != null) return
+        err = null; progress = 0f
+        scope.launch {
+            val file = withContext(Dispatchers.IO) { Updater.download(ctx, info) { progress = it } }
+            progress = null
+            if (file == null) { err = "Download failed. Tap to retry."; return@launch }
+            ready = file
+            if (Updater.canInstall(ctx)) Updater.install(ctx, file)
+            else { Toast.makeText(ctx, "Allow installs from this app, then tap Install again", Toast.LENGTH_LONG).show(); Updater.openInstallPermission(ctx) }
+        }
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(20.dp)).background(Tonal).clickable { go() }.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.SystemUpdate, null, tint = OnTonal)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(if (ready != null) "Ready to install" else "Update available", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = OnTonal)
+            val sub = err ?: when {
+                progress != null -> "Downloading… ${((progress ?: 0f) * 100).toInt()}%"
+                ready != null -> "Tap to install version build ${info.build}"
+                else -> "Build ${info.build} · tap to download and install"
+            }
+            Text(sub, fontSize = 13.sp, color = OnTonal.copy(alpha = .8f))
+            if (progress != null) { Spacer(Modifier.height(6.dp)); LinearProgressIndicator(progress = { progress ?: 0f }, modifier = Modifier.fillMaxWidth(), color = Brand, trackColor = Bg.copy(alpha = .4f)) }
+        }
+        if (onDismiss != null && progress == null) IconButton(onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = OnTonal) }
     }
 }
 
@@ -336,8 +397,22 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     val fabExtended by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     fun refresh() { scope.launch { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } } }
-    LaunchedEffect(Unit) { refresh() }
-    LaunchedEffect(Unit) { while (true) { delay(5000); val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; if (fresh != list) list = fresh; tick++ } }
+    val providerTick = rememberProviderTick()
+    LaunchedEffect(providerTick) {
+        if (providerTick > 1) delay(150)
+        val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }
+        if (fresh != list) list = fresh
+        tick++
+    }
+    var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    LaunchedEffect(Unit) {
+        val p = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        if (System.currentTimeMillis() - p.getLong("upd_last", 0L) > 3 * 3600_000L) {
+            val i = withContext(Dispatchers.IO) { Updater.fetchLatest() }
+            if (i != null) p.edit().putLong("upd_last", System.currentTimeMillis()).apply()
+            if (i != null && Updater.isNewer(i) && p.getInt("upd_dismissed", 0) < i.build) update = i
+        }
+    }
 
     val visible = remember(list, tick) { list.filter { !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) } }
     val searched = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
@@ -431,6 +506,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary
                 )
             )
+            update?.let { u -> UpdateCard(u) { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null } }
             Spacer(Modifier.height(6.dp))
             if (filtered.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -927,11 +1003,12 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
 
     BackHandler { onBack() }
-    LaunchedEffect(Unit) {
+    val threadTick = rememberProviderTick()
+    LaunchedEffect(threadTick) {
+        if (threadTick > 1) delay(120)
         reload()
         withContext(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, conversation.threadId) }
     }
-    LaunchedEffect(Unit) { while (true) { delay(3000); reload() } }
     LaunchedEffect(isRecording) {
         recordSeconds = 0
         while (isRecording) { delay(1000); recordSeconds++ }
@@ -1127,7 +1204,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 Triple(Icons.Default.PhotoCamera, "Camera") {
                                     val uri = runCatching {
                                         val values = android.content.ContentValues().apply {
-                                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "heimish_${System.currentTimeMillis()}.jpg")
+                                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "message_${System.currentTimeMillis()}.jpg")
                                             put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                                         }
                                         ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
@@ -1413,7 +1490,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.FormatSize, "Text size", "Message text size") { onSub("textsize") } }
             item { SettRow(Icons.Default.Link, "Automatic previews", "Web link previews") { onSub("previews") } }
             item { SettingsHeader("About") }
-            item { SettRow(Icons.Default.Info, "About Heimish Messages", "Version 3.5") { onSub("about") } }
+            item { SettRow(Icons.Default.Info, "About Message", "Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})") { onSub("about") } }
         }
     }
 }
@@ -1576,10 +1653,27 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                                 Icon(Icons.Filled.Chat, null, tint = OnBrand, modifier = Modifier.size(36.dp))
                             }
                             Spacer(Modifier.height(14.dp))
-                            Text("Heimish Messages", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
-                            Text("Version 3.5", fontSize = 14.sp, color = TextHint)
+                            Text("Message", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
+                            Text("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", fontSize = 14.sp, color = TextHint)
                             Spacer(Modifier.height(14.dp))
-                            Text("A heimishe messaging app for the community.", fontSize = 14.sp, color = TextSecond, textAlign = TextAlign.Center)
+                            Text("Simple, fast text messaging.", fontSize = 14.sp, color = TextSecond, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(20.dp))
+                            var checking by remember { mutableStateOf(false) }
+                            var found by remember { mutableStateOf<UpdateInfo?>(null) }
+                            var msg by remember { mutableStateOf("") }
+                            val sc = rememberCoroutineScope()
+                            found?.let { UpdateCard(it, null) }
+                            if (found == null) {
+                                Button(onClick = {
+                                    if (!checking) { checking = true; msg = ""; sc.launch {
+                                        val i = withContext(Dispatchers.IO) { Updater.fetchLatest() }
+                                        checking = false
+                                        if (i == null) msg = "Could not check. Are you online?"
+                                        else if (Updater.isNewer(i)) found = i else msg = "You're up to date"
+                                    } }
+                                }, colors = ButtonDefaults.buttonColors(containerColor = Brand, contentColor = OnBrand)) { Text(if (checking) "Checking…" else "Check for updates") }
+                                if (msg.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(msg, fontSize = 13.sp, color = TextHint) }
+                            }
                         }
                     }
                 }
