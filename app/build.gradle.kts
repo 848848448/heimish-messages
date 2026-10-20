@@ -3,6 +3,13 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val localProps = java.util.Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val adminToken: String = System.getenv("ADMIN_TOKEN") ?: localProps.getProperty("adminToken") ?: ""
+val workerUrl: String = System.getenv("HEIMISH_WORKER_URL") ?: localProps.getProperty("workerUrl") ?: ""
+
 android {
     namespace = "com.heimish.messages"
     compileSdk = 34
@@ -11,8 +18,11 @@ android {
         applicationId = "com.heimish.messages"
         minSdk = 24
         targetSdk = 34
-        versionCode = 14
-        versionName = "2.7"
+        versionCode = 16
+        versionName = "3.4"
+
+        buildConfigField("String", "ADMIN_TOKEN", "\"$adminToken\"")
+        buildConfigField("String", "WORKER_URL", "\"$workerUrl\"")
     }
 
     buildTypes {
@@ -30,6 +40,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
@@ -54,4 +65,4 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
-// v2.0
+// v3.4
