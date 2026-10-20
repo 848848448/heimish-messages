@@ -51,6 +51,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -376,75 +379,30 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
 
     // ── Message context menu (long-press) ──
-    if (ctxMsg != null) {
-        val m = ctxMsg!!
-        val key = msgKey(m)
-        val starred = StarStore.isStarred(ctx, key)
-        val failed = m.failed
-        AlertDialog(
-            onDismissRequest = { ctxMsg = null },
-            containerColor = Surf,
-            shape = RoundedCornerShape(28.dp),
-            title = { Text(m.body.take(60).ifBlank { "Message" }, fontSize = 14.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-            text = {
-                Column {
-                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        listOf("👍", "❤️", "😂", "😮", "😢", "🙏").forEach { emoji ->
-                            Box(Modifier.size(44.dp).clip(CircleShape).background(SearchBg).clickable {
-                                val cur = ReactionStore.get(ctx, key)
-                                ReactionStore.set(ctx, key, if (cur == emoji) null else emoji)
-                                reactTick++; ctxMsg = null
-                            }, contentAlignment = Alignment.Center) {
-                                Text(emoji, fontSize = 22.sp)
-                            }
-                        }
-                    }
-                    HorizontalDivider(color = DivLt, thickness = .5.dp)
-                    Spacer(Modifier.height(4.dp))
-                    if (failed) {
-                        MenuBtn(Icons.Default.Refresh, "Resend", Brand) {
-                            scope.launch(Dispatchers.IO) {
-                                SmsRepository.resend(ctx, m, address)
-                            }
-                            ctxMsg = null; reload()
-                        }
-                    }
-                    MenuBtn(Icons.Default.Reply, "Reply") { replyTo = m; ctxMsg = null }
-                    MenuBtn(Icons.Default.ContentCopy, "Copy") {
-                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.body))
-                        Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                    }
-                    MenuBtn(Icons.Default.Forward, "Forward") {
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
-                        ctxMsg = null
-                    }
-                    MenuBtn(Icons.Default.PushPin, if (MsgPinStore.has(ctx, key)) "Unpin" else "Pin") {
-                        MsgPinStore.toggle(ctx, key); reactTick++; ctxMsg = null
-                    }
-                    MenuBtn(Icons.Default.Star, if (starred) "Unstar" else "Star", Amber) {
-                        StarStore.toggle(ctx, key); reactTick++
-                        Toast.makeText(ctx, if (starred) "Unstarred" else "Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                    }
-                    Regex("\\b(\\d{4,8})\\b").find(m.body)?.takeIf { Regex("(?i)code|otp|verif|passcode|קאוד|קוד").containsMatchIn(m.body) }?.groupValues?.get(1)?.let { code ->
-                        MenuBtn(Icons.Default.Password, "Copy code $code") {
-                            (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("code", code))
-                            Toast.makeText(ctx, "Copied $code", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                        }
-                    }
-                    if (m.body.isNotBlank()) MenuBtn(Icons.Default.Translate, "Translate") { Translate.open(ctx, m.body); ctxMsg = null }
-                    MenuBtn(Icons.Default.Info, "Details") { detailsMsg = m; ctxMsg = null }
-                    MenuBtn(Icons.Default.Delete, "Delete", Red) {
-                        scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m); withContext(Dispatchers.Main) { reload() } }
-                        ctxMsg = null; reload()
-                    }
-                }
-            },
-            confirmButton = { TextButton({ ctxMsg = null }) { Text("Cancel", color = Brand) } }
-        )
-    }
-
-    Scaffold(containerColor = Chrome,
+    // ── Message long-press: Google Messages overlay (reactions on top, menu card below) ──
+    val bubbleYs = remember { mutableMapOf<String, Float>() }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    val selecting = selected.isNotEmpty()
+    BackHandler(enabled = selecting && ctxMsg == null) { selected = emptySet() }
+    Box(Modifier.fillMaxSize()) {
+    Scaffold(containerColor = Chrome, modifier = if (ctxMsg != null) Modifier.blur(14.dp) else Modifier,
         topBar = {
+            if (selecting) TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
+                navigationIcon = { IconButton({ selected = emptySet() }) { Icon(Icons.Default.Close, "Cancel") } },
+                title = { Text("${selected.size}", fontSize = 20.sp) },
+                actions = {
+                    val chosen = msgs.filter { msgKey(it) in selected }.sortedBy { it.date }
+                    IconButton({
+                        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msgs", chosen.joinToString("\n") { it.body }))
+                        Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); selected = emptySet()
+                    }) { Icon(Icons.Outlined.ContentCopy, "Copy") }
+                    IconButton({ chosen.forEach { StarStore.toggle(ctx, msgKey(it)) }; reactTick++; selected = emptySet() }) { Icon(Icons.Outlined.StarOutline, "Star") }
+                    IconButton({
+                        scope.launch(Dispatchers.IO) { chosen.forEach { SmsRepository.deleteMessage(ctx, it) }; withContext(Dispatchers.Main) { reload() } }
+                        selected = emptySet()
+                    }) { Icon(Icons.Outlined.Delete, "Delete") }
+                }
+            ) else
             TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
                 navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
                 title = {
@@ -452,10 +410,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat…", color = TextHint) }, singleLine = true,
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary), modifier = Modifier.fillMaxWidth())
                     } else Row(Modifier.clickable { showDetails = true }, verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(conversation.displayName, address, 40.dp, 16.sp)
-                        Spacer(Modifier.width(12.dp))
+                        Avatar(conversation.displayName, address, 44.dp, 18.sp)
+                        Spacer(Modifier.width(14.dp))
                         Column {
-                            Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary)
+                            Text(conversation.displayName, fontWeight = FontWeight.Normal, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary)
                             if (address.contains(";")) Text("Group · ${address.split(";").size} people", fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -563,14 +521,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         Text("${draft.length} chars · ${(draft.length + per - 1) / per} SMS", Modifier.fillMaxWidth().padding(end = 22.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End, fontSize = 11.sp, color = TextHint)
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                        IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(Tonal)) {
-                            Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, "Attach", tint = OnTonal, modifier = Modifier.size(22.dp))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Row(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(24.dp)).background(SearchBg).padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
-                            IconButton({ showEmoji = !showEmoji; showAttach = false }, Modifier.size(40.dp)) { Icon(Icons.Default.EmojiEmotions, "Emoji", tint = TextHint, modifier = Modifier.size(22.dp)) }
+                        // Google Messages compose bar: one pill with ⊕, the text, emoji and gallery; a round voice/send button beside it
+                        Row(Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(26.dp)).background(SearchBg).padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
+                            IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(48.dp)) {
+                                Icon(if (showAttach) Icons.Default.Close else Icons.Outlined.AddCircleOutline, "Attach", tint = TextPrimary, modifier = Modifier.size(24.dp))
+                            }
                             androidx.compose.foundation.text.BasicTextField(
-                                draft, { draft = it }, Modifier.weight(1f).padding(vertical = 11.dp)
+                                draft, { draft = it }, Modifier.weight(1f).padding(vertical = 14.dp)
                                     // GIFs and stickers from the keyboard (Gboard etc.) become a picture message
                                     .contentReceiver { tc ->
                                         if (!tc.hasMediaType(androidx.compose.foundation.content.MediaType.Image)) return@contentReceiver tc
@@ -599,20 +556,21 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     }
                                 }
                             )
-                            IconButton({ imagePicker.launch("image/*") }, Modifier.size(40.dp)) { Icon(Icons.Default.Image, "Photo", tint = TextHint, modifier = Modifier.size(22.dp)) }
+                            IconButton({ showEmoji = !showEmoji; showAttach = false }, Modifier.size(48.dp)) { Icon(Icons.Outlined.EmojiEmotions, "Emoji", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
+                            if (draft.isEmpty()) IconButton({ imagePicker.launch("image/*") }, Modifier.size(48.dp)) { Icon(Icons.Outlined.AddPhotoAlternate, "Photo", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
                         }
                         Spacer(Modifier.width(8.dp))
                         val hasCont = draft.isNotBlank() || pendingMediaUri != null
                         Box(
-                            Modifier.size(44.dp).clip(CircleShape)
+                            Modifier.size(52.dp).clip(CircleShape)
                                 .background(if (hasCont) Brand else SearchBg)
                                 .clickable { if (hasCont) doSend() else audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(if (hasCont) Icons.Default.Send else Icons.Default.Mic,
+                            Icon(if (hasCont) Icons.Default.Send else Icons.Default.GraphicEq,
                                 if (hasCont) "Send" else "Voice note",
-                                tint = if (hasCont) OnBrand else Brand,
-                                modifier = Modifier.size(22.dp))
+                                tint = if (hasCont) OnBrand else TextPrimary,
+                                modifier = Modifier.size(24.dp))
                         }
                     }
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -675,18 +633,20 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 item(key = "day_$day") { DayHeader(day) }
                 itemsIndexed(dayMsgs, key = { _, m -> msgKey(m) }) { i, m ->
                     val sameAsPrev = i > 0 && dayMsgs[i - 1].incoming == m.incoming
-                    Column {
+                    val mk = msgKey(m)
+                    Column(Modifier.onGloballyPositioned { bubbleYs[mk] = it.positionInRoot().y }
+                        .then(if (mk in selected) Modifier.clip(RoundedCornerShape(12.dp)).background(Brand.copy(alpha = .18f)) else Modifier)) {
                         if (i > 0) Spacer(Modifier.height(if (sameAsPrev) 2.dp else 10.dp))
                         // Group chats: who wrote it, above the first bubble of each run (like Google Messages)
                         if (isGroupChat && m.incoming && !m.address.isNullOrBlank() && (i == 0 || dayMsgs[i - 1].address != m.address || !dayMsgs[i - 1].incoming)) {
                             val who = remember(m.address) { SmsRepository.getContactName(ctx, m.address!!) ?: m.address!! }
                             Text(who, fontSize = 12.sp, color = avatarColor(m.address!!), fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 2.dp))
                         }
-                        SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
+                        SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); if (selecting) selected = if (mk in selected) selected - mk else selected + mk else ctxMsg = m },
                             showMeta = i == dayMsgs.lastIndex || dayMsgs[i + 1].incoming != m.incoming || dayMsgs[i + 1].date - m.date > 300_000,
                             joinedAbove = i > 0 && dayMsgs[i - 1].incoming == m.incoming && m.date - dayMsgs[i - 1].date <= 300_000 && (!m.incoming || dayMsgs[i - 1].address == m.address),
                             joinedBelow = i < dayMsgs.lastIndex && dayMsgs[i + 1].incoming == m.incoming && dayMsgs[i + 1].date - m.date <= 300_000 && (!m.incoming || dayMsgs[i + 1].address == m.address),
-                            onTap = if (m.failed && !m.isMms) ({ scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } } }) else null)
+                            onTap = if (selecting) ({ selected = if (mk in selected) selected - mk else selected + mk }) else if (m.failed && !m.isMms) ({ scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } } }) else null)
                     }
                 }
             }
@@ -727,6 +687,51 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    ctxMsg?.let { m ->
+        val key = msgKey(m)
+        val starred = StarStore.isStarred(ctx, key)
+        val clip = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val acts = buildList {
+            if (m.failed) add(LongPressAction(Icons.Outlined.Refresh, "Resend", Brand) {
+                scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } }
+                ctxMsg = null
+            })
+            add(LongPressAction(Icons.Outlined.Reply, "Reply") { replyTo = m; ctxMsg = null })
+            add(LongPressAction(Icons.Outlined.Shortcut, "Forward") {
+                ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
+                ctxMsg = null
+            })
+            if (m.body.isNotBlank()) add(LongPressAction(Icons.Outlined.ContentCopy, "Copy") {
+                clip.setPrimaryClip(ClipData.newPlainText("msg", m.body))
+                Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
+            })
+            Regex("\\b(\\d{4,8})\\b").find(m.body)?.takeIf { Regex("(?i)code|otp|verif|passcode|קאוד|קוד").containsMatchIn(m.body) }?.groupValues?.get(1)?.let { code ->
+                add(LongPressAction(Icons.Outlined.Password, "Copy code $code") {
+                    clip.setPrimaryClip(ClipData.newPlainText("code", code))
+                    Toast.makeText(ctx, "Copied $code", Toast.LENGTH_SHORT).show(); ctxMsg = null
+                })
+            }
+            add(LongPressAction(if (starred) Icons.Outlined.StarBorder else Icons.Outlined.StarOutline, if (starred) "Unstar" else "Star") {
+                StarStore.toggle(ctx, key); reactTick++; ctxMsg = null
+            })
+            if (MsgPinStore.has(ctx, key)) add(LongPressAction(Icons.Outlined.PushPin, "Unpin") { MsgPinStore.toggle(ctx, key); reactTick++; ctxMsg = null })
+            add(LongPressAction(Icons.Outlined.Delete, "Delete") {
+                scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m); withContext(Dispatchers.Main) { reload() } }
+                ctxMsg = null
+            })
+            add(LongPressAction(Icons.Outlined.Checklist, "Select more") { selected = setOf(key); ctxMsg = null })
+            add(LongPressAction(Icons.Outlined.Info, "Info") { detailsMsg = m; ctxMsg = null })
+        }
+        LongPressOverlay(m, reactTick, bubbleYs[key], ReactionStore.get(ctx, key), acts,
+            onReact = { emoji ->
+                val cur = ReactionStore.get(ctx, key)
+                ReactionStore.set(ctx, key, if (cur == emoji) null else emoji)
+                reactTick++; ctxMsg = null
+            },
+            onDismiss = { ctxMsg = null })
+    }
     }
 }
 
@@ -813,7 +818,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     val linkColor = if (isIn) Brand else if (customOut) Color(0xFFCDE1FF) else BubbleOutLink
     val previewBg = if (isIn) (if (D) Color(0xFF5F6368) else Color(0xFFD8DEE9)) else if (customOut) BrandDk else (if (D) Color(0xFF7CACF8) else BrandDk)
     val textSize = when (prefs.getString("text_size", "default")) {
-        "small" -> 13.sp; "large" -> 17.sp; "largest" -> 19.sp; else -> 15.sp
+        "small" -> 14.sp; "large" -> 18.sp; "largest" -> 20.sp; else -> 16.sp
     }
     val previewMode = prefs.getString("preview_mode", "links") ?: "links"
     val reaction = remember(reactTick) { ReactionStore.get(ctx, msgKey(m)) }
@@ -830,7 +835,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     }
     var viewing by remember { mutableStateOf(false) }
     if (viewing && m.imageUri != null) PhotoViewer(m.imageUri) { viewing = false }
-    val cr = prefs.getInt("bubble_corner", 20).dp
+    val cr = prefs.getInt("bubble_corner", 24).dp
     // Google Messages style: bubbles in a run from the same person get tight corners where they touch
     val tight = if (cr < 4.dp) cr else 4.dp
     val shape = RoundedCornerShape(
