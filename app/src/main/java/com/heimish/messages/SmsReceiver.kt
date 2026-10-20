@@ -16,27 +16,43 @@ class SmsReceiver : BroadcastReceiver() {
         val address = msgs[0].originatingAddress ?: ""
         val body = StringBuilder()
         for (m: SmsMessage in msgs) body.append(m.messageBody ?: "")
+        val sentAt = msgs[0].timestampMillis
+        val subId = intent.getIntExtra("subscription", intent.getIntExtra("android.telephony.extra.SUBSCRIPTION_INDEX", -1))
 
+        // Do the database + notification work off the main thread.
+        val pending = goAsync()
+        Thread {
+            try { handle(context, address, body.toString(), sentAt, subId) } catch (_: Exception) {} finally { pending.finish() }
+        }.start()
+    }
+
+    private fun handle(context: Context, address: String, body: String, sentAt: Long, subId: Int) {
         val blocked = BlockedStore.isBlocked(context, address)
-        val spam = !blocked && (SpamFilter.isSpam(context, address, body.toString()) || (SmsRepository.getContactName(context, address) == null && KeywordStore.matches(context, body.toString())))
+        val spam = !blocked && (SpamFilter.isSpam(context, address, body) || (SmsRepository.getContactName(context, address) == null && KeywordStore.matches(context, body)))
 
         val values = ContentValues().apply {
             put(Telephony.Sms.ADDRESS, address)
-            put(Telephony.Sms.BODY, body.toString())
+            put(Telephony.Sms.BODY, body)
             put(Telephony.Sms.DATE, System.currentTimeMillis())
+            if (sentAt > 0) put(Telephony.Sms.DATE_SENT, sentAt)
             put(Telephony.Sms.READ, if (blocked || spam) 1 else 0)
+            put(Telephony.Sms.SEEN, if (blocked || spam) 1 else 0)
             put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
+            if (subId >= 0) put(Telephony.Sms.SUBSCRIPTION_ID, subId)
         }
-        runCatching { context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values) }
+        val row = runCatching { context.contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values) }.getOrNull()
 
         if (blocked) return
 
-        val threadId = SmsRepository.getThreadIdForAddress(context, address)
+        // The thread the provider actually filed it under (the old address lookup could miss and invent one).
+        val threadId = row?.let { u ->
+            runCatching { context.contentResolver.query(u, arrayOf(Telephony.Sms.THREAD_ID), null, null, null)?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } }.getOrNull()
+        } ?: SmsRepository.getThreadIdForAddress(context, address)
         if (spam) { SpamStore.add(context, threadId); return }
         MessageWidget.refresh(context)
         val sender = SmsRepository.getContactName(context, address) ?: address
 
-        Notifications.showMessage(context, sender, body.toString(), address, threadId)
+        Notifications.showMessage(context, sender, body, address, threadId)
         AutoReply.maybe(context, address)
     }
 }
