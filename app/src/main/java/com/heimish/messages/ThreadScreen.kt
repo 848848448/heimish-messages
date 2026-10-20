@@ -443,9 +443,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         )
     }
 
-    Scaffold(containerColor = Bg,
+    Scaffold(containerColor = Chrome,
         topBar = {
-            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
+            TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
                 navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
                 title = {
                     if (showSearch) {
@@ -653,7 +653,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     ) { pad ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0))).padding(pad).padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg)
+                .background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0))).padding(horizontal = 10.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
             val displayMsgs = if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
