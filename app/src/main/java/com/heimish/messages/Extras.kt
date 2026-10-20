@@ -467,8 +467,29 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                         Text(label, fontSize = 16.sp, color = if (danger) androidx.compose.ui.graphics.Color(0xFFD93025) else MaterialTheme.colorScheme.onSurface)
                     }
                 }
-                if (!c.address.contains(";")) Item(Icons.Default.Phone, "Call") { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address))) }
-                if (unsaved && !c.address.contains(";")) Item(Icons.Default.PersonAdd, "Add to contacts") { runCatching { ctx.startActivity(Intent(Intent.ACTION_INSERT, android.provider.ContactsContract.Contacts.CONTENT_URI).putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, c.address)) } }
+                if (!c.address.contains(";")) {
+                    @Composable fun Round(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, click: () -> Unit) {
+                        Column(Modifier.clickable { click() }.padding(horizontal = 14.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(52.dp)) {
+                                Box(contentAlignment = Alignment.Center) { Icon(icon, label, tint = MaterialTheme.colorScheme.onSecondaryContainer) }
+                            }
+                            Spacer(Modifier.height(6.dp)); Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.Center) {
+                        Round(Icons.Default.Phone, "Call") { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address))) }
+                        Round(Icons.Default.Videocam, "Video") { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address)).putExtra("android.telecom.extra.START_CALL_WITH_VIDEO_STATE", 3)) } }
+                        if (unsaved) Round(Icons.Default.PersonAdd, "Add contact") { runCatching { ctx.startActivity(Intent(Intent.ACTION_INSERT, android.provider.ContactsContract.Contacts.CONTENT_URI).putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, c.address)) } }
+                        else Round(Icons.Default.Person, "Contact") { runCatching {
+                            val lu = Uri.withAppendedPath(android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(c.address))
+                            ctx.contentResolver.query(lu, arrayOf(android.provider.ContactsContract.PhoneLookup._ID, android.provider.ContactsContract.PhoneLookup.LOOKUP_KEY), null, null, null)?.use { cu ->
+                                if (cu.moveToFirst()) ctx.startActivity(Intent(Intent.ACTION_VIEW, android.provider.ContactsContract.Contacts.getLookupUri(cu.getLong(0), cu.getString(1))))
+                            } } }
+                    }
+                    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                } else {
+                    Text(c.address.split(";").joinToString("\n"), Modifier.padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(20.dp))
                     Text("Notifications", Modifier.weight(1f), fontSize = 16.sp)
