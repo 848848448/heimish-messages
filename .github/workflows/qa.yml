@@ -132,13 +132,15 @@ jobs:
           fresh; sh input swipe 540 700 540 700 900; sleep 1; python3 qa/tap.py "Select"; sleep 1; sh input tap 540 900; sleep 1; shot 44_multi_select
           fresh; python3 qa/tap.py "Transactions"; sleep 1; shot 46_transactions
           fresh; sh input swipe 540 700 540 700 900; sleep 1; python3 qa/tap.py "Mark as unread"; sleep 2; shot 47_marked_unread
-          fresh; python3 qa/tap.py 5559990001; sleep 2; xy 300 140; shot 50_details_header
-          sh input swipe 540 1400 540 400 200; shot 51_details_scrolled
-          back; sleep 1; xy 1040 150; shot 52_menu_short
+          fresh; python3 qa/tap.py 5559990001; sleep 2; xy 400 210; sleep 1; shot 50_details_header
+          sh input swipe 540 1500 540 500 250; shot 51_details_scrolled
+          back; sleep 1; back; sleep 1; fresh; python3 qa/tap.py 5559990001; sleep 2; xy 1040 210; shot 52_menu_short
           python3 qa/tap.py More; sleep 1; shot 53_menu_more
           fresh; python3 qa/tap.py Unknown; sleep 1; shot 54_unknown_tab
-          fresh; python3 qa/tap.py 5559990001; sleep 2; sh input swipe 540 1000 540 1000 800; sleep 1; python3 qa/tap.py Pin; sleep 1; shot 55_pinned
-          cmd_night yes; fresh; python3 qa/tap.py 5559990001; sleep 2; xy 300 140; shot 56_dark_details; cmd_night no
+          fresh; python3 qa/tap.py 5559990001; sleep 2; sh input swipe 300 1000 300 1000 900; sleep 1; shot 55a_msg_menu; python3 qa/tap.py Pin; sleep 1; shot 55_pinned
+          cmd_night yes; fresh; python3 qa/tap.py 5559990001; sleep 2; xy 400 210; sleep 1; shot 56_dark_details; cmd_night no
+          fresh; menu; tap Settings; sh input swipe 540 1800 540 300 250; sleep 1; shot 57_settings_bottom; tap About; sleep 1; shot 58_about; tap "Check for updates"; sleep 6; shot 59_about_checked
+          fresh; menu; tap Settings; tap Protection; shot 60_protection
           (cd $O && zip -qr ../../qa-out.zip . ) 
           exit 0
           QAEOF
@@ -180,3 +182,4 @@ jobs:
 # run 1792520106
 # run 1792527513
 # run 1792528413
+\n# run 1792538924\n
