@@ -47,7 +47,7 @@ object Notifications {
     fun showMessage(ctx: Context, sender: String, body: String, address: String, threadId: Long) {
         val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("notif_allow", true)) return
-        if (prefs.getBoolean("muted_$threadId", false)) return
+        if (Mute.isMuted(ctx, threadId)) return
 
         val showSender = prefs.getBoolean("notif_sender", true)
         val showPreview = prefs.getBoolean("notif_preview", true)
