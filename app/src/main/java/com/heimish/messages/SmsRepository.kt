@@ -35,7 +35,25 @@ data class Message(
     val status: Int = -1
 )
 
+data class MsgHit(val id: Long, val threadId: Long, val address: String, val name: String, val body: String, val date: Long)
+
 object SmsRepository {
+
+    fun searchMessages(ctx: Context, q: String, limit: Int = 40): List<MsgHit> {
+        val out = ArrayList<MsgHit>()
+        runCatching {
+            ctx.contentResolver.query(Telephony.Sms.CONTENT_URI,
+                arrayOf(Telephony.Sms._ID, Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
+                Telephony.Sms.BODY + " LIKE ?", arrayOf("%" + q + "%"), Telephony.Sms.DATE + " DESC LIMIT " + limit)?.use { c ->
+                while (c.moveToNext()) {
+                    val a = c.getString(2) ?: ""
+                    out.add(MsgHit(c.getLong(0), c.getLong(1), a, cachedContactName(ctx, a) ?: a, c.getString(3) ?: "", c.getLong(4)))
+                }
+            }
+        }
+        return out
+    }
+
 
     private val contactCache = HashMap<String, String?>()
     private var contactCacheTime = 0L
