@@ -17,6 +17,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - name: Build
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          HEIMISH_WORKER_URL: ${{ vars.HEIMISH_WORKER_URL }}
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug 2>&1 | tee build.log || true
@@ -47,8 +50,8 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.7-b${{ github.run_number }}
-          name: "Heimish Messages v2.7"
+          tag_name: v3.4-b${{ github.run_number }}
+          name: "Heimish Messages v3.4"
           body: "📱 Tap **app-debug.apk** to download."
           files: app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
