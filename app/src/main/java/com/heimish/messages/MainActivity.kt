@@ -500,6 +500,8 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     }
     val visible = remember(list, tick, hidden, spamIds) { list.filter { !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) && it.threadId !in hidden && it.threadId !in spamIds } }
     var cat by remember { mutableStateOf("All") }
+    var sel by remember { mutableStateOf(setOf<Long>()) }
+    BackHandler(enabled = sel.isNotEmpty()) { sel = emptySet() }
     val searched0 = if (cat == "All") visible else visible.filter { chatCategory(it) == cat }
     val searched = if (search.isBlank()) searched0 else searched0.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
     val filtered = remember(searched, tick) { searched.sortedWith(compareByDescending<Conversation> { if (PinStore.isPinned(ctx, it.threadId)) 1 else 0 }.thenByDescending { it.date }) }
@@ -523,13 +525,14 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     MenuBtn(Icons.Default.PushPin, if (pinned) "Unpin" else "Pin to top") {
                         PinStore.toggle(ctx, c.threadId); tick++; ctxConv = null
                     }
+                    MenuBtn(Icons.Default.CheckCircle, "Select") { sel = setOf(c.threadId); ctxConv = null }
                     MenuBtn(Icons.Default.Archive, "Archive") {
                         act("archive", c); ctxConv = null
                     }
                     MenuBtn(if (c.unread) Icons.Default.Drafts else Icons.Default.MarkEmailUnread,
                         if (c.unread) "Mark as read" else "Mark as unread") {
-                        if (c.unread) scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId) }
-                        refresh(); ctxConv = null
+                        scope.launch { withContext(Dispatchers.IO) { if (c.unread) SmsRepository.markThreadRead(ctx, c.threadId) else SmsRepository.markThreadUnread(ctx, c.threadId) }; refresh() }
+                        ctxConv = null
                     }
                     MenuBtn(Icons.Default.Block, "Block ${c.displayName}", Red) {
                         BlockedStore.block(ctx, c.address)
@@ -599,6 +602,14 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     }
                 }
             }
+            if (sel.isNotEmpty()) Row(Modifier.fillMaxWidth().background(Tonal).padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton({ sel = emptySet() }) { Icon(Icons.Default.Close, "Cancel", tint = OnTonal) }
+                Text("${sel.size} selected", Modifier.weight(1f), color = OnTonal, fontWeight = FontWeight.SemiBold)
+                IconButton({ sel.forEach { PinStore.toggle(ctx, it) }; sel = emptySet(); tick++ }) { Icon(Icons.Default.PushPin, "Pin", tint = OnTonal) }
+                IconButton({ val ids = sel; scope.launch { withContext(Dispatchers.IO) { ids.forEach { SmsRepository.markThreadRead(ctx, it) } }; refresh() }; sel = emptySet() }) { Icon(Icons.Default.DoneAll, "Mark read", tint = OnTonal) }
+                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("archive", it) }; sel = emptySet() }) { Icon(Icons.Default.Archive, "Archive", tint = OnTonal) }
+                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("delete", it) }; sel = emptySet() }) { Icon(Icons.Default.Delete, "Delete", tint = OnTonal) }
+            }
             Text("Message ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER} · " + (if (latestKnown > BuildConfig.BUILD_NUMBER) "update available" else if (latestKnown > 0) "up to date" else "checking for updates…"),
                 Modifier.padding(horizontal = 20.dp, vertical = 2.dp), fontSize = 11.sp, color = if (latestKnown > BuildConfig.BUILD_NUMBER) Brand else TextHint)
             update?.let { u -> UpdateCard(u, { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null }, { onWhatsNew(u) }) }
@@ -622,7 +633,10 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     contentPadding = PaddingValues(bottom = 96.dp)
                 ) {
                     items(filtered, key = { it.threadId }) { conv ->
-                        SwipeableConvRow(conv, PinStore.isPinned(ctx, conv.threadId), onOpen, onRefresh = { refresh(); tick++ }, onLongPress = { ctxConv = it }, onAction = { k, cc -> act(k, cc) })
+                        fun toggleSel(x: Conversation) { sel = if (x.threadId in sel) sel - x.threadId else sel + x.threadId }
+                        Box(Modifier.background(if (conv.threadId in sel) Tonal else Color.Transparent)) {
+                        SwipeableConvRow(conv, PinStore.isPinned(ctx, conv.threadId), { if (sel.isNotEmpty()) toggleSel(it) else onOpen(it) }, onRefresh = { refresh(); tick++ }, onLongPress = { if (sel.isNotEmpty()) toggleSel(it) else ctxConv = it }, onAction = { k, cc -> act(k, cc) })
+                        }
                     }
                     if (hits.isNotEmpty()) {
                         item { Text("Messages", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand, letterSpacing = 0.8.sp, modifier = Modifier.padding(start = 18.dp, top = 14.dp, bottom = 4.dp)) }
@@ -710,8 +724,8 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        (if (c.outgoing) "You: " else "") + c.snippet.ifBlank { " " },
-                        fontSize = 14.sp, color = if (c.unread) TextPrimary else TextHint,
+                        (if (DraftStore.get(ctx, c.threadId).isNotBlank()) "Draft: " + DraftStore.get(ctx, c.threadId) else (if (c.outgoing) "You: " else "") + c.snippet.ifBlank { " " }),
+                        fontSize = 14.sp, color = if (DraftStore.get(ctx, c.threadId).isNotBlank()) Red else if (c.unread) TextPrimary else TextHint,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal,
                         modifier = Modifier.weight(1f))
@@ -946,7 +960,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     var msgs by remember { mutableStateOf(emptyList<Message>()) }
-    var draft by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf(DraftStore.get(ctx, conversation.threadId)) }
+    val draftNow by rememberUpdatedState(draft)
+    DisposableEffect(Unit) { onDispose { DraftStore.set(ctx, conversation.threadId, draftNow) } }
+    var showDetails by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1002,6 +1019,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
 
     var showQuick by remember { mutableStateOf(false) }
+    if (showDetails) ChatDetailsDialog(conversation, msgs, { showDetails = false }) { showDetails = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }; onBack() }
     var showMedia by remember { mutableStateOf(false) }
     if (showQuick) {
         val qr = QuickReplies.get(ctx)
@@ -1240,6 +1258,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf), shape = RoundedCornerShape(16.dp)) {
                                 DropdownMenuItem({ Text("Search", color = TextPrimary) }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Details", color = TextPrimary) }, { showMenu = false; showDetails = true }, leadingIcon = { Icon(Icons.Default.Info, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Icons.Default.Reply, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
@@ -1507,6 +1526,8 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     val starred = remember(reactTick) { StarStore.isStarred(ctx, msgKey(m)) }
     val failed = m.status == Telephony.Sms.STATUS_FAILED
     val sending = m.status == Telephony.Sms.STATUS_PENDING
+    var viewing by remember { mutableStateOf(false) }
+    if (viewing && m.imageUri != null) PhotoViewer(m.imageUri) { viewing = false }
     val cr = prefs.getInt("bubble_corner", 20).dp
     val tail = if (cr < 5.dp) cr else 5.dp
     val shape = RoundedCornerShape(
@@ -1540,7 +1561,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                                     Text("Tap to play", color = outSub, fontSize = 11.sp)
                                 }
                             }
-                            else -> AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 240.dp).clip(
+                            else -> AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 240.dp).clickable { viewing = true }.clip(
                                 if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
                             ), contentScale = ContentScale.Crop)
                         }
