@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
 
@@ -79,14 +82,9 @@
             </intent-filter>
         </service>
 
-            <!-- Background sync service -->
-        <service
-            android:name=".SmsSyncService"
-            android:exported="false"
-            android:stopWithTask="false" />
-
-            <receiver android:name=".DirectReplyReceiver" android:exported="false" />
+        <receiver android:name=".DirectReplyReceiver" android:exported="false" />
         <receiver android:name=".MarkReadReceiver" android:exported="false" />
+        <receiver android:name=".ScheduledSendReceiver" android:exported="false" />
 
         <!-- Nightly contacts sync -->
         <receiver
@@ -101,6 +99,17 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- FileProvider for MMS PDU sharing with the system MMS service -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 </manifest>
