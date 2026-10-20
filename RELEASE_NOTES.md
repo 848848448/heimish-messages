@@ -1,2 +1,32 @@
+New
+- Spam & blocked now also shows the chats you blocked, with an Unblock button
+- Photo access on Android 14 works with "Select photos" too
+
 Fixed
-- Details no longer lists "1 other person" in a one-to-one chat
+- Sent messages no longer show "Not sent · tap to retry" when they really went out (delivery reports were read wrong on some networks, and a bad delivery report was shown as a failed send)
+- A SIM that was removed or turned off no longer makes every message fail; the phone's default SIM is used
+- Search: fixed a crash when opening search from the chat list
+- Search is much faster: no contact lookups on every letter, it waits until you stop typing, and it starts from the chats already loaded
+- Search: Back from a chat you opened in search goes back to your search
+- Chat list loads much faster on phones with many messages (it used to read every message ever received)
+- Chat list: a chat whose newest message is a picture now shows that picture as the last message and sorts in the right place
+- A new message (text or MMS) brings a chat back out of Trash right away
+- Trashed chats no longer show in Archived or in search results
+- Starred messages open right away instead of hanging
+- Camera button in the + panel and the gallery now asks for camera permission (before, it did nothing)
+- Cancelled camera shots no longer leave an empty photo in your gallery
+- GIFs now animate everywhere: in chats, the photo viewer and the GIF panel
+- GIF panel asks for photo access, so your GIFs show up
+- Back now closes the + panel, emoji panel, gallery and in-chat search instead of leaving the chat
+- Tapping the text box closes the open panel, so it no longer sits on top of the keyboard
+- Panels are smaller on small screens so the chat stays visible
+- Stickers and smart replies are sent on their own and no longer wipe what you typed or a waiting photo
+- Schedule send tells you photos can't be scheduled instead of silently dropping the photo
+- Long-press menu: shows right at the message (was too low), a long message no longer pushes the menu off the screen, darker background on phones older than Android 12 (no blur there)
+- Chat theme: Back after picking a photo no longer replaces your old wallpaper
+- Chat colors stay right when you go from one chat straight into another
+- Swipe on the chat list: the right direction in Hebrew/RTL, read/unread toggles correctly every time, readable colors in dark mode
+- Swipe to reply moves with your finger in Hebrew/RTL
+- Back arrows point the right way in Hebrew/RTL
+- Rare crash when the list, search and notifications looked up contact names at the same time
+- After turning the phone, Back no longer needs two presses to leave the app

@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,8 +53,11 @@ fun LongPressOverlay(
     val density = LocalDensity.current
     val pad = with(density) { 24.dp.roundToPx() }
     val barH = with(density) { 64.dp.roundToPx() }
+    // bubbleY is measured from the top of the window, but this layout starts below the status bar
+    val topInset = WindowInsets.systemBars.getTop(density)
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = (if (D) .45f else .22f) * a))
+        // Android 12+ blurs the chat behind; older phones can't blur, so they get a darker dim instead
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = (if (android.os.Build.VERSION.SDK_INT >= 31) (if (D) .45f else .22f) else (if (D) .62f else .45f)) * a))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
             .systemBarsPadding()
     ) {
@@ -82,7 +86,8 @@ fun LongPressOverlay(
                 }
                 Spacer(Modifier.height(10.dp))
                 // The message itself, lifted
-                Box(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
+                // A very long message is cut here so the menu under it always stays on screen
+                Box(Modifier.heightIn(max = if (moreEmoji) 120.dp else 260.dp).clipToBounds().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
                     MessageBubble(m, reactTick, onLongClick = {}, showMeta = false)
                 }
                 Spacer(Modifier.height(10.dp))
@@ -101,7 +106,7 @@ fun LongPressOverlay(
             }
         }) { measurables, c ->
             val p = measurables.first().measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
-            val desired = ((bubbleY ?: (c.maxHeight / 3f)) - barH).toInt()
+            val desired = (bubbleY?.let { it - topInset } ?: (c.maxHeight / 3f)).toInt() - barH
             val maxY = (c.maxHeight - p.height - pad).coerceAtLeast(pad)
             val y = desired.coerceIn(pad, maxY)
             layout(c.maxWidth, c.maxHeight) { p.place(0, y) }

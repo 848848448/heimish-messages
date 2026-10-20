@@ -146,6 +146,7 @@ class MmsReceiver : BroadcastReceiver() {
                 SpamStore.add(context, threadId)
                 return
             }
+            if (threadId > 0) runCatching { TrashStore.remove(context, threadId) } // new message brings a trashed chat back
             MessageWidget.refresh(context)
             val name = SmsRepository.getContactName(context, addr) ?: addr
             val body = getMmsText(context, mmsId)

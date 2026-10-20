@@ -49,6 +49,8 @@ class SmsReceiver : BroadcastReceiver() {
             runCatching { context.contentResolver.query(u, arrayOf(Telephony.Sms.THREAD_ID), null, null, null)?.use { c -> if (c.moveToFirst()) c.getLong(0) else null } }.getOrNull()
         } ?: SmsRepository.getThreadIdForAddress(context, address)
         if (spam) { SpamStore.add(context, threadId); return }
+        // A new message brings a trashed chat back right away (like Google Messages)
+        if (threadId > 0) runCatching { TrashStore.remove(context, threadId) }
         MessageWidget.refresh(context)
         val sender = SmsRepository.getContactName(context, address) ?: address
 
