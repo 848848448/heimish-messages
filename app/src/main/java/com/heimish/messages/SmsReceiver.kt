@@ -18,7 +18,7 @@ class SmsReceiver : BroadcastReceiver() {
         for (m: SmsMessage in msgs) body.append(m.messageBody ?: "")
 
         val blocked = BlockedStore.isBlocked(context, address)
-        val spam = !blocked && SpamFilter.isSpam(context, address, body.toString())
+        val spam = !blocked && (SpamFilter.isSpam(context, address, body.toString()) || (SmsRepository.getContactName(context, address) == null && KeywordStore.matches(context, body.toString())))
 
         val values = ContentValues().apply {
             put(Telephony.Sms.ADDRESS, address)
@@ -37,6 +37,7 @@ class SmsReceiver : BroadcastReceiver() {
         val sender = SmsRepository.getContactName(context, address) ?: address
 
         Notifications.showMessage(context, sender, body.toString(), address, threadId)
+        AutoReply.maybe(context, address)
     }
 }
 
