@@ -1899,7 +1899,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                                     if (!checking) { checking = true; msg = ""; sc.launch {
                                         val i = withContext(Dispatchers.IO) { Updater.fetchLatest() }
                                         checking = false
-                                        if (i == null) msg = "Could not check. Are you online?"
+                                        if (i == null) msg = "Could not check: " + Updater.lastError.ifBlank { "unknown error" }
                                         else if (Updater.isNewer(i)) found = i else msg = "You're up to date"
                                     } }
                                 }, colors = ButtonDefaults.buttonColors(containerColor = Brand, contentColor = OnBrand)) { Text(if (checking) "Checking…" else "Check for updates") }
