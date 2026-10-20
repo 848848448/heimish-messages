@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -89,6 +90,10 @@ class MainActivity : ComponentActivity() {
     private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { recreate() }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // One image loader for the whole app that can play GIFs (photos in chats, viewer, panels)
+        coil.Coil.setImageLoader(coil.ImageLoader.Builder(applicationContext).components {
+            if (Build.VERSION.SDK_INT >= 28) add(coil.decode.ImageDecoderDecoder.Factory()) else add(coil.decode.GifDecoder.Factory())
+        }.crossfade(true).build())
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNowIfStale(this)
         UpdateCheckReceiver.schedule(this)
@@ -177,7 +182,7 @@ private fun decodeScreen(v: String): Screen {
     }
 }
 private val StackSaver = androidx.compose.runtime.saveable.Saver<androidx.compose.runtime.MutableState<List<Screen>>, ArrayList<String>>(
-    save = { st -> ArrayList(st.value.map(::encodeScreen)) },
+    save = { st -> ArrayList(st.value.filterNot { it is Screen.WhatsNew }.map(::encodeScreen)) },
     restore = { l -> mutableStateOf(l.map(::decodeScreen).ifEmpty { listOf(Screen.List) }) }
 )
 
@@ -261,7 +266,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             Screen.List     -> ConvListScreen({ go(Screen.Chat(it)) }, { go(Screen.NewConv) }, { go(Screen.Settings) }, { go(Screen.Admin) }, { go(Screen.Archived) }, { go(Screen.Starred) }, { go(Screen.Scheduled) }, { go(Screen.Spam) }, { go(Screen.WhatsNew(it)) }, { go(Screen.Trash) }, { go(Screen.Search) })
             is Screen.WhatsNew -> UpdateScreen(s.info, s.autoInstall) { back() }
             Screen.Trash    -> TrashScreen { back() }
-            Screen.Search   -> SearchScreen({ stack = stack.dropLast(1) + Screen.Chat(it) }) { back() }
+            Screen.Search   -> SearchScreen({ go(Screen.Chat(it)) }) { SearchMemory.q = ""; SearchMemory.filter = null; back() }
             Screen.Spam     -> SpamScreen({ go(Screen.Chat(it)) }) { back() }
             is Screen.Extra -> ExtraScreen(s.key) { back() }
             is Screen.Chat  -> key(s.conv.threadId) { ThreadScreen(s.conv) { back() } }
@@ -461,7 +466,7 @@ fun UpdateScreen(info: UpdateInfo?, autoInstall: Boolean, onBack: () -> Unit) {
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
             title = { Text(if (inf != null) "App update" else "What's new", fontWeight = FontWeight.SemiBold) },
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }) },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) },
         bottomBar = { inf?.let { i -> Box(Modifier.navigationBarsPadding().padding(16.dp)) { UpdateButton(i) } } }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {

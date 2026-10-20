@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -144,13 +145,16 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     val hits by produceState(emptyList<MsgHit>(), search) {
         value = if (search.trim().length >= 2) { delay(250); withContext(Dispatchers.IO) { SmsRepository.searchMessages(ctx, search.trim()) } } else emptyList()
     }
-    val visible = remember(list, tick, hidden, spamIds) { list.filter { !TrashStore.has(ctx, it.threadId) && !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) && it.threadId !in hidden && it.threadId !in spamIds } }
+    val visible = remember(list, tick, hidden, spamIds) {
+        val trashed = TrashStore.all(ctx).keys // read once, not once per chat
+        list.filter { it.threadId !in trashed && it.threadId !in hidden && it.threadId !in spamIds && !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) }
+    }
     var cat by remember { mutableStateOf("All") }
     var sel by remember { mutableStateOf(setOf<Long>()) }
     BackHandler(enabled = sel.isNotEmpty()) { sel = emptySet() }
     val searched0 = if (cat == "All") visible else if (cat == "Unread") visible.filter { it.unread } else if (cat == "Unknown") visible.filter { it.displayName == it.address } else if (cat in listOf("Personal", "Transactions", "Promos")) visible.filter { chatCategory(it) == cat } else visible.filter { LabelStore.get(ctx, it.threadId) == cat }
     val searched = if (search.isBlank()) searched0 else searched0.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
-    val filtered = remember(searched, tick) { searched.sortedWith(compareByDescending<Conversation> { if (PinStore.isPinned(ctx, it.threadId)) 1 else 0 }.thenByDescending { it.date }) }
+    val filtered = remember(searched, tick) { val pins = searched.filter { PinStore.isPinned(ctx, it.threadId) }.map { it.threadId }.toSet(); searched.sortedWith(compareByDescending<Conversation> { if (it.threadId in pins) 1 else 0 }.thenByDescending { it.date }) }
 
     if (ctxConv != null) {
         val c = ctxConv!!
@@ -321,10 +325,11 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
     val threshold = 150f
     val swipeAction = remember { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("swipe_action", "archive") ?: "archive" }
     val actionLabel = when (swipeAction) { "delete" -> "Delete"; "read" -> "Read"; "none" -> ""; else -> "Archive" }
-    val actionColor = when (swipeAction) { "delete" -> Red; "read" -> Brand; else -> Color(0xFF5F6368) }
+    // Fixed strong colors: white text on the light theme colors was unreadable in dark mode
+    val actionColor = when (swipeAction) { "delete" -> Color(0xFFB3261E); "read" -> Color(0xFF0B57D0); else -> Color(0xFF5F6368) }
     // Swipe right has its own action, like Google Messages (default: mark read / unread)
     val rightAction = remember { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("swipe_right", "read") ?: "read" }
-    val rightColor = when (rightAction) { "delete" -> Red; "archive" -> Color(0xFF5F6368); else -> Brand }
+    val rightColor = when (rightAction) { "delete" -> Color(0xFFB3261E); "archive" -> Color(0xFF5F6368); else -> Color(0xFF0B57D0) }
     val rightLabel = when (rightAction) { "delete" -> "Delete"; "archive" -> "Archive"; "none" -> ""; else -> if (c.unread) "Read" else "Unread" }
 
     Box(
@@ -333,7 +338,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
         )
     ) {
         if (offsetX > 20f && rightAction != "none") {
-            Box(Modifier.fillMaxSize().padding(start = 24.dp), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.fillMaxSize().absolutePadding(left = 24.dp), contentAlignment = androidx.compose.ui.AbsoluteAlignment.CenterLeft) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(when (rightAction) { "delete" -> Icons.Default.Delete; "archive" -> Icons.Default.Archive; else -> if (c.unread) Icons.Default.DoneAll else Icons.Default.MarkChatUnread }, null, tint = Color.White, modifier = Modifier.size(24.dp))
                     Text(rightLabel, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
@@ -341,7 +346,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
             }
         }
         if (offsetX < -20f && swipeAction != "none") {
-            Box(Modifier.fillMaxSize().padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
+            Box(Modifier.fillMaxSize().absolutePadding(right = 24.dp), contentAlignment = androidx.compose.ui.AbsoluteAlignment.CenterRight) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(when (swipeAction) { "delete" -> Icons.Default.Delete; "read" -> Icons.Default.DoneAll; else -> Icons.Default.Archive }, null, tint = Color.White, modifier = Modifier.size(24.dp))
                     Text(actionLabel, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
@@ -350,19 +355,19 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
         }
         Row(
             Modifier.fillMaxWidth()
-                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .absoluteOffset { IntOffset(offsetX.roundToInt(), 0) }
                 .background(Bg)
                 .combinedClickable(
                     onClick = { onOpen(c) },
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress(c) }
                 )
-                .pointerInput(c.threadId) {
+                .pointerInput(c.threadId, c.unread, swipeAction, rightAction) { // re-key so read/unread toggles the right way
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             if (offsetX < -threshold && swipeAction != "none") {
                                 when (swipeAction) {
                                     "delete" -> onAction("delete", c)
-                                    "read" -> { scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId) }; Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show(); onRefresh() }
+                                    "read" -> { scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId); withContext(Dispatchers.Main) { onRefresh() } }; Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show() }
                                     else -> onAction("archive", c)
                                 }
                             } else if (offsetX > threshold && rightAction != "none") {
@@ -413,11 +418,11 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(emptyList<Conversation>()) }
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(tick) { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }.filter { ArchiveStore.isArchived(ctx, it.threadId) } }
+    LaunchedEffect(tick) { list = withContext(Dispatchers.IO) { val l = SmsRepository.loadConversations(ctx); val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t && ArchiveStore.isArchived(ctx, it.threadId) } } }
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             title = { Text("Archived", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (list.isEmpty()) {
@@ -452,11 +457,20 @@ fun StarredScreen(onBack: () -> Unit) {
     var starred by remember { mutableStateOf(emptyList<Pair<Conversation, Message>>()) }
     LaunchedEffect(Unit) {
         starred = withContext(Dispatchers.IO) {
-            val convs = SmsRepository.loadConversations(ctx)
+            // Only open the chats that really have starred messages (it used to read every chat, which hung)
+            val keys = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getStringSet("starred_messages", emptySet())?.toSet() ?: emptySet()
             val out = mutableListOf<Pair<Conversation, Message>>()
-            for (c in convs) {
-                for (m in SmsRepository.loadMessages(ctx, c.threadId)) {
-                    if (StarStore.isStarred(ctx, msgKey(m))) out.add(c to m)
+            if (keys.isNotEmpty()) {
+                val threads = HashSet<Long>()
+                fun threadsOf(uri: android.net.Uri, ids: List<Long>) = ids.chunked(400).forEach { ch ->
+                    runCatching { ctx.contentResolver.query(uri, arrayOf("thread_id"), "_id IN (" + ch.joinToString(",") + ")", null, null)?.use { c -> while (c.moveToNext()) threads.add(c.getLong(0)) } }
+                }
+                threadsOf(android.provider.Telephony.Sms.CONTENT_URI, keys.filter { it.startsWith("s") }.mapNotNull { it.drop(1).toLongOrNull() })
+                threadsOf(android.net.Uri.parse("content://mms"), keys.filter { it.startsWith("m") }.mapNotNull { it.drop(1).toLongOrNull()?.minus(1_000_000L) })
+                val convs = (ConvCache.list ?: SmsRepository.loadConversations(ctx)).associateBy { it.threadId }
+                for (t in threads) {
+                    val c = convs[t] ?: continue
+                    for (m in SmsRepository.loadMessages(ctx, t)) if (msgKey(m) in keys) out.add(c to m)
                 }
             }
             out.sortedByDescending { it.second.date }
@@ -465,7 +479,7 @@ fun StarredScreen(onBack: () -> Unit) {
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             title = { Text("Starred messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (starred.isEmpty()) {
@@ -513,7 +527,7 @@ fun ScheduledScreen(onBack: () -> Unit) {
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             title = { Text("Scheduled messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (items2.isEmpty()) {
@@ -579,7 +593,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 
     Scaffold(containerColor = Chrome,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             title = { Text("New chat", fontWeight = FontWeight.Normal, fontSize = 22.sp) }) }
     ) { pad ->
         Column(Modifier.padding(pad)) {

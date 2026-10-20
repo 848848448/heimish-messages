@@ -25,7 +25,8 @@ class SmsStatusReceiver : BroadcastReceiver() {
             try {
                 when (intent.action) {
                     ACTION_SENT -> {
-                        if (code == Activity.RESULT_OK) {
+                        // RESULT_OK (-1) is success; some phones report RESULT_ERROR_NONE (0), which also means no error
+                        if (code == Activity.RESULT_OK || code == 0) {
                             if (intent.getBooleanExtra(EXTRA_LAST, true)) {
                                 ctx.contentResolver.update(uri, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT) },
                                     Telephony.Sms.TYPE + " = " + Telephony.Sms.MESSAGE_TYPE_OUTBOX, null)
@@ -42,9 +43,12 @@ class SmsStatusReceiver : BroadcastReceiver() {
                         val pdu = intent.getByteArrayExtra("pdu")
                         val format = intent.getStringExtra("format")
                         val st = runCatching { if (pdu != null) SmsMessage.createFromPdu(pdu, format)?.status else null }.getOrNull()
-                        // GSM TP-Status: 0..31 done, 32..63 still trying, 64+ failed. CDMA reports 0 for success.
                         val status = when {
                             st == null -> Telephony.Sms.STATUS_COMPLETE
+                            // CDMA (3gpp2) packs the status as ((errorClass << 8) | messageStatus) << 16, so a good
+                            // report is a big number; reading it like GSM marked every delivered message as failed.
+                            format == "3gpp2" -> when ((st shr 24) and 0x03) { 0 -> Telephony.Sms.STATUS_COMPLETE; 2 -> Telephony.Sms.STATUS_PENDING; 3 -> Telephony.Sms.STATUS_FAILED; else -> Telephony.Sms.STATUS_COMPLETE }
+                            // GSM TP-Status: 0..31 done, 32..63 still trying, 64+ failed
                             st >= 64 -> Telephony.Sms.STATUS_FAILED
                             st >= 32 -> Telephony.Sms.STATUS_PENDING
                             else -> Telephony.Sms.STATUS_COMPLETE

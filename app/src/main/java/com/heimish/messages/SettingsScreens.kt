@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -95,7 +96,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(containerColor = SettPageBg, modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = SettPageBg, scrolledContainerColor = SettPageBg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             title = { Text("Settings") }, scrollBehavior = scroll) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
@@ -174,7 +175,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
     val subScroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(containerColor = Bg, modifier = Modifier.nestedScroll(subScroll.nestedScrollConnection),
         topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, title = { Text(title) }, scrollBehavior = subScroll) }
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }, title = { Text(title) }, scrollBehavior = subScroll) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 18.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
             when (key) {
@@ -424,7 +425,7 @@ fun AdminScreen(onBack: () -> Unit) {
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) }) }
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).padding(16.dp)) {
             item {

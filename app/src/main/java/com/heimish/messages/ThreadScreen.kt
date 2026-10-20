@@ -44,6 +44,7 @@ import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -107,7 +108,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val chatPal = remember(themeVer) { ChatThemeStore.palette(ctx, conversation.threadId) }
     val chatWall = remember(themeVer) { ChatThemeStore.wallpaper(ctx, conversation.threadId) }
     if (ThemeState.chat != chatPal) ThemeState.chat = chatPal
-    DisposableEffect(Unit) { onDispose { ThemeState.chat = null } }
+    val chatPalNow by rememberUpdatedState(chatPal)
+    // Only clear the chat colors if they are still ours (opening another chat must not lose its colors)
+    DisposableEffect(Unit) { onDispose { if (ThemeState.chat == chatPalNow) ThemeState.chat = null } }
     var moreOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -216,6 +219,15 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         }
     }
 
+    /** Sends one text right away without touching what you typed or a photo waiting in the bar (stickers, smart replies). */
+    fun sendText(text: String) {
+        if (text.isBlank()) return
+        scope.launch(Dispatchers.IO) {
+            val ok = if (address.contains(";") && prefs.getBoolean("group_mms_send", true)) (SmsRepository.sendGroupText(ctx, address, text) || SmsRepository.sendSms(ctx, address, text)) else SmsRepository.sendSms(ctx, address, text)
+            withContext(Dispatchers.Main) { if (ok) { SendSound.play(ctx); reload() } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
+        }
+    }
+
     var showQuick by remember { mutableStateOf(false) }
     if (showTheme) ChatThemeScreen(conversation) { applied -> showTheme = false; if (applied) { themeVer++; reactTick++ } }
     if (showDetails) ChatDetailsDialog(conversation, msgs, { showDetails = false }, onTheme = { showDetails = false; showTheme = true }, onSearch = { showDetails = false; showSearch = true }) { showDetails = false; onBack() }
@@ -255,6 +267,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
 
     fun pickScheduleTime() {
+        if (pendingMediaUri != null) { Toast.makeText(ctx, "Photos can't be scheduled yet. Send it now, or remove it to schedule the text", Toast.LENGTH_LONG).show(); return }
         if (draft.trim().isEmpty()) { Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show(); return }
         fun at(daysAhead: Int, hour: Int) = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, daysAhead); set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
         val opts = ArrayList<Pair<String, Long>>()
@@ -321,7 +334,25 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) cameraUri?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false }
+        if (ok) cameraUri?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false; showGallery = false }
+        else cameraUri?.let { u -> scope.launch(Dispatchers.IO) { runCatching { ctx.contentResolver.delete(u, null, null) } } } // no empty photo left in the gallery
+    }
+    fun openCamera() {
+        val uri = runCatching {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "message_${System.currentTimeMillis()}.jpg")
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            }
+            ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        }.getOrNull()
+        if (uri != null) { cameraUri = uri; runCatching { cameraLauncher.launch(uri) }.onFailure { Toast.makeText(ctx, "Camera unavailable", Toast.LENGTH_SHORT).show() } }
+        else Toast.makeText(ctx, "Camera unavailable", Toast.LENGTH_SHORT).show()
+    }
+    // The camera needs the CAMERA permission first (the app declares it, so without it the camera tile did nothing)
+    val camPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) openCamera() else Toast.makeText(ctx, "Camera permission needed", Toast.LENGTH_SHORT).show() }
+    fun startCamera() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) openCamera()
+        else camPerm.launch(android.Manifest.permission.CAMERA)
     }
     val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
         uri?.let {
@@ -393,6 +424,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var selected by remember { mutableStateOf(setOf<String>()) }
     val selecting = selected.isNotEmpty()
     BackHandler(enabled = selecting && ctxMsg == null) { selected = emptySet() }
+    // When the keyboard comes up, close the + / emoji / gallery panel (it used to sit on top of the keyboard and squash the chat)
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    val imeUp = WindowInsets.isImeVisible
+    LaunchedEffect(imeUp) { if (imeUp) { showAttach = false; showEmoji = false; showGallery = false } }
+    // Back closes an open panel or the in-chat search first, instead of leaving the chat
+    BackHandler(enabled = ctxMsg == null && !selecting && (showAttach || showEmoji || showGallery)) { showAttach = false; showEmoji = false; showGallery = false }
+    BackHandler(enabled = ctxMsg == null && !selecting && !(showAttach || showEmoji || showGallery) && showSearch) { showSearch = false; searchQuery = ""; searchFilter = 0 }
     Box(Modifier.fillMaxSize()) {
     Scaffold(containerColor = Chrome, modifier = if (ctxMsg != null) Modifier.blur(14.dp) else Modifier,
         topBar = {
@@ -413,7 +451,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 }
             ) else
             TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
-                navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+                navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = {
                     if (showSearch) {
                         TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat…", color = TextHint) }, singleLine = true,
@@ -592,39 +630,19 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             Triple(Icons.Outlined.LocationOn, "Location") { locPerm.launch(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION)) },
                             Triple(Icons.Outlined.AccountCircle, "Contacts") { contactPicker.launch(null) },
                             Triple(Icons.Outlined.Schedule, "Schedule send") { showAttach = false; pickScheduleTime() },
-                            Triple(Icons.Outlined.PhotoCamera, "Camera") {
-                                    val uri = runCatching {
-                                        val values = android.content.ContentValues().apply {
-                                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "message_${System.currentTimeMillis()}.jpg")
-                                            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                                        }
-                                        ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                                    }.getOrNull()
-                                    if (uri != null) { cameraUri = uri; runCatching { cameraLauncher.launch(uri) } }
-                                    else Toast.makeText(ctx, "Camera unavailable", Toast.LENGTH_SHORT).show()
-                                },
+                            Triple(Icons.Outlined.PhotoCamera, "Camera") { startCamera() },
                             Triple(Icons.Outlined.Videocam, "Video") { videoPicker.launch("video/*") },
                             Triple(Icons.Outlined.Mic, "Voice") { showAttach = false; audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
                         ))
                     }
                     AnimatedVisibility(showGallery, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                        GalleryPanel(onCamera = {
-                                    val uri = runCatching {
-                                        val values = android.content.ContentValues().apply {
-                                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "message_${System.currentTimeMillis()}.jpg")
-                                            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                                        }
-                                        ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                                    }.getOrNull()
-                                    if (uri != null) { cameraUri = uri; runCatching { cameraLauncher.launch(uri) } }
-                                    else Toast.makeText(ctx, "Camera unavailable", Toast.LENGTH_SHORT).show()
-                                }, onFolders = { showGallery = false; imagePicker.launch("image/*") },
+                        GalleryPanel(onCamera = { startCamera() }, onFolders = { showGallery = false; imagePicker.launch("image/*") },
                             onPicked = { l -> pendingMediaUri = l.first(); pendingMediaType = "image"; extraMedia = l.drop(1); showGallery = false })
                     }
                     AnimatedVisibility(showEmoji, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         ExpressionPanel(emojiTab, onEmoji = { draft += it },
                             onGif = { u -> pendingMediaUri = u; pendingMediaType = "image"; extraMedia = emptyList(); showEmoji = false },
-                            onSticker = { s -> draft = s; showEmoji = false; doSend() })
+                            onSticker = { s -> showEmoji = false; sendText(s) })
                     }
                 }
             }
@@ -698,7 +716,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     ) {
                         SmartReplies.suggest(msgs.last().body).forEach { reply ->
                             Surface(
-                                onClick = { draft = reply; doSend() },
+                                onClick = { sendText(reply) },
                                 shape = RoundedCornerShape(20.dp),
                                 color = Color.Transparent,
                                 border = BorderStroke(1.dp, DivLt)
@@ -777,7 +795,7 @@ fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongCl
                 Icon(Icons.Default.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
             }
         }
-        Box(Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }) {
+        Box(Modifier.absoluteOffset { IntOffset(offsetX.roundToInt(), 0) }) { // follows the finger in Hebrew/RTL too
             MessageBubble(m, reactTick, onLongClick, showMeta, joinedAbove, joinedBelow, onTap)
         }
     }

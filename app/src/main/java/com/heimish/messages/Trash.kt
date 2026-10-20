@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -69,7 +70,7 @@ fun TrashScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     Scaffold(containerColor = Chrome, topBar = {
         TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             title = { Text("Trash", fontSize = 22.sp) },
             actions = {
                 if (list.isNotEmpty()) {
