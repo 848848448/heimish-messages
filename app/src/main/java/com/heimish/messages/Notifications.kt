@@ -54,7 +54,7 @@ object Notifications {
         val title = if (showSender) sender else "New message"
         val text = if (showPreview) body else ""
 
-        val channelId = threadChannel(ctx, threadId) ?: channelFor(ctx)
+        val channelId = if (Dnd.active(ctx)) CHANNEL_QUIET else (threadChannel(ctx, threadId) ?: channelFor(ctx))
         ensureChannel(ctx, channelFor(ctx))
 
         val nid = (threadId % Int.MAX_VALUE).toInt()
