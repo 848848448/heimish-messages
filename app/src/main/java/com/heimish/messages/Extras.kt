@@ -15,6 +15,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
@@ -461,7 +463,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
         confirmButton = { TextButton({ confirmDel = false; onDelete() }) { Text("Delete") } }, dismissButton = { TextButton({ confirmDel = false }) { Text("Cancel") } })
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding()) {
                 Row(Modifier.padding(8.dp)) { IconButton(onClose) { Icon(Icons.Default.ArrowBack, "Back") }; Text("Details", Modifier.padding(start = 8.dp, top = 12.dp), fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Avatar(c.displayName, c.address, 88.dp, 34.sp)
