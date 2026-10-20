@@ -218,12 +218,13 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
         if (uri != null) scope.launch { status = "Restoring…"; val n = withContext(Dispatchers.IO) { runCatching { Backup.restore(ctx, uri) }.getOrElse { -1 } }; status = if (n >= 0) "Restored $n new messages" else "Restore failed. Is this a Message backup?" }
     }
     @Composable fun SwitchRow(label: String, sub: String, on: Boolean, onChange: (Boolean) -> Unit) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(label, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface); Text(sub, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Switch(checked = on, onCheckedChange = onChange)
+            Spacer(Modifier.width(12.dp)); Switch(checked = on, onCheckedChange = onChange)
         }
     }
-    Scaffold(topBar = { TopAppBar(title = { Text(title, fontWeight = FontWeight.SemiBold) }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }) }) { pad ->
+    Scaffold(containerColor = Bg, topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+        title = { Text(title) }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }) }) { pad ->
         Column(Modifier.padding(pad)) {
             when (key) {
                 "spam" -> {
