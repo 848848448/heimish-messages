@@ -1674,6 +1674,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.Report, "Spam protection", "Filter scam texts") { onSub("x_spam") } }
             item { SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN") { onSub("x_lock") } }
             item { SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes") { onSub("x_otp") } }
+            item { SettRow(Icons.Default.NotificationsOff, "Quiet hours", "Silent messages at night") { onSub("x_dnd") } }
             item { SettRow(Icons.Default.Reply, "Quick replies", "Edit your canned replies") { onSub("x_quick") } }
             item { SettRow(Icons.Default.TextFields, "Large text & display", "Bigger text everywhere") { onSub("x_access") } }
             item { SettRow(Icons.Default.Palette, "Chat style", "Bubble shape and backgrounds") { onSub("x_style") } }
