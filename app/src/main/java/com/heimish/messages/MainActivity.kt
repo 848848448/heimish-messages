@@ -976,6 +976,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var pendingMediaType by remember { mutableStateOf("image") }
     var replyTo by remember { mutableStateOf<Message?>(null) }
     var showSearch by remember { mutableStateOf(false) }
+    var searchFilter by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var isRecording by remember { mutableStateOf(false) }
     var recordSeconds by remember { mutableIntStateOf(0) }
@@ -1249,7 +1250,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 },
                 actions = {
                     if (showSearch) {
-                        IconButton({ showSearch = false; searchQuery = "" }) { Icon(Icons.Default.Close, "Close search") }
+                        TextButton({ searchFilter = (searchFilter + 1) % 3 }) { Text(listOf("All", "Photos", "Links")[searchFilter], color = Brand) }
+                        IconButton({ showSearch = false; searchQuery = ""; searchFilter = 0 }) { Icon(Icons.Default.Close, "Close search") }
                     } else {
                         if (!conversation.address.contains(";")) {
                             IconButton({ ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${conversation.address}"))) }) { Icon(Icons.Default.Phone, "Call") }
@@ -1268,6 +1270,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     if (Mute.isMuted(ctx, conversation.threadId)) { Mute.clear(ctx, conversation.threadId); Toast.makeText(ctx, "Unmuted", Toast.LENGTH_SHORT).show() }
                                     else android.app.AlertDialog.Builder(ctx).setTitle("Mute notifications").setItems(arrayOf("1 hour", "8 hours", "24 hours", "Always")) { _, i -> Mute.setFor(ctx, conversation.threadId, longArrayOf(3_600_000L, 28_800_000L, 86_400_000L, 0L)[i]); Toast.makeText(ctx, "Muted", Toast.LENGTH_SHORT).show() }.show()
                                 }, leadingIcon = { Icon(Icons.Default.NotificationsOff, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Remind me", color = TextPrimary) }, {
+                                    showMenu = false
+                                    android.app.AlertDialog.Builder(ctx).setTitle("Remind me").setItems(arrayOf("In 1 hour", "In 3 hours", "Tomorrow morning")) { _, i ->
+                                        val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0) }
+                                        RemindReceiver.set(ctx, conversation, when (i) { 0 -> System.currentTimeMillis() + 3_600_000L; 1 -> System.currentTimeMillis() + 10_800_000L; else -> cal.timeInMillis })
+                                        Toast.makeText(ctx, "Reminder set", Toast.LENGTH_SHORT).show() }.show()
+                                }, leadingIcon = { Icon(Icons.Default.Notifications, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Export chat", color = TextPrimary) }, { showMenu = false; exportChat(ctx, conversation, msgs) }, leadingIcon = { Icon(Icons.Default.Share, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Notification sound", color = TextPrimary) }, {
                                     showMenu = false
@@ -1406,7 +1415,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize().background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0))).padding(pad).padding(horizontal = 10.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
-            val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
+            val displayMsgs = if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
             val grouped = displayMsgs.groupByDate()
             grouped.forEach { (day, dayMsgs) ->
                 item(key = "day_$day") { DayHeader(day) }
