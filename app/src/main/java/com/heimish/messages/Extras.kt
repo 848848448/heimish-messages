@@ -277,7 +277,7 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
                     }
                 }
                 "style" -> {
-                    var cr by remember { mutableStateOf(p.getInt("bubble_corner", 20)) }
+                    var cr by remember { mutableStateOf(p.getInt("bubble_corner", 24)) }
                     var bg by remember { mutableStateOf(p.getInt("chat_bg", 0)) }
                     Text("Bubble shape", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
