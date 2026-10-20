@@ -102,6 +102,12 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val draftNow by rememberUpdatedState(draft)
     DisposableEffect(Unit) { onDispose { DraftStore.set(ctx, conversation.threadId, draftNow) } }
     var showDetails by remember { mutableStateOf(false) }
+    var showTheme by remember { mutableStateOf(false) }
+    var themeVer by remember { mutableIntStateOf(0) }
+    val chatPal = remember(themeVer) { ChatThemeStore.palette(ctx, conversation.threadId) }
+    val chatWall = remember(themeVer) { ChatThemeStore.wallpaper(ctx, conversation.threadId) }
+    if (ThemeState.chat != chatPal) ThemeState.chat = chatPal
+    DisposableEffect(Unit) { onDispose { ThemeState.chat = null } }
     var moreOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -110,6 +116,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
     var ctxMsg by remember { mutableStateOf<Message?>(null) }
     var showEmoji by remember { mutableStateOf(false) }
+    var emojiTab by remember { mutableIntStateOf(0) }
+    var showGallery by remember { mutableStateOf(false) }
     var showAttach by remember { mutableStateOf(false) }
     var pendingMediaUri by remember { mutableStateOf<Uri?>(null) }
     var pendingMediaType by remember { mutableStateOf("image") }
@@ -209,7 +217,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
 
     var showQuick by remember { mutableStateOf(false) }
-    if (showDetails) ChatDetailsDialog(conversation, msgs, { showDetails = false }) { showDetails = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }; onBack() }
+    if (showTheme) ChatThemeScreen(conversation) { applied -> showTheme = false; if (applied) { themeVer++; reactTick++ } }
+    if (showDetails) ChatDetailsDialog(conversation, msgs, { showDetails = false }, onTheme = { showDetails = false; showTheme = true }, onSearch = { showDetails = false; showSearch = true }) { showDetails = false; onBack() }
     var showMedia by remember { mutableStateOf(false) }
     if (showQuick) {
         val qr = QuickReplies.get(ctx)
@@ -431,6 +440,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf), shape = RoundedCornerShape(16.dp)) {
                                 DropdownMenuItem({ Text("Search", color = TextPrimary) }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Details", color = TextPrimary) }, { showMenu = false; showDetails = true }, leadingIcon = { Icon(Icons.Default.Info, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Chat theme", color = TextPrimary) }, { showMenu = false; showTheme = true }, leadingIcon = { Icon(Icons.Outlined.Palette, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Icons.Default.Reply, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
@@ -523,8 +533,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         // Google Messages compose bar: one pill with ⊕, the text, emoji and gallery; a round voice/send button beside it
                         Row(Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(26.dp)).background(SearchBg).padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
-                            IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(48.dp)) {
-                                Icon(if (showAttach) Icons.Default.Close else Icons.Outlined.AddCircleOutline, "Attach", tint = TextPrimary, modifier = Modifier.size(24.dp))
+                            IconButton(onClick = { showAttach = !showAttach; showEmoji = false; showGallery = false; if (showAttach) keyboard?.hide() }, Modifier.size(48.dp)) {
+                                Icon(if (showAttach) Icons.Default.Close else Icons.Filled.AddCircle, "Attach", tint = TextPrimary, modifier = Modifier.size(24.dp))
                             }
                             androidx.compose.foundation.text.BasicTextField(
                                 draft, { draft = it }, Modifier.weight(1f).padding(vertical = 14.dp)
@@ -556,8 +566,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     }
                                 }
                             )
-                            IconButton({ showEmoji = !showEmoji; showAttach = false }, Modifier.size(48.dp)) { Icon(Icons.Outlined.EmojiEmotions, "Emoji", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
-                            if (draft.isEmpty()) IconButton({ imagePicker.launch("image/*") }, Modifier.size(48.dp)) { Icon(Icons.Outlined.AddPhotoAlternate, "Photo", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
+                            IconButton({ emojiTab = 0; showEmoji = !showEmoji; showAttach = false; showGallery = false; if (showEmoji) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.EmojiEmotions, "Emoji", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
+                            if (draft.isEmpty()) IconButton({ showGallery = !showGallery; showAttach = false; showEmoji = false; if (showGallery) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.AddPhotoAlternate, "Photo", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
                         }
                         Spacer(Modifier.width(8.dp))
                         val hasCont = draft.isNotBlank() || pendingMediaUri != null
@@ -574,15 +584,15 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         }
                     }
                     AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                        LazyVerticalGrid(
-                            GridCells.Fixed(4),
-                            Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(SheetBg).padding(horizontal = 16.dp, vertical = 18.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            gridItems(listOf(
-                                Triple(Icons.Default.Image, "Gallery") { imagePicker.launch("image/*") },
-                                Triple(Icons.Default.PhotoCamera, "Camera") {
+                        PlusPanel(listOf(
+                            Triple(Icons.Outlined.PhotoLibrary, "Gallery") { imagePicker.launch("image/*") },
+                            Triple(Icons.Outlined.Gif, "GIFs") { showAttach = false; emojiTab = 1; showEmoji = true },
+                            Triple(Icons.Outlined.StickyNote2, "Stickers") { showAttach = false; emojiTab = 2; showEmoji = true },
+                            Triple(Icons.Outlined.AttachFile, "Files") { filePicker.launch("*/*") },
+                            Triple(Icons.Outlined.LocationOn, "Location") { locPerm.launch(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION)) },
+                            Triple(Icons.Outlined.AccountCircle, "Contacts") { contactPicker.launch(null) },
+                            Triple(Icons.Outlined.Schedule, "Schedule send") { showAttach = false; pickScheduleTime() },
+                            Triple(Icons.Outlined.PhotoCamera, "Camera") {
                                     val uri = runCatching {
                                         val values = android.content.ContentValues().apply {
                                             put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "message_${System.currentTimeMillis()}.jpg")
@@ -593,26 +603,39 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     if (uri != null) { cameraUri = uri; runCatching { cameraLauncher.launch(uri) } }
                                     else Toast.makeText(ctx, "Camera unavailable", Toast.LENGTH_SHORT).show()
                                 },
-                                Triple(Icons.Default.Videocam, "Video") { videoPicker.launch("video/*") },
-                                Triple(Icons.Default.Mic, "Voice") { showAttach = false; audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
-                                Triple(Icons.Default.InsertDriveFile, "File") { filePicker.launch("*/*") },
-                                Triple(Icons.Default.LocationOn, "Location") { locPerm.launch(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION)) },
-                                Triple(Icons.Default.Person, "Contact") { contactPicker.launch(null) },
-                                Triple(Icons.Default.Schedule, "Schedule") { showAttach = false; pickScheduleTime() }
-                            )) { (icon, label, action) -> AttachBtn(icon, label, action) }
-                        }
+                            Triple(Icons.Outlined.Videocam, "Video") { videoPicker.launch("video/*") },
+                            Triple(Icons.Outlined.Mic, "Voice") { showAttach = false; audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
+                        ))
+                    }
+                    AnimatedVisibility(showGallery, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                        GalleryPanel(onCamera = {
+                                    val uri = runCatching {
+                                        val values = android.content.ContentValues().apply {
+                                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "message_${System.currentTimeMillis()}.jpg")
+                                            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                                        }
+                                        ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                                    }.getOrNull()
+                                    if (uri != null) { cameraUri = uri; runCatching { cameraLauncher.launch(uri) } }
+                                    else Toast.makeText(ctx, "Camera unavailable", Toast.LENGTH_SHORT).show()
+                                }, onFolders = { showGallery = false; imagePicker.launch("image/*") },
+                            onPicked = { l -> pendingMediaUri = l.first(); pendingMediaType = "image"; extraMedia = l.drop(1); showGallery = false })
                     }
                     AnimatedVisibility(showEmoji, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                        EmojiPicker { draft += it }
+                        ExpressionPanel(emojiTab, onEmoji = { draft += it },
+                            onGif = { u -> pendingMediaUri = u; pendingMediaType = "image"; extraMedia = emptyList(); showEmoji = false },
+                            onSticker = { s -> draft = s; showEmoji = false; doSend() })
                     }
                 }
             }
         },
     ) { pad ->
+        Box(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg)
+            .background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0)))) {
+        ChatWallpaper(conversation.threadId, chatWall, themeVer, Modifier.matchParentSize())
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg)
-                .background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0))).padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
             val displayMsgs = if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
@@ -686,6 +709,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 
@@ -810,9 +834,9 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     val isIn = m.incoming
-    val bubbleColor = remember(reactTick) { Color(prefs.getInt("bubble_color", BubbleOut.toArgb())) }
+    val bubbleColor = if (ThemeState.chat != null) BubbleOut else remember(reactTick) { Color(prefs.getInt("bubble_color", BubbleOut.toArgb())) }
     val outColor = if (isIn) BubbleIn else bubbleColor
-    val customOut = prefs.contains("bubble_color")
+    val customOut = prefs.contains("bubble_color") && ThemeState.chat == null
     val outText = if (isIn) TextPrimary else if (customOut) Color.White else BubbleOutText
     val outSub = if (isIn) TextHint else if (customOut) Color.White.copy(.72f) else BubbleOutSub
     val linkColor = if (isIn) Brand else if (customOut) Color(0xFFCDE1FF) else BubbleOutLink
@@ -821,7 +845,8 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
         "small" -> 14.sp; "large" -> 18.sp; "largest" -> 20.sp; else -> 16.sp
     }
     val previewMode = prefs.getString("preview_mode", "links") ?: "links"
-    val reaction = remember(reactTick) { ReactionStore.get(ctx, msgKey(m)) }
+    var vTick by remember { mutableIntStateOf(0) }
+    val reaction = remember(reactTick, vTick) { ReactionStore.get(ctx, msgKey(m)) }
     val starred = remember(reactTick) { StarStore.isStarred(ctx, msgKey(m)) }
     val failed = m.failed
     val sending = m.sending
@@ -834,7 +859,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
             dismissButton = { TextButton({ warnUrl = null }) { Text("Cancel") } })
     }
     var viewing by remember { mutableStateOf(false) }
-    if (viewing && m.imageUri != null) PhotoViewer(m.imageUri) { viewing = false }
+    if (viewing && m.imageUri != null) PhotoViewer(m.imageUri, onClose = { viewing = false }, title = if (isIn) (m.address?.let { a -> SmsRepository.getContactName(ctx, a) ?: a } ?: "") else "You", date = m.date, reactKey = msgKey(m), onReacted = { vTick++ })
     val cr = prefs.getInt("bubble_corner", 24).dp
     // Google Messages style: bubbles in a run from the same person get tight corners where they touch
     val tight = if (cr < 4.dp) cr else 4.dp
