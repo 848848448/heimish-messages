@@ -1263,12 +1263,12 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text(if (prefs.getBoolean("muted_${conversation.threadId}", false)) "Unmute" else "Mute notifications", color = TextPrimary) }, {
+                                DropdownMenuItem({ Text(if (Mute.isMuted(ctx, conversation.threadId)) "Unmute" else "Mute notifications", color = TextPrimary) }, {
                                     showMenu = false
-                                    val k = "muted_${conversation.threadId}"
-                                    prefs.edit().putBoolean(k, !prefs.getBoolean(k, false)).apply()
-                                    Toast.makeText(ctx, if (prefs.getBoolean(k, false)) "Muted" else "Unmuted", Toast.LENGTH_SHORT).show()
+                                    if (Mute.isMuted(ctx, conversation.threadId)) { Mute.clear(ctx, conversation.threadId); Toast.makeText(ctx, "Unmuted", Toast.LENGTH_SHORT).show() }
+                                    else android.app.AlertDialog.Builder(ctx).setTitle("Mute notifications").setItems(arrayOf("1 hour", "8 hours", "24 hours", "Always")) { _, i -> Mute.setFor(ctx, conversation.threadId, longArrayOf(3_600_000L, 28_800_000L, 86_400_000L, 0L)[i]); Toast.makeText(ctx, "Muted", Toast.LENGTH_SHORT).show() }.show()
                                 }, leadingIcon = { Icon(Icons.Default.NotificationsOff, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Export chat", color = TextPrimary) }, { showMenu = false; exportChat(ctx, conversation, msgs) }, leadingIcon = { Icon(Icons.Default.Share, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Notification sound", color = TextPrimary) }, {
                                     showMenu = false
                                     toneL.launch(Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_NOTIFICATION).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true))
