@@ -27,6 +27,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -372,6 +374,92 @@ fun WhatsNewScreen(info: UpdateInfo?, onBack: () -> Unit) {
                 val t = l.trim()
                 if (t == "New" || t == "Fixed" || t.endsWith(":") || t.startsWith("#")) Text(t.trimStart('#', ' ').trimEnd(':'), Modifier.padding(top = 18.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 else Text("•  " + t.removePrefix("- ").removePrefix("* "), Modifier.padding(vertical = 4.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+    }
+}
+
+
+object DraftStore {
+    private fun p(ctx: Context) = prefs(ctx)
+    fun get(ctx: Context, threadId: Long): String = p(ctx).getString("draft_$threadId", "") ?: ""
+    fun set(ctx: Context, threadId: Long, text: String) { p(ctx).edit().apply { if (text.isBlank()) remove("draft_$threadId") else putString("draft_$threadId", text) }.apply() }
+}
+
+@Composable
+fun PhotoViewer(uri: Uri, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var scale by remember { mutableStateOf(1f) }
+    var off by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+            coil.compose.AsyncImage(uri, "photo", Modifier.fillMaxSize()
+                .androidxPointer({ z, p -> scale = (scale * z).coerceIn(1f, 6f); off = if (scale <= 1f) androidx.compose.ui.geometry.Offset.Zero else off + p })
+                .graphicsLayer(scaleX = scale, scaleY = scale, translationX = off.x, translationY = off.y),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+            Row(Modifier.fillMaxWidth().padding(8.dp).align(Alignment.TopCenter), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClose) { Icon(Icons.Default.Close, "Close", tint = androidx.compose.ui.graphics.Color.White) }
+                Spacer(Modifier.weight(1f))
+                IconButton({
+                    runCatching {
+                        val v = ContentValues().apply { put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "Message_" + System.currentTimeMillis() + ".jpg"); put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg"); if (android.os.Build.VERSION.SDK_INT >= 29) put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Message") }
+                        val out = ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v)!!
+                        ctx.contentResolver.openInputStream(uri)!!.use { i -> ctx.contentResolver.openOutputStream(out)!!.use { o -> i.copyTo(o) } }
+                        Toast.makeText(ctx, "Saved to Pictures", Toast.LENGTH_SHORT).show()
+                    }.onFailure { Toast.makeText(ctx, "Could not save", Toast.LENGTH_SHORT).show() }
+                }) { Icon(Icons.Default.Download, "Save", tint = androidx.compose.ui.graphics.Color.White) }
+                IconButton({
+                    runCatching {
+                        val f = java.io.File(ctx.cacheDir, "share_" + System.currentTimeMillis() + ".jpg")
+                        ctx.contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                        val u = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f)
+                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("image/*").putExtra(Intent.EXTRA_STREAM, u).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share"))
+                    }.onFailure { Toast.makeText(ctx, "Could not share", Toast.LENGTH_SHORT).show() }
+                }) { Icon(Icons.Default.Share, "Share", tint = androidx.compose.ui.graphics.Color.White) }
+            }
+        }
+    }
+}
+
+fun Modifier.androidxPointer(onGesture: (Float, androidx.compose.ui.geometry.Offset) -> Unit): Modifier =
+    this.pointerInput(Unit) { androidx.compose.foundation.gestures.detectTransformGestures { _, pan, zoom, _ -> onGesture(zoom, pan) } }
+
+@Composable
+fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit, onDelete: () -> Unit) {
+    val ctx = LocalContext.current
+    var muted by remember { mutableStateOf(prefs(ctx).getBoolean("muted_${c.threadId}", false)) }
+    var media by remember { mutableStateOf(false) }
+    var confirmDel by remember { mutableStateOf(false) }
+    val unsaved = c.displayName == c.address
+    if (media) MediaDialog(msgs) { media = false }
+    if (confirmDel) AlertDialog(onDismissRequest = { confirmDel = false }, title = { Text("Delete conversation?") }, text = { Text("This deletes every message in this chat from this phone.") },
+        confirmButton = { TextButton({ confirmDel = false; onDelete() }) { Text("Delete") } }, dismissButton = { TextButton({ confirmDel = false }) { Text("Cancel") } })
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.padding(8.dp)) { IconButton(onClose) { Icon(Icons.Default.ArrowBack, "Back") }; Text("Details", Modifier.padding(start = 8.dp, top = 12.dp), fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
+                Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Avatar(c.displayName, c.address, 88.dp, 34.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(c.displayName, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                    if (!unsaved) Text(c.address, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                @Composable fun Item(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, danger: Boolean = false, click: () -> Unit) {
+                    Row(Modifier.fillMaxWidth().clickable { click() }.padding(horizontal = 24.dp, vertical = 15.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(icon, null, tint = if (danger) androidx.compose.ui.graphics.Color(0xFFD93025) else MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(20.dp))
+                        Text(label, fontSize = 16.sp, color = if (danger) androidx.compose.ui.graphics.Color(0xFFD93025) else MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+                if (!c.address.contains(";")) Item(Icons.Default.Phone, "Call") { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address))) }
+                if (unsaved && !c.address.contains(";")) Item(Icons.Default.PersonAdd, "Add to contacts") { runCatching { ctx.startActivity(Intent(Intent.ACTION_INSERT, android.provider.ContactsContract.Contacts.CONTENT_URI).putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, c.address)) } }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(20.dp))
+                    Text("Notifications", Modifier.weight(1f), fontSize = 16.sp)
+                    Switch(!muted, { muted = !it; prefs(ctx).edit().putBoolean("muted_${c.threadId}", muted).apply() })
+                }
+                Item(Icons.Default.PhotoLibrary, "Media and links (" + msgs.count { it.imageUri != null } + " photos)") { media = true }
+                Item(Icons.Default.Block, "Block and report spam", true) { BlockedStore.block(ctx, c.address); Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show() }
+                Item(Icons.Default.Delete, "Delete conversation", true) { confirmDel = true }
             }
         }
     }
