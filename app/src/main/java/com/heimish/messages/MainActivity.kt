@@ -502,7 +502,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     var cat by remember { mutableStateOf("All") }
     var sel by remember { mutableStateOf(setOf<Long>()) }
     BackHandler(enabled = sel.isNotEmpty()) { sel = emptySet() }
-    val searched0 = if (cat == "All") visible else visible.filter { chatCategory(it) == cat }
+    val searched0 = if (cat == "All") visible else if (cat == "Unknown") visible.filter { it.displayName == it.address } else if (cat in listOf("Personal", "Transactions", "Promos")) visible.filter { chatCategory(it) == cat } else visible.filter { LabelStore.get(ctx, it.threadId) == cat }
     val searched = if (search.isBlank()) searched0 else searched0.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
     val filtered = remember(searched, tick) { searched.sortedWith(compareByDescending<Conversation> { if (PinStore.isPinned(ctx, it.threadId)) 1 else 0 }.thenByDescending { it.date }) }
 
@@ -596,7 +596,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 )
             )
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("All", "Personal", "Transactions", "Promos").forEach { c ->
+                (listOf("All", "Personal", "Transactions", "Promos", "Unknown") + LabelStore.allLabels(ctx)).forEach { c ->
                     Box(Modifier.clip(RoundedCornerShape(50)).background(if (cat == c) Tonal else SearchBg).clickable { cat = c }.padding(horizontal = 14.dp, vertical = 7.dp)) {
                         Text(c, fontSize = 13.sp, fontWeight = if (cat == c) FontWeight.SemiBold else FontWeight.Normal, color = if (cat == c) OnTonal else TextSecond)
                     }
@@ -724,7 +724,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        (if (DraftStore.get(ctx, c.threadId).isNotBlank()) "Draft: " + DraftStore.get(ctx, c.threadId) else (if (c.outgoing) "You: " else "") + c.snippet.ifBlank { " " }),
+                        (if (DraftStore.get(ctx, c.threadId).isNotBlank()) "Draft: " + DraftStore.get(ctx, c.threadId) else (LabelStore.get(ctx, c.threadId)?.let { "\uD83C\uDFF7 $it · " } ?: "") + (if (c.outgoing) "You: " else "") + c.snippet.ifBlank { " " }),
                         fontSize = 14.sp, color = if (DraftStore.get(ctx, c.threadId).isNotBlank()) Red else if (c.unread) TextPrimary else TextHint,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         fontWeight = if (c.unread) FontWeight.Medium else FontWeight.Normal,
@@ -874,6 +874,13 @@ fun ScheduledScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(2.dp))
                         Text(fmt.format(Date(sm.sendAt)), fontSize = 12.sp, color = Brand, fontWeight = FontWeight.Medium)
                     }
+                    TextButton(onClick = {
+                        val et = android.widget.EditText(ctx); et.setText(sm.body)
+                        android.app.AlertDialog.Builder(ctx).setTitle("Edit scheduled message").setView(et).setPositiveButton("Save") { _, _ ->
+                            val nb = et.text.toString()
+                            if (nb.isNotBlank()) { ScheduledSendReceiver.cancel(ctx, sm.id); ScheduledSendReceiver.schedule(ctx, sm.address, nb, sm.sendAt); tick++ }
+                        }.setNegativeButton("Cancel", null).show()
+                    }) { Text("Edit", color = Brand) }
                     TextButton(onClick = { ScheduledSendReceiver.cancel(ctx, sm.id); tick++ }) { Text("Cancel", color = Red) }
                 }
             }
@@ -964,6 +971,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val draftNow by rememberUpdatedState(draft)
     DisposableEffect(Unit) { onDispose { DraftStore.set(ctx, conversation.threadId, draftNow) } }
     var showDetails by remember { mutableStateOf(false) }
+    var moreOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1217,6 +1225,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
                         ctxMsg = null
                     }
+                    MenuBtn(Icons.Default.PushPin, if (MsgPinStore.has(ctx, key)) "Unpin" else "Pin") {
+                        MsgPinStore.toggle(ctx, key); reactTick++; ctxMsg = null
+                    }
                     MenuBtn(Icons.Default.Star, if (starred) "Unstar" else "Star", Amber) {
                         StarStore.toggle(ctx, key); reactTick++
                         Toast.makeText(ctx, if (starred) "Unstarred" else "Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null
@@ -1261,9 +1272,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf), shape = RoundedCornerShape(16.dp)) {
                                 DropdownMenuItem({ Text("Search", color = TextPrimary) }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Details", color = TextPrimary) }, { showMenu = false; showDetails = true }, leadingIcon = { Icon(Icons.Default.Info, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Icons.Default.Reply, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Icons.Default.Reply, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text(if (Mute.isMuted(ctx, conversation.threadId)) "Unmute" else "Mute notifications", color = TextPrimary) }, {
                                     showMenu = false
@@ -1277,11 +1288,17 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                         RemindReceiver.set(ctx, conversation, when (i) { 0 -> System.currentTimeMillis() + 3_600_000L; 1 -> System.currentTimeMillis() + 10_800_000L; else -> cal.timeInMillis })
                                         Toast.makeText(ctx, "Reminder set", Toast.LENGTH_SHORT).show() }.show()
                                 }, leadingIcon = { Icon(Icons.Default.Notifications, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Export chat", color = TextPrimary) }, { showMenu = false; exportChat(ctx, conversation, msgs) }, leadingIcon = { Icon(Icons.Default.Share, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Notification sound", color = TextPrimary) }, {
+                                if (moreOpen) DropdownMenuItem({ Text("Export chat", color = TextPrimary) }, { showMenu = false; exportChat(ctx, conversation, msgs) }, leadingIcon = { Icon(Icons.Default.Share, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Notification sound", color = TextPrimary) }, {
                                     showMenu = false
                                     toneL.launch(Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_NOTIFICATION).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true))
                                 }, leadingIcon = { Icon(Icons.Default.MusicNote, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Label", color = TextPrimary) }, {
+                                    showMenu = false
+                                    val et = android.widget.EditText(ctx); et.setText(LabelStore.get(ctx, conversation.threadId) ?: ""); et.hint = "Label (empty to remove)"
+                                    android.app.AlertDialog.Builder(ctx).setTitle("Label this chat").setView(et).setPositiveButton("Save") { _, _ -> LabelStore.set(ctx, conversation.threadId, et.text.toString()); Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show() }.setNegativeButton("Cancel", null).show()
+                                }, leadingIcon = { Icon(Icons.Default.Label, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text(if (moreOpen) "Less" else "More", color = TextPrimary) }, { moreOpen = !moreOpen }, leadingIcon = { Icon(if (moreOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Block & report spam", color = TextPrimary) }, {
                                     showMenu = false; BlockedStore.block(ctx, conversation.address)
                                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
@@ -1417,6 +1434,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         ) {
             val displayMsgs = if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
             val grouped = displayMsgs.groupByDate()
+            val pins = if (showSearch) emptyList() else msgs.filter { MsgPinStore.has(ctx, msgKey(it)) }
+            if (pins.isNotEmpty()) item(key = "pinned_banner") {
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                    Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
             grouped.forEach { (day, dayMsgs) ->
                 item(key = "day_$day") { DayHeader(day) }
                 itemsIndexed(dayMsgs, key = { _, m -> msgKey(m) }) { i, m ->
@@ -1786,6 +1810,8 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                 }
                 "safety" -> {
                     item { ToggleRow("Spam protection", "spam_protect", prefs) }
+                    item { KeywordEditor() }
+                    item { AutoReplyEditor() }
                     item { ToggleRow("Warn about suspicious links", "warn_links", prefs) }
                     item { ToggleRow("Blur sensitive images", "blur_sensitive", prefs) }
                     item {
