@@ -348,8 +348,12 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
 @Composable
 fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
     val ctx = LocalContext.current
-    val photo by produceState<Uri?>(initialValue = null, key1 = address) {
-        value = withContext(Dispatchers.IO) { SmsRepository.contactPhotoUri(ctx, address) }
+    val photo by produceState<Uri?>(initialValue = PhotoCache.map[address], key1 = address) {
+        if (!PhotoCache.map.containsKey(address) && !PhotoCache.miss.contains(address)) {
+            val u = withContext(Dispatchers.IO) { SmsRepository.contactPhotoUri(ctx, address) }
+            if (u != null) PhotoCache.map[address] = u else PhotoCache.miss.add(address)
+            value = u
+        }
     }
     Box(Modifier.size(size).clip(CircleShape).background(avatarColor(address)), contentAlignment = Alignment.Center) {
         if (photo != null) {
@@ -1255,7 +1259,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary)
-                            Text(if (conversation.address.contains(";")) "Group · ${conversation.address.split(";").size} people" else if (conversation.displayName == conversation.address) "" else conversation.address, fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (conversation.address.contains(";")) Text("Group · ${conversation.address.split(";").size} people", fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 },
@@ -1275,13 +1279,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 if (moreOpen) DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Icons.Default.Reply, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text(if (Mute.isMuted(ctx, conversation.threadId)) "Unmute" else "Mute notifications", color = TextPrimary) }, {
                                     showMenu = false
                                     if (Mute.isMuted(ctx, conversation.threadId)) { Mute.clear(ctx, conversation.threadId); Toast.makeText(ctx, "Unmuted", Toast.LENGTH_SHORT).show() }
                                     else android.app.AlertDialog.Builder(ctx).setTitle("Mute notifications").setItems(arrayOf("1 hour", "8 hours", "24 hours", "Always")) { _, i -> Mute.setFor(ctx, conversation.threadId, longArrayOf(3_600_000L, 28_800_000L, 86_400_000L, 0L)[i]); Toast.makeText(ctx, "Muted", Toast.LENGTH_SHORT).show() }.show()
                                 }, leadingIcon = { Icon(Icons.Default.NotificationsOff, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Remind me", color = TextPrimary) }, {
+                                if (moreOpen) DropdownMenuItem({ Text("Remind me", color = TextPrimary) }, {
                                     showMenu = false
                                     android.app.AlertDialog.Builder(ctx).setTitle("Remind me").setItems(arrayOf("In 1 hour", "In 3 hours", "Tomorrow morning")) { _, i ->
                                         val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0) }
@@ -1293,12 +1297,11 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     showMenu = false
                                     toneL.launch(Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_NOTIFICATION).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true))
                                 }, leadingIcon = { Icon(Icons.Default.MusicNote, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Label", color = TextPrimary) }, {
+                                if (moreOpen) DropdownMenuItem({ Text("Label", color = TextPrimary) }, {
                                     showMenu = false
                                     val et = android.widget.EditText(ctx); et.setText(LabelStore.get(ctx, conversation.threadId) ?: ""); et.hint = "Label (empty to remove)"
                                     android.app.AlertDialog.Builder(ctx).setTitle("Label this chat").setView(et).setPositiveButton("Save") { _, _ -> LabelStore.set(ctx, conversation.threadId, et.text.toString()); Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show() }.setNegativeButton("Cancel", null).show()
                                 }, leadingIcon = { Icon(Icons.Default.Label, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text(if (moreOpen) "Less" else "More", color = TextPrimary) }, { moreOpen = !moreOpen }, leadingIcon = { Icon(if (moreOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Block & report spam", color = TextPrimary) }, {
                                     showMenu = false; BlockedStore.block(ctx, conversation.address)
                                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
@@ -1307,6 +1310,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     showMenu = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }
                                     Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show(); onBack()
                                 }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Red) })
+                                DropdownMenuItem({ Text(if (moreOpen) "Less" else "More", color = TextPrimary) }, { moreOpen = !moreOpen }, leadingIcon = { Icon(if (moreOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextSecond) })
                             }
                         }
                     }
@@ -2026,3 +2030,6 @@ fun shortTime(ms: Long): String {
         else -> SimpleDateFormat("M/d/yy", Locale.getDefault()).format(Date(ms))
     }
 }
+
+
+object PhotoCache { val map = java.util.concurrent.ConcurrentHashMap<String, Uri>(); val miss: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet() }
