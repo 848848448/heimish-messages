@@ -1,0 +1,194 @@
+package com.heimish.messages
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private class SearchFilter(val key: String, val label: String, val icon: ImageVector)
+private val SearchFilters = listOf(
+    SearchFilter("unread", "Unread", Icons.Outlined.MarkChatUnread), SearchFilter("known", "Known", Icons.Outlined.Person),
+    SearchFilter("unknown", "Unknown", Icons.Outlined.HelpOutline), SearchFilter("starred", "Starred", Icons.Outlined.StarOutline),
+    SearchFilter("images", "Images", Icons.Outlined.Image), SearchFilter("videos", "Videos", Icons.Outlined.Videocam),
+    SearchFilter("places", "Places", Icons.Outlined.LocationOn), SearchFilter("links", "Links", Icons.Outlined.Link),
+)
+
+private class FoundMsg(val conv: Conversation, val m: Message)
+
+internal fun highlight(text: String, q: String, color: Color): AnnotatedString = buildAnnotatedString {
+    if (q.isBlank()) { append(text); return@buildAnnotatedString }
+    var i = 0
+    while (true) {
+        val j = text.indexOf(q, i, ignoreCase = true)
+        if (j < 0) { append(text.substring(i)); break }
+        append(text.substring(i, j))
+        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = color)) { append(text.substring(j, j + q.length)) }
+        i = j + q.length
+    }
+}
+
+/** Google Messages search: search pill, a grid of filters, then results grouped in rounded cards. */
+@Composable
+fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    var q by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf<String?>(null) }
+    BackHandler { if (filter != null) filter = null else onBack() }
+    val convs by produceState(emptyList<Conversation>()) { value = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx).filter { !TrashStore.has(ctx, it.threadId) } } }
+    val contacts by produceState(emptyList<Pair<String, String>>()) { value = withContext(Dispatchers.IO) { runCatching { SmsRepository.loadContactsList(ctx) }.getOrDefault(emptyList()) } }
+    val needMsgs = filter in setOf("starred", "images", "videos", "places", "links")
+    val recent by produceState(emptyList<FoundMsg>(), needMsgs, convs) {
+        if (needMsgs && convs.isNotEmpty()) value = withContext(Dispatchers.IO) {
+            convs.take(40).flatMap { c -> runCatching { SmsRepository.loadMessages(ctx, c.threadId, 250) }.getOrDefault(emptyList()).map { FoundMsg(c, it) } }
+        }
+    }
+    val hits by produceState(emptyList<MsgHit>(), q) { value = if (q.trim().length < 2) emptyList() else withContext(Dispatchers.IO) { SmsRepository.searchMessages(ctx, q.trim(), 60) } }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val qt = q.trim()
+    Scaffold(containerColor = Chrome) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).height(56.dp).clip(RoundedCornerShape(28.dp)).background(SearchBg).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                IconButton({ if (filter != null) filter = null else onBack() }) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) }
+                Box(Modifier.weight(1f)) {
+                    if (q.isEmpty()) Text("Search messages", color = TextSecond, fontSize = 17.sp)
+                    BasicTextField(q, { q = it }, singleLine = true, textStyle = TextStyle(color = TextPrimary, fontSize = 17.sp, fontFamily = FontState.family),
+                        cursorBrush = SolidColor(Brand), modifier = Modifier.fillMaxWidth().focusRequester(focus))
+                }
+                if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Icons.Default.Close, "Clear", tint = TextSecond) }
+            }
+            if (filter != null) Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                val f = SearchFilters.first { it.key == filter }
+                Row(Modifier.height(34.dp).clip(RoundedCornerShape(10.dp)).background(Tonal).clickable { filter = null }.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(f.icon, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                    Text(f.label, color = OnTonal, fontSize = 14.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Default.Close, "Remove filter", tint = OnTonal, modifier = Modifier.size(16.dp))
+                }
+            }
+            if (filter == null && qt.isEmpty()) {
+                // Filter tiles, two per row, like Google Messages
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SearchFilters.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { f ->
+                                Row(Modifier.weight(1f).height(64.dp).clip(RoundedCornerShape(20.dp)).background(Surf).clickable { filter = f.key }.padding(horizontal = 18.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(f.icon, null, tint = Brand, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(14.dp))
+                                    Text(f.label, color = TextPrimary, fontSize = 16.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                return@Column
+            }
+            val convMatches = convs.filter { c ->
+                (qt.isEmpty() || c.displayName.contains(qt, true) || c.address.contains(qt)) && when (filter) {
+                    "unread" -> c.unread
+                    "known" -> SmsRepository.getContactName(ctx, c.address) != null
+                    "unknown" -> !c.address.contains(";") && SmsRepository.getContactName(ctx, c.address) == null
+                    null -> qt.isNotEmpty()
+                    else -> false
+                }
+            }
+            val msgMatches: List<FoundMsg> = if (needMsgs) recent.filter { fm ->
+                val m = fm.m
+                (qt.isEmpty() || m.body.contains(qt, true)) && when (filter) {
+                    "starred" -> StarStore.isStarred(ctx, msgKey(m))
+                    "images" -> m.imageUri != null && (m.mediaMime?.startsWith("image") ?: true)
+                    "videos" -> m.mediaMime?.startsWith("video") == true
+                    "links" -> isLinkMsg(m)
+                    "places" -> Regex("(?i)maps\\.google|goo\\.gl/maps|maps\\.app\\.goo|maps\\.apple|geo:").containsMatchIn(m.body)
+                    else -> false
+                }
+            }.sortedByDescending { it.m.date } else emptyList()
+            val contactMatches = if (filter == null && qt.isNotEmpty()) contacts.filter { it.first.contains(qt, true) || it.second.filter(Char::isDigit).contains(qt.filter(Char::isDigit).ifEmpty { "\u0000" }) }.take(20) else emptyList()
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                fun header(t: String) = item(key = "h_$t") { Text(t, color = TextSecond, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 8.dp)) }
+                if (convMatches.isNotEmpty()) {
+                    header("Conversations")
+                    items(convMatches, key = { "c" + it.threadId }) { c ->
+                        ResultRow(c.displayName, c.address, highlight(c.displayName, qt, Brand), AnnotatedString(c.snippet), shortTime(c.date)) { onOpen(c) }
+                    }
+                }
+                if (filter == null && hits.isNotEmpty()) {
+                    header("Messages")
+                    items(hits, key = { "m" + it.id }) { h ->
+                        ResultRow(h.name, h.address, AnnotatedString(h.name), highlight(h.body, qt, Brand), shortTime(h.date)) {
+                            onOpen(convs.firstOrNull { it.threadId == h.threadId } ?: Conversation(h.threadId, h.address, h.name, h.body, h.date, false))
+                        }
+                    }
+                }
+                if (msgMatches.isNotEmpty()) {
+                    header("Messages")
+                    items(msgMatches.take(200), key = { "f" + msgKey(it.m) }) { fm ->
+                        ResultRow(fm.conv.displayName, fm.conv.address, AnnotatedString(fm.conv.displayName),
+                            highlight(fm.m.body.ifBlank { if (fm.m.mediaMime?.startsWith("video") == true) "Video" else "Photo" }, qt, Brand), shortTime(fm.m.date), media = fm.m.imageUri) { onOpen(fm.conv) }
+                    }
+                }
+                if (contactMatches.isNotEmpty()) {
+                    header("Contacts")
+                    items(contactMatches, key = { "p" + it.second + it.first }) { (name, number) ->
+                        ResultRow(name, number, highlight(name, qt, Brand), AnnotatedString(number), "") {
+                            val tid = SmsRepository.getThreadIdForAddress(ctx, number)
+                            onOpen(Conversation(tid, number, name, "", System.currentTimeMillis(), false))
+                        }
+                    }
+                }
+                if (convMatches.isEmpty() && msgMatches.isEmpty() && contactMatches.isEmpty() && (filter != null || hits.isEmpty())) item {
+                    Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
+                        Text(if (needMsgs && recent.isEmpty()) "Searching…" else "No results", color = TextHint, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultRow(name: String, address: String, title: AnnotatedString, sub: AnnotatedString, time: String, media: android.net.Uri? = null, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(16.dp)).background(Surf).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Avatar(name, address, 44.dp, 18.sp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = TextPrimary, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (time.isNotEmpty()) Text(time, color = TextSecond, fontSize = 12.sp)
+            }
+            if (sub.isNotEmpty()) Text(sub, color = TextSecond, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (media != null) { Spacer(Modifier.width(10.dp)); coil.compose.AsyncImage(media, null, Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+    }
+}
