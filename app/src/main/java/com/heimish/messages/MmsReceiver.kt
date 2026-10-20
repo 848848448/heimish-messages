@@ -20,16 +20,18 @@ class MmsReceiver : BroadcastReceiver() {
 
         val contentLocation = extractContentLocation(pdu)
 
-        val prefs = context.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-        val autoDownload = prefs.getBoolean("mms_auto", true)
+        // Always download: with the old "auto-download off" switch the MMS was simply lost, because
+        // nothing kept the notification to download it later.
+        val autoDownload = true
+        val subId = intent.getIntExtra("subscription", intent.getIntExtra("android.telephony.extra.SUBSCRIPTION_INDEX", -1))
 
         val pendingResult = goAsync()
         Thread {
             try {
                 if (contentLocation != null && autoDownload) {
-                    downloadMms(context, contentLocation)
-                    // Wait for download to complete — poll for new MMS entry
                     val latestBefore = getLatestMmsId(context)
+                    downloadMms(context, contentLocation, subId)
+                    // Wait for download to complete — poll for new MMS entry
                     var attempts = 0
                     while (attempts < 20) {
                         Thread.sleep(2000)
@@ -51,7 +53,7 @@ class MmsReceiver : BroadcastReceiver() {
     }
 
     @Suppress("DEPRECATION")
-    private fun downloadMms(context: Context, contentLocation: String) {
+    private fun downloadMms(context: Context, contentLocation: String, subId: Int) {
         val downloadFile = File(context.cacheDir, "mms_dl_${System.currentTimeMillis()}.dat")
         downloadFile.createNewFile()
         val downloadUri = FileProvider.getUriForFile(
@@ -62,9 +64,8 @@ class MmsReceiver : BroadcastReceiver() {
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
 
-        val sms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
-        else SmsManager.getDefault()
+        // Download on the SIM the MMS arrived on (or the one picked in Settings)
+        val sms = SmsRepository.smsManager(context, subId)
 
         val downloadedIntent = PendingIntent.getBroadcast(
             context, System.currentTimeMillis().toInt(),
@@ -134,6 +135,18 @@ class MmsReceiver : BroadcastReceiver() {
             if (read == 1) return
             val addr = getAddress(context, mmsId)
             if (addr.isBlank()) return
+            // Blocked numbers and spam never notify (they did for MMS before)
+            if (BlockedStore.isBlocked(context, addr)) {
+                runCatching { context.contentResolver.update(Uri.parse("content://mms/$mmsId"), android.content.ContentValues().apply { put("read", 1); put("seen", 1) }, null, null) }
+                return
+            }
+            val text = getMmsText(context, mmsId)
+            if (SpamFilter.isSpam(context, addr, text) || (SmsRepository.getContactName(context, addr) == null && KeywordStore.matches(context, text))) {
+                runCatching { context.contentResolver.update(Uri.parse("content://mms/$mmsId"), android.content.ContentValues().apply { put("read", 1); put("seen", 1) }, null, null) }
+                SpamStore.add(context, threadId)
+                return
+            }
+            MessageWidget.refresh(context)
             val name = SmsRepository.getContactName(context, addr) ?: addr
             val body = getMmsText(context, mmsId)
             val prefs = context.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)

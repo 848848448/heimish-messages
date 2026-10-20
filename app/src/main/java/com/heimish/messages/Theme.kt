@@ -1,0 +1,126 @@
+package com.heimish.messages
+
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.app.role.RoleManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.location.LocationManager
+import android.media.MediaRecorder
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.ContactsContract
+import android.provider.Telephony
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+
+// ━━━━━━━━━━━━ THEME — Google Messages / WhatsApp / Telegram grade ━━━━━━━━━
+object ThemeState { var dark by mutableStateOf(false); var version by mutableIntStateOf(0) }
+internal val D get() = ThemeState.dark
+
+internal val Brand: Color        get() = if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
+internal val BrandDk: Color      get() = if (D) Color(0xFF7CACF8) else Color(0xFF0842A0)
+internal val OnBrand: Color      get() = if (D) Color(0xFF003258) else Color.White
+internal val Tonal: Color        get() = if (D) Color(0xFF004A77) else Color(0xFFD3E3FD)
+internal val OnTonal: Color      get() = if (D) Color(0xFFC2E7FF) else Color(0xFF001D35)
+internal val Bg: Color           get() = if (D) Color(0xFF131314) else Color.White
+internal val Surf: Color         get() = if (D) Color(0xFF1E1F20) else Color.White
+internal val SearchBg: Color     get() = if (D) Color(0xFF2F3033) else Color(0xFFF0F4F9)
+internal val SheetBg: Color      get() = if (D) Color(0xFF1E1F20) else Color(0xFFF8FAFD)
+internal val BubbleIn: Color     get() = if (D) Color(0xFF444746) else Color(0xFFE9EEF6)
+internal val BubbleOut: Color    get() = if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
+internal val BubbleOutText: Color  get() = if (D) Color(0xFF003258) else Color.White
+internal val BubbleOutSub: Color   get() = if (D) Color(0xFF003258).copy(.70f) else Color.White.copy(.72f)
+internal val BubbleOutLink: Color  get() = if (D) Color(0xFF0842A0) else Color(0xFFCDE1FF)
+internal val TextPrimary: Color  get() = if (D) Color(0xFFE3E3E3) else Color(0xFF1F1F1F)
+internal val TextSecond: Color   get() = if (D) Color(0xFFC4C7C5) else Color(0xFF444746)
+internal val TextHint: Color     get() = if (D) Color(0xFF8E918F) else Color(0xFF747775)
+internal val DivLt: Color        get() = if (D) Color(0xFF2F3033) else Color(0xFFE8EAED)
+internal val AttachSurf: Color   get() = if (D) Color(0xFF2D2F31) else Color(0xFFE9EEF6)
+internal val Red: Color          get() = if (D) Color(0xFFF2B8B5) else Color(0xFFB3261E)
+internal val Amber: Color        get() = Color(0xFFFFC107)
+
+internal val GMColors: ColorScheme
+    @Composable get() = if (ThemeState.dark) darkColorScheme(
+        primary = Brand, onPrimary = OnBrand, secondary = Brand,
+        background = Bg, surface = Bg, onSurface = TextPrimary,
+        surfaceVariant = SearchBg, onSurfaceVariant = TextSecond,
+        outline = TextHint, outlineVariant = DivLt
+    ) else lightColorScheme(
+        primary = Brand, onPrimary = OnBrand, secondary = Brand,
+        background = Bg, surface = Bg, onSurface = TextPrimary,
+        surfaceVariant = SearchBg, onSurfaceVariant = TextSecond,
+        outline = TextHint, outlineVariant = DivLt
+    )
+
