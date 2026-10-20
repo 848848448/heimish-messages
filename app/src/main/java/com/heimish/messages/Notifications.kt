@@ -62,6 +62,7 @@ object Notifications {
         // Tap → open app
         val openIntent = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("thread_id", threadId); putExtra("address", address); putExtra("name", sender)
         }
         val openPi = PendingIntent.getActivity(ctx, nid, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
