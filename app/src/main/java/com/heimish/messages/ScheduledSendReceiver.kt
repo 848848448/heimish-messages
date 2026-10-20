@@ -13,13 +13,19 @@ class ScheduledSendReceiver : BroadcastReceiver() {
         val address = intent.getStringExtra("address") ?: return
         val body = intent.getStringExtra("body") ?: return
         val id = intent.getLongExtra("sched_id", 0L)
-        try {
-            SmsRepository.sendSms(ctx, address, body)
-            ScheduledStore.remove(ctx, id)
-            Log.d("ScheduledSend", "Sent scheduled message to $address")
-        } catch (e: Exception) {
-            Log.e("ScheduledSend", "Failed to send scheduled message", e)
-        }
+        val pending = goAsync()
+        Thread {
+            try {
+                val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+                if (address.contains(";") && prefs.getBoolean("group_mms_send", true)) {
+                    if (!SmsRepository.sendGroupText(ctx, address, body)) SmsRepository.sendSms(ctx, address, body)
+                } else SmsRepository.sendSms(ctx, address, body)
+                ScheduledStore.remove(ctx, id)
+                Log.d("ScheduledSend", "Sent scheduled message to $address")
+            } catch (e: Exception) {
+                Log.e("ScheduledSend", "Failed to send scheduled message", e)
+            } finally { pending.finish() }
+        }.start()
     }
 
     companion object {
