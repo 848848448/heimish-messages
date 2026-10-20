@@ -72,6 +72,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.compositeOver
 import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -86,44 +88,74 @@ import kotlin.math.roundToInt
 
 
 // ━━━━━━━━━━━━━━━━ SETTINGS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Google Messages-style settings: big collapsing title, grouped rounded cards, colored icons.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
-    Scaffold(containerColor = Bg,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    Scaffold(containerColor = Bg, modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
-            title = { Text("Settings", fontWeight = FontWeight.SemiBold) }) }
+            title = { Text("Settings") }, scrollBehavior = scroll) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad)) {
-            item { SettingsHeader("General") }
-            item { SettRow(Icons.Default.Notifications, "Notifications", "Sounds, vibration, previews") { onSub("notifications") } }
-            item { SettRow(Icons.Default.Shield, "Protection & safety", "Spam and blocked numbers") { onSub("safety") } }
-            item { SettRow(Icons.Default.SwipeRight, "Swipe actions", "What swiping a chat does") { onSub("swipe") } }
-            item { SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, MMS") { onSub("advanced") } }
-            item { SettingsHeader("Appearance") }
-            item { SettRow(Icons.Default.Palette, "Theme", "System, light or dark") { onSub("theme") } }
-            item { SettRow(Icons.Default.ChatBubble, "Chat bubbles", "Bubble color") { onSub("bubbles") } }
-            item { SettRow(Icons.Default.FormatSize, "Text size", "Message text size") { onSub("textsize") } }
-            item { SettRow(Icons.Default.Link, "Automatic previews", "Web link previews") { onSub("previews") } }
-            item { SettingsHeader("Privacy & storage") }
-            item { SettRow(Icons.Default.Report, "Spam protection", "Filter scam texts") { onSub("x_spam") } }
-            item { SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN") { onSub("x_lock") } }
-            item { SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes") { onSub("x_otp") } }
-            item { SettRow(Icons.Default.SimCard, "SIM card & group texts", "Choose SIM, group MMS") { onSub("x_sim") } }
-            item { SettRow(Icons.Default.NotificationsOff, "Quiet hours", "Silent messages at night") { onSub("x_dnd") } }
-            item { SettRow(Icons.Default.Reply, "Quick replies", "Edit your canned replies") { onSub("x_quick") } }
-            item { SettRow(Icons.Default.TextFields, "Large text & display", "Bigger text everywhere") { onSub("x_access") } }
-            item { SettRow(Icons.Default.Palette, "Chat style", "Bubble shape and backgrounds") { onSub("x_style") } }
-            item { SettRow(Icons.Default.Backup, "Backup & restore", "Save or restore your texts") { onSub("x_backup") } }
-            item { SettingsHeader("About") }
-            item { SettRow(Icons.Default.Info, "About Message", "Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})") { onSub("about") } }
+        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
+            item {
+                // App card
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(28.dp)).background(Tonal).clickable { onSub("about") }.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(18.dp)).background(Brand), contentAlignment = Alignment.Center) { Icon(Icons.Filled.Chat, null, tint = OnBrand, modifier = Modifier.size(28.dp)) }
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Message", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = OnTonal)
+                        Text("Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER}", fontSize = 13.sp, color = OnTonal.copy(alpha = .75f))
+                    }
+                    Icon(Icons.Default.ChevronRight, null, tint = OnTonal)
+                }
+            }
+            item { SettingsHeader("Personalize") }
+            item { SettGroup {
+                SettRow(Icons.Default.Palette, "Theme", "Dark mode, wallpaper colors, font", Color(0xFF7B5CF5)) { onSub("theme") }
+                SettRow(Icons.Default.ChatBubble, "Chat bubbles", "Bubble color", Color(0xFF1A73E8)) { onSub("bubbles") }
+                SettRow(Icons.Default.Style, "Chat style", "Bubble shape and backgrounds", Color(0xFF00897B)) { onSub("x_style") }
+                SettRow(Icons.Default.FormatSize, "Text size", "Message text size", Color(0xFFE8710A)) { onSub("textsize") }
+                SettRow(Icons.Default.TextFields, "Large text & display", "Bigger text everywhere", Color(0xFFD93025)) { onSub("x_access") }
+            } }
+            item { SettingsHeader("Notifications") }
+            item { SettGroup {
+                SettRow(Icons.Default.Notifications, "Notifications", "Sounds, vibration, previews, bubbles", Color(0xFFE37400)) { onSub("notifications") }
+                SettRow(Icons.Default.NotificationsOff, "Quiet hours", "Silent messages at night", Color(0xFF5F6368)) { onSub("x_dnd") }
+            } }
+            item { SettingsHeader("Messages") }
+            item { SettGroup {
+                SettRow(Icons.Default.Reply, "Quick replies", "Edit your canned replies", Color(0xFF188038)) { onSub("x_quick") }
+                SettRow(Icons.Default.Link, "Automatic previews", "Web link previews", Color(0xFF1A73E8)) { onSub("previews") }
+                SettRow(Icons.Default.SwipeRight, "Swipe actions", "What swiping a chat does", Color(0xFF9334E6)) { onSub("swipe") }
+                SettRow(Icons.Default.SimCard, "SIM card & group texts", "Choose SIM, group MMS", Color(0xFF00897B)) { onSub("x_sim") }
+                SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, sounds, Enter to send, updates", Color(0xFF5F6368)) { onSub("advanced") }
+            } }
+            item { SettingsHeader("Privacy & safety") }
+            item { SettGroup {
+                SettRow(Icons.Default.Shield, "Protection & safety", "Blocked numbers, keywords, link warnings", Color(0xFF188038)) { onSub("safety") }
+                SettRow(Icons.Default.Report, "Spam protection", "Filter scam texts", Color(0xFFD93025)) { onSub("x_spam") }
+                SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN", Color(0xFF1A73E8)) { onSub("x_lock") }
+                SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes", Color(0xFFE8710A)) { onSub("x_otp") }
+            } }
+            item { SettingsHeader("Data") }
+            item { SettGroup {
+                SettRow(Icons.Default.Backup, "Backup & restore", "Save or restore your texts", Color(0xFF1A73E8)) { onSub("x_backup") }
+                SettRow(Icons.Default.Info, "About & updates", "Version, check for updates", Color(0xFF5F6368)) { onSub("about") }
+            } }
         }
     }
 }
 
 @Composable fun SettingsHeader(label: String) {
-    Text(label.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand, letterSpacing = 0.8.sp,
-        modifier = Modifier.padding(start = 18.dp, top = 18.dp, bottom = 6.dp))
+    Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Brand,
+        modifier = Modifier.padding(start = 8.dp, top = 22.dp, bottom = 8.dp))
+}
+
+/** A rounded card holding a group of settings rows, like Google Messages / Android 14 settings. */
+@Composable fun SettGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(SearchBg), content = content)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -202,6 +234,13 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) item {
                         var dyn by remember { mutableStateOf(prefs.getBoolean("dynamic_color", true)) }
                         SettingSwitch("Wallpaper colors", "Material You colors from your wallpaper", dyn) { dyn = it; prefs.edit().putBoolean("dynamic_color", it).apply(); ThemeState.version++ }
+                    }
+                    item {
+                        var rub by remember { mutableStateOf(prefs.getString("font", "rubik") != "system") }
+                        SettingSwitch("Rubik font", "A clean modern font that looks great in Yiddish. Off = your phone's font", rub) {
+                            rub = it; prefs.edit().putString("font", if (it) "rubik" else "system").apply()
+                            FontState.family = if (it) Rubik else androidx.compose.ui.text.font.FontFamily.Default
+                        }
                     }
                     item {
                         var black by remember { mutableStateOf(prefs.getBoolean("amoled", false)) }
@@ -331,10 +370,14 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
         RadioButton(selected, onClick, colors = RadioButtonDefaults.colors(selectedColor = Brand)); Spacer(Modifier.width(12.dp)); Text(label, fontSize = 15.sp, color = TextPrimary)
     }
 }
-@Composable fun SettRow(icon: ImageVector, title: String, sub: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = TextSecond, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) { Text(title, fontSize = 16.sp, color = TextPrimary); Spacer(Modifier.height(1.dp)); Text(sub, fontSize = 13.sp, color = TextHint) }
+@Composable fun SettRow(icon: ImageVector, title: String, sub: String, tint: Color = Brand, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(tint.copy(alpha = if (D) .28f else .14f)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = if (D) tint.copy(alpha = .95f).compositeOver(Color.White.copy(alpha = .35f)) else tint, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) { Text(title, fontSize = 16.sp, color = TextPrimary); Spacer(Modifier.height(2.dp)); Text(sub, fontSize = 13.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        Icon(Icons.Default.ChevronRight, null, tint = TextHint, modifier = Modifier.size(20.dp))
     }
 }
 
