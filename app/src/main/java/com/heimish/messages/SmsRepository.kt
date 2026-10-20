@@ -32,8 +32,17 @@ data class Message(
     val imageUri: Uri? = null,
     val address: String? = null,
     val mediaMime: String? = null,
-    val status: Int = -1
-)
+    val status: Int = -1,
+    val type: Int = 0,
+    val subId: Int = -1,
+    val dateSent: Long = 0L
+) {
+    val failed: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_FAILED || status == Telephony.Sms.STATUS_FAILED
+    val sending: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_OUTBOX || type == Telephony.Sms.MESSAGE_TYPE_QUEUED
+    val delivered: Boolean get() = status == Telephony.Sms.STATUS_COMPLETE
+    /** Real provider row id (MMS ids are offset by 1,000,000 in [id] so they never collide with SMS keys). */
+    val rowId: Long get() = if (isMms) id - 1_000_000L else id
+}
 
 data class MsgHit(val id: Long, val threadId: Long, val address: String, val name: String, val body: String, val date: Long)
 
@@ -154,8 +163,15 @@ object SmsRepository {
             }
         }
 
-        out.sortByDescending { it.date }
-        return out
+        // Group threads: the address must hold every member, otherwise replies went to one person.
+        val fixed = out.map { c ->
+            val members = threadRecipients(ctx, c.threadId)
+            if (members.size > 1) {
+                val addr = members.joinToString(";")
+                c.copy(address = addr, displayName = members.joinToString(", ") { cachedContactName(ctx, it) ?: it })
+            } else c
+        }
+        return fixed.sortedByDescending { it.date }
     }
 
     // ── Messages ──────────────────────────────────────────────────────────────
@@ -166,7 +182,7 @@ object SmsRepository {
         // SMS
         ctx.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS),
+            arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS, Telephony.Sms.SUBSCRIPTION_ID, Telephony.Sms.DATE_SENT),
             Telephony.Sms.THREAD_ID + " = ?", arrayOf(threadId.toString()),
             Telephony.Sms.DATE + " DESC LIMIT 800"
         )?.use { c ->
@@ -176,6 +192,8 @@ object SmsRepository {
             val iType = c.getColumnIndex(Telephony.Sms.TYPE)
             val iAddr = c.getColumnIndex(Telephony.Sms.ADDRESS)
             val iStat = c.getColumnIndex(Telephony.Sms.STATUS)
+            val iSub  = c.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
+            val iDs   = c.getColumnIndex(Telephony.Sms.DATE_SENT)
             while (c.moveToNext()) {
                 out.add(Message(
                     id       = c.getLong(iId),
@@ -183,7 +201,10 @@ object SmsRepository {
                     date     = c.getLong(iDate),
                     incoming = c.getInt(iType) == Telephony.Sms.MESSAGE_TYPE_INBOX,
                     address  = if (iAddr >= 0) c.getString(iAddr) else null,
-                    status   = if (iStat >= 0) c.getInt(iStat) else -1
+                    status   = if (iStat >= 0) c.getInt(iStat) else -1,
+                    type     = c.getInt(iType),
+                    subId    = if (iSub >= 0) c.getInt(iSub) else -1,
+                    dateSent = if (iDs >= 0) c.getLong(iDs) else 0L
                 ))
             }
         }
@@ -212,7 +233,8 @@ object SmsRepository {
                     isMms    = true,
                     imageUri = parts.mediaUri,
                     address  = mmsAddr,
-                    mediaMime = parts.mediaMime
+                    mediaMime = parts.mediaMime,
+                    type     = c.getInt(iBox)
                 ))
             }
         }
@@ -223,141 +245,155 @@ object SmsRepository {
 
     // ── Send SMS ──────────────────────────────────────────────────────────────
 
-    fun sendSms(ctx: Context, address: String, body: String): Boolean {
-        return runCatching {
-            val sms = smsManager(ctx)
-            val recipients = address.split(";").map { it.trim() }.filter { it.isNotBlank() }
-            for (recipient in recipients) {
-                val parts = sms.divideMessage(body)
-                if (parts.size > 1)
-                    sms.sendMultipartTextMessage(recipient, null, parts, null, null)
-                else
-                    sms.sendTextMessage(recipient, null, body, null, null)
-            }
+    fun splitRecipients(address: String): List<String> =
+        address.split(";", ",").map { it.trim() }.filter { it.isNotBlank() }.distinct()
 
-            val values = ContentValues().apply {
-                put(Telephony.Sms.ADDRESS, address)
-                put(Telephony.Sms.BODY, body)
-                put(Telephony.Sms.DATE, System.currentTimeMillis())
-                put(Telephony.Sms.READ, 1)
-                put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT)
-                put(Telephony.Sms.THREAD_ID, getOrCreateThreadId(ctx, address))
+    /**
+     * Sends a text as SMS (one message per recipient). Each message is written to the
+     * provider as OUTBOX first and moved to SENT / FAILED by [SmsStatusReceiver] when the
+     * radio reports back, so failed messages show as failed and can be resent.
+     */
+    fun sendSms(ctx: Context, address: String, body: String, subId: Int = -1): Boolean {
+        val recipients = splitRecipients(address)
+        if (recipients.isEmpty() || body.isEmpty()) return false
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val wantDelivery = prefs.getBoolean("sms_delivery", false)
+        val threadId = getOrCreateThreadId(ctx, address)
+        var anyOk = false
+        for (recipient in recipients) {
+            var rowUri: Uri? = null
+            val ok = runCatching {
+                val sms = smsManager(ctx, subId)
+                val values = ContentValues().apply {
+                    put(Telephony.Sms.ADDRESS, recipient)
+                    put(Telephony.Sms.BODY, body)
+                    put(Telephony.Sms.DATE, System.currentTimeMillis())
+                    put(Telephony.Sms.READ, 1)
+                    put(Telephony.Sms.SEEN, 1)
+                    put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_OUTBOX)
+                    put(Telephony.Sms.STATUS, if (wantDelivery) Telephony.Sms.STATUS_PENDING else Telephony.Sms.STATUS_NONE)
+                    if (threadId > 0) put(Telephony.Sms.THREAD_ID, threadId)
+                    val sid = effectiveSubId(ctx, subId)
+                    if (sid >= 0) put(Telephony.Sms.SUBSCRIPTION_ID, sid)
+                }
+                rowUri = ctx.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)
+                val parts = sms.divideMessage(body)
+                val sent = ArrayList(parts.indices.map { SmsStatusReceiver.sentIntent(ctx, rowUri, it, it == parts.lastIndex) })
+                val delivered = if (wantDelivery) ArrayList(parts.indices.map { SmsStatusReceiver.deliveredIntent(ctx, rowUri, it) }) else null
+                if (parts.size > 1) sms.sendMultipartTextMessage(recipient, null, parts, sent, delivered)
+                else sms.sendTextMessage(recipient, null, body, sent[0], delivered?.get(0))
+                true
+            }.getOrElse { e ->
+                Log.e("SmsRepo", "sendSms: ${e.message}")
+                rowUri?.let { u -> runCatching { ctx.contentResolver.update(u, ContentValues().apply { put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_FAILED) }, null, null) } }
+                false
             }
-            ctx.contentResolver.insert(Telephony.Sms.Sent.CONTENT_URI, values)
-            true
-        }.getOrElse { e -> Log.e("SmsRepo", "sendSms: ${e.message}"); false }
+            anyOk = anyOk || ok
+        }
+        return anyOk
     }
 
-    // ── Send MMS (image) ──────────────────────────────────────────────────────
+    /** Re-sends a failed message in place (same row, back to OUTBOX). */
+    fun resend(ctx: Context, m: Message, fallbackAddress: String): Boolean {
+        if (m.isMms) return false
+        val to = m.address?.takeIf { it.isNotBlank() } ?: fallbackAddress
+        deleteMessage(ctx, m)
+        return sendSms(ctx, to, m.body, m.subId)
+    }
+
+    // ── Send MMS ──────────────────────────────────────────────────────────────
+
+    private fun cleanupOldPdus(ctx: Context) {
+        runCatching {
+            val cutoff = System.currentTimeMillis() - 60 * 60_000L
+            ctx.cacheDir.listFiles { f -> f.name.startsWith("mms_send_") && f.lastModified() < cutoff }?.forEach { it.delete() }
+        }
+    }
+
+    /** Writes an outgoing MMS to the provider as OUTBOX; [MmsSentReceiver] moves it to SENT / FAILED. */
+    private fun insertOutgoingMms(ctx: Context, threadId: Long, recipients: List<String>, media: Pair<String, ByteArray>?, text: String): Uri? {
+        val now = System.currentTimeMillis()
+        val mmsUri = ctx.contentResolver.insert(Uri.parse("content://mms"), ContentValues().apply {
+            put("thread_id", threadId)
+            put("msg_box", 4) // outbox
+            put("read", 1); put("seen", 1)
+            put("date", now / 1000)
+            put("m_type", 128) // m-send-req
+            put("ct_t", "application/vnd.wap.multipart.related")
+            put("sub_id", effectiveSubId(ctx, -1))
+        }) ?: return null
+        val mmsId = mmsUri.lastPathSegment?.toLongOrNull() ?: return mmsUri
+        ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), ContentValues().apply {
+            put("address", "insert-address-token"); put("msg_id", mmsId); put("type", 137); put("charset", 106)
+        })
+        for (rcp in recipients) {
+            ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), ContentValues().apply {
+                put("address", rcp); put("msg_id", mmsId); put("type", 151); put("charset", 106)
+            })
+        }
+        if (media != null) {
+            val (mimeType, bytes) = media
+            val ext = when {
+                mimeType.startsWith("image/") -> "img"
+                mimeType.startsWith("video/") -> "vid"
+                mimeType.startsWith("audio/") -> "aud"
+                else -> "file"
+            }
+            val partUri = ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), ContentValues().apply {
+                put("mid", mmsId); put("ct", mimeType); put("name", "$ext.${mimeType.substringAfter("/").take(4)}"); put("cl", "$ext.${mimeType.substringAfter("/").take(4)}")
+            })
+            if (partUri != null) ctx.contentResolver.openOutputStream(partUri)?.use { it.write(bytes) }
+        }
+        if (text.isNotBlank()) {
+            ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), ContentValues().apply {
+                put("mid", mmsId); put("ct", "text/plain"); put("chset", 106); put("cl", "text.txt"); put("text", text)
+            })
+        }
+        return mmsUri
+    }
+
+    private fun dispatchMms(ctx: Context, pdu: ByteArray, rowUri: Uri?) {
+        cleanupOldPdus(ctx)
+        val sms = smsManager(ctx)
+        val pduFile = java.io.File(ctx.cacheDir, "mms_send_${System.currentTimeMillis()}_${(0..9999).random()}.dat")
+        pduFile.writeBytes(pdu)
+        val pduUri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", pduFile)
+        ctx.grantUriPermission("com.android.mms.service", pduUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val cfg = android.os.Bundle()
+        cfg.putBoolean(SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, true)
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        cfg.putBoolean("enabledMmsDeliveryReports", prefs.getBoolean("mms_delivery", false))
+        val sendIntent = MmsSentReceiver.intent(ctx, rowUri, pduFile.absolutePath)
+        try {
+            sms.sendMultimediaMessage(ctx, pduUri, null, cfg, sendIntent)
+        } catch (e: Exception) {
+            rowUri?.let { u -> runCatching { ctx.contentResolver.update(u, ContentValues().apply { put("msg_box", 5) }, null, null) } }
+            pduFile.delete()
+            throw e
+        }
+    }
 
     fun sendMms(ctx: Context, address: String, mediaUri: Uri, caption: String = "", overrideMime: String? = null): Boolean {
         return runCatching {
-            val rawBytes = ctx.contentResolver.openInputStream(mediaUri)?.readBytes() ?: return false
+            val rawBytes = ctx.contentResolver.openInputStream(mediaUri)?.use { it.readBytes() } ?: return false
             var mimeType = overrideMime ?: ctx.contentResolver.getType(mediaUri) ?: "application/octet-stream"
-            val sms = smsManager(ctx)
             val threadId = getOrCreateThreadId(ctx, address)
-
-            val bytes = if (mimeType.startsWith("image/")) {
-                val compressed = compressImage(rawBytes, 280_000)
+            val bytes = if (mimeType.startsWith("image/") && !(mimeType == "image/gif" && rawBytes.size < 600_000)) {
                 mimeType = "image/jpeg"
-                compressed
+                compressImage(rawBytes, 280_000)
             } else rawBytes
-
-            val pdu = buildSendReqPdu(address, bytes, mimeType, caption)
-
-            val pduFile = java.io.File(ctx.cacheDir, "mms_send_${System.currentTimeMillis()}.dat")
-            pduFile.writeBytes(pdu)
-            val pduUri = androidx.core.content.FileProvider.getUriForFile(
-                ctx, "${ctx.packageName}.fileprovider", pduFile
-            )
-            ctx.grantUriPermission("com.android.mms.service", pduUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-
-            val configOverrides = android.os.Bundle()
-            configOverrides.putBoolean(android.telephony.SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, true)
-
-            val sendIntent = android.app.PendingIntent.getBroadcast(
-                ctx, System.currentTimeMillis().toInt(),
-                Intent("com.heimish.messages.MMS_SENT"),
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-            )
-            sms.sendMultimediaMessage(ctx, pduUri, null, configOverrides, sendIntent)
-
-            val mmsValues = ContentValues().apply {
-                put("thread_id", threadId)
-                put("msg_box", 2)
-                put("read", 1)
-                put("seen", 1)
-                put("date", System.currentTimeMillis() / 1000)
-                put("ct_t", "application/vnd.wap.multipart.mixed")
-            }
-            val mmsInsertUri = ctx.contentResolver.insert(Uri.parse("content://mms"), mmsValues)
-            val mmsId = mmsInsertUri?.lastPathSegment?.toLong()
-            if (mmsId != null) {
-                val addrValues = ContentValues().apply {
-                    put("address", address)
-                    put("msg_id", mmsId)
-                    put("type", 151) // TO
-                    put("charset", 106) // UTF-8
-                }
-                ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), addrValues)
-
-                val ext = when {
-                    mimeType.startsWith("image/") -> "img"
-                    mimeType.startsWith("video/") -> "vid"
-                    mimeType.startsWith("audio/") -> "aud"
-                    else -> "file"
-                }
-                val mediaValues = ContentValues().apply {
-                    put("mid", mmsId)
-                    put("ct", mimeType)
-                    put("name", "$ext.${mimeType.substringAfter("/").take(4)}")
-                    put("chset", 106)
-                }
-                val partUri = ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), mediaValues)
-                if (partUri != null) {
-                    ctx.contentResolver.openOutputStream(partUri)?.use { it.write(bytes) }
-                }
-
-                if (caption.isNotBlank()) {
-                    val textValues = ContentValues().apply {
-                        put("mid", mmsId)
-                        put("ct", "text/plain")
-                        put("chset", 106)
-                        put("text", caption)
-                    }
-                    ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), textValues)
-                }
-            }
-
-            Thread { Thread.sleep(30_000); pduFile.delete() }.start()
+            val recipients = splitRecipients(address)
+            val row = insertOutgoingMms(ctx, threadId, recipients, mimeType to bytes, caption)
+            dispatchMms(ctx, buildSendReqPdu(address, bytes, mimeType, caption), row)
             true
         }.getOrElse { e -> Log.e("SmsRepo", "sendMms: ${e.message}"); false }
     }
 
     fun sendGroupText(ctx: Context, address: String, body: String): Boolean {
         return runCatching {
-            val sms = smsManager(ctx)
             val threadId = getOrCreateThreadId(ctx, address)
-            val pdu = buildSendReqPdu(address, ByteArray(0), "text/plain", body, true)
-            val pduFile = java.io.File(ctx.cacheDir, "mms_send_${System.currentTimeMillis()}.dat")
-            pduFile.writeBytes(pdu)
-            val pduUri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", pduFile)
-            ctx.grantUriPermission("com.android.mms.service", pduUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            val cfg = android.os.Bundle()
-            cfg.putBoolean(android.telephony.SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, true)
-            val sendIntent = android.app.PendingIntent.getBroadcast(ctx, System.currentTimeMillis().toInt(), Intent("com.heimish.messages.MMS_SENT"),
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
-            sms.sendMultimediaMessage(ctx, pduUri, null, cfg, sendIntent)
-            val mmsId = ctx.contentResolver.insert(Uri.parse("content://mms"), ContentValues().apply {
-                put("thread_id", threadId); put("msg_box", 2); put("read", 1); put("seen", 1)
-                put("date", System.currentTimeMillis() / 1000); put("ct_t", "application/vnd.wap.multipart.mixed")
-            })?.lastPathSegment?.toLong()
-            if (mmsId != null) {
-                for (rcp in address.split(";").map { it.trim() }.filter { it.isNotBlank() })
-                    ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), ContentValues().apply { put("address", rcp); put("msg_id", mmsId); put("type", 151); put("charset", 106) })
-                ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), ContentValues().apply { put("mid", mmsId); put("ct", "text/plain"); put("chset", 106); put("text", body) })
-            }
-            Thread { Thread.sleep(30_000); pduFile.delete() }.start()
+            val row = insertOutgoingMms(ctx, threadId, splitRecipients(address), null, body)
+            dispatchMms(ctx, buildSendReqPdu(address, ByteArray(0), "text/plain", body, true), row)
             true
         }.getOrElse { e -> Log.e("SmsRepo", "sendGroupText: ${e.message}"); false }
     }
@@ -380,20 +416,14 @@ object SmsRepository {
         writeLongInteger(out, (System.currentTimeMillis() / 1000).toInt())
 
         // To (one header per recipient for group MMS)
-        val recipients = address.split(";").map { it.trim().replace(Regex("[^0-9+]"), "") }.filter { it.isNotBlank() }
+        val recipients = splitRecipients(address).map { it.replace(Regex("[^0-9+]"), "") }.filter { it.isNotBlank() }
         for (recipient in recipients) {
             out.write(0x97)
             out.write("$recipient/TYPE=PLMN".toByteArray()); out.write(0x00)
         }
 
-        // Subject (optional)
-        if (caption.isNotBlank() && !textOnly) {
-            out.write(0x96)
-            val subjBytes = caption.take(40).toByteArray(Charsets.UTF_8)
-            writeValueLength(out, subjBytes.size + 2)
-            out.write(0xEA.toByte().toInt())
-            out.write(subjBytes); out.write(0x00)
-        }
+        // No Subject header: the caption travels as its own UTF-8 text part. (Putting it in the
+        // subject too made many phones show the caption twice.)
 
         // Content-Type: application/vnd.wap.multipart.mixed (0xA3 short-integer)
         out.write(0x84); out.write(0xA3.toByte().toInt())
@@ -406,6 +436,8 @@ object SmsRepository {
         if (!textOnly) {
         val mediaPartHeaders = java.io.ByteArrayOutputStream()
         mediaPartHeaders.write(mimeType.toByteArray()); mediaPartHeaders.write(0x00)
+        // Content-Location, so receivers (iPhones especially) get a file name
+        mediaPartHeaders.write(0x8E); mediaPartHeaders.write(("media." + mimeType.substringAfter("/").substringBefore(";").take(4)).toByteArray()); mediaPartHeaders.write(0x00)
         writeUintVar(out, mediaPartHeaders.size())
         writeUintVar(out, mediaBytes.size)
         out.write(mediaPartHeaders.toByteArray())
@@ -416,7 +448,10 @@ object SmsRepository {
         if (caption.isNotBlank()) {
             val textBytes = caption.toByteArray(Charsets.UTF_8)
             val textPartHeaders = java.io.ByteArrayOutputStream()
-            textPartHeaders.write("text/plain".toByteArray()); textPartHeaders.write(0x00)
+            // Content-Type: text/plain; charset=utf-8  (general form: length 3, 0x83 text/plain,
+            // 0x81 charset, 0xEA utf-8). Without the charset, Yiddish/Hebrew arrived garbled.
+            textPartHeaders.write(0x03); textPartHeaders.write(0x83); textPartHeaders.write(0x81); textPartHeaders.write(0xEA)
+            textPartHeaders.write(0x8E); textPartHeaders.write("text.txt".toByteArray()); textPartHeaders.write(0x00)
             writeUintVar(out, textPartHeaders.size())
             writeUintVar(out, textBytes.size)
             out.write(textPartHeaders.toByteArray())
@@ -464,21 +499,38 @@ object SmsRepository {
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(raw, 0, raw.size, opts)
         var sampleSize = 1
-        while (opts.outWidth / sampleSize > 1024 || opts.outHeight / sampleSize > 1024) sampleSize *= 2
-        val decOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val bmp = BitmapFactory.decodeByteArray(raw, 0, raw.size, decOpts) ?: return raw
-        var quality = 85
-        while (quality >= 20) {
-            val baos = java.io.ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos)
-            val result = baos.toByteArray()
-            if (result.size <= maxSize) { bmp.recycle(); return result }
-            quality -= 10
+        while (opts.outWidth / sampleSize > 1600 || opts.outHeight / sampleSize > 1600) sampleSize *= 2
+        val decoded = BitmapFactory.decodeByteArray(raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sampleSize }) ?: return raw
+        // Respect EXIF orientation — without this, portrait camera photos were sent sideways.
+        val rotation = runCatching {
+            when (android.media.ExifInterface(java.io.ByteArrayInputStream(raw)).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+        }.getOrDefault(0f)
+        var bmp = if (rotation != 0f) {
+            val m = android.graphics.Matrix().apply { postRotate(rotation) }
+            Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, m, true).also { if (it !== decoded) decoded.recycle() }
+        } else decoded
+        var result = raw
+        for (attempt in 0 until 4) {
+            var quality = 90
+            while (quality >= 50) {
+                val baos = java.io.ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+                result = baos.toByteArray()
+                if (result.size <= maxSize) { bmp.recycle(); return result }
+                quality -= 10
+            }
+            // Still too big at decent quality: shrink the picture instead of making it mushy.
+            val smaller = Bitmap.createScaledBitmap(bmp, (bmp.width * 0.75f).toInt().coerceAtLeast(1), (bmp.height * 0.75f).toInt().coerceAtLeast(1), true)
+            if (smaller !== bmp) bmp.recycle()
+            bmp = smaller
         }
-        val baos = java.io.ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 20, baos)
         bmp.recycle()
-        return baos.toByteArray()
+        return result
     }
 
     // ── Mark read ─────────────────────────────────────────────────────────────
@@ -507,24 +559,55 @@ object SmsRepository {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    /** The SIM to use: an explicit [subId], else the one picked in Settings, else -1 (system default). */
+    fun effectiveSubId(ctx: Context, subId: Int): Int =
+        if (subId >= 0) subId else ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("sim_sub", -1)
+
     @Suppress("DEPRECATION")
-    private fun smsManager(ctx: Context): SmsManager {
-        val sub = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("sim_sub", -1)
-        if (sub >= 0) runCatching { return SmsManager.getSmsManagerForSubscriptionId(sub) }
+    internal fun smsManager(ctx: Context, subId: Int = -1): SmsManager {
+        val sub = effectiveSubId(ctx, subId)
+        if (sub >= 0) runCatching {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                ctx.getSystemService(SmsManager::class.java).createForSubscriptionId(sub)
+            else SmsManager.getSmsManagerForSubscriptionId(sub)
+        }
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             ctx.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
         else
             SmsManager.getDefault()
     }
 
-    private fun getOrCreateThreadId(ctx: Context, address: String): Long {
-        return runCatching {
-            val uri = Uri.parse("content://mms-sms/threadID")
-                .buildUpon().appendQueryParameter("recipient", address).build()
-            ctx.contentResolver.query(uri, arrayOf("_id"), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getLong(0) else 0L
-            } ?: 0L
-        }.getOrDefault(0L)
+    /** Thread for one or more recipients ("a;b;c" is a group thread, not a thread with a weird address). */
+    fun getOrCreateThreadId(ctx: Context, address: String): Long {
+        val recipients = splitRecipients(address)
+        if (recipients.isEmpty()) return 0L
+        return runCatching { Telephony.Threads.getOrCreateThreadId(ctx, recipients.toSet()) }.getOrDefault(0L)
+    }
+
+    private val recipientCache = java.util.concurrent.ConcurrentHashMap<Long, List<String>>()
+
+    /** Every participant of a thread (all members of a group), from the threads table. */
+    fun threadRecipients(ctx: Context, threadId: Long): List<String> {
+        if (threadId <= 0) return emptyList()
+        recipientCache[threadId]?.let { return it }
+        val ids = runCatching {
+            ctx.contentResolver.query(Uri.parse("content://mms-sms/conversations?simple=true"), arrayOf("recipient_ids"),
+                "_id = ?", arrayOf(threadId.toString()), null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull()?.split(" ")?.mapNotNull { it.trim().toLongOrNull() } ?: return emptyList()
+        val out = ids.mapNotNull { id ->
+            runCatching {
+                ctx.contentResolver.query(Uri.parse("content://mms-sms/canonical-address/$id"), arrayOf("address"), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
+        if (out.isNotEmpty()) recipientCache[threadId] = out
+        return out
+    }
+
+    /** The address to send to for a thread: every member joined with ";" for groups. */
+    fun threadAddress(ctx: Context, threadId: Long, fallback: String): String {
+        val r = threadRecipients(ctx, threadId)
+        return if (r.isEmpty()) fallback else r.joinToString(";")
     }
 
     private fun contactName(ctx: Context, number: String): String? {
@@ -627,7 +710,8 @@ object SmsRepository {
                     if (it.moveToFirst()) return it.getLong(0)
                 }
             } catch (_: Exception) {}
-            return address.hashCode().toLong()
+            // Never invent a thread id (the old hashCode fallback opened chats that did not exist).
+            return getOrCreateThreadId(ctx, address)
         }
 
         fun getContactName(ctx: Context, address: String): String? {
@@ -681,18 +765,14 @@ object SmsRepository {
             return contacts
         }
 
-        fun deleteMessage(ctx: Context, msgId: Long) {
-            try {
-                if (msgId >= 1_000_000L) {
-                    val realMmsId = msgId - 1_000_000L
-                    ctx.contentResolver.delete(Uri.parse("content://mms"), "_id = ?", arrayOf(realMmsId.toString()))
-                } else {
-                    ctx.contentResolver.delete(Telephony.Sms.CONTENT_URI, "_id = ?", arrayOf(msgId.toString()))
-                }
-            } catch (_: Exception) {}
-        }
+        fun deleteMessage(ctx: Context, m: Message) {
+        try {
+            if (m.isMms) ctx.contentResolver.delete(Uri.parse("content://mms/${m.rowId}"), null, null)
+            else ctx.contentResolver.delete(Uri.parse("content://sms/${m.rowId}"), null, null)
+        } catch (_: Exception) {}
+    }
 
-        fun deleteThread(ctx: Context, threadId: Long) {
+    fun deleteThread(ctx: Context, threadId: Long) {
             try {
                 ctx.contentResolver.delete(Telephony.Sms.CONTENT_URI, "thread_id = ?", arrayOf(threadId.toString()))
                 ctx.contentResolver.delete(Uri.parse("content://mms"), "thread_id = ?", arrayOf(threadId.toString()))
