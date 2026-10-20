@@ -1,3 +1,3 @@
-New
-- Remind me about a chat in 1 hour, 3 hours or tomorrow morning
-- Search in a chat can be limited to photos or links
+Fixed
+- Removed the always-visible "up to date" line on the chat list
+- Chat header no longer repeats the phone number twice
