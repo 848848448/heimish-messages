@@ -37,7 +37,9 @@ data class Message(
     val subId: Int = -1,
     val dateSent: Long = 0L
 ) {
-    val failed: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_FAILED || status == Telephony.Sms.STATUS_FAILED
+    /** Only a message the radio really refused counts as "Not sent". A bad delivery report is not a failed send. */
+    val failed: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_FAILED
+    val notDelivered: Boolean get() = !failed && status == Telephony.Sms.STATUS_FAILED
     val sending: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_OUTBOX || type == Telephony.Sms.MESSAGE_TYPE_QUEUED
     val delivered: Boolean get() = status == Telephony.Sms.STATUS_COMPLETE
     /** Real provider row id (MMS ids are offset by 1,000,000 in [id] so they never collide with SMS keys). */
@@ -67,18 +69,89 @@ object SmsRepository {
     private val contactCache = HashMap<String, String?>()
     private var contactCacheTime = 0L
 
+    // Called from several background threads at once (list, search, notifications): keep it synchronized,
+    // a plain HashMap here could crash with ConcurrentModificationException.
     private fun cachedContactName(ctx: Context, number: String): String? {
         if (number.isBlank()) return null
-        if (System.currentTimeMillis() - contactCacheTime > 120_000) {
-            contactCache.clear()
-            contactCacheTime = System.currentTimeMillis()
+        synchronized(contactCache) {
+            if (System.currentTimeMillis() - contactCacheTime > 120_000) {
+                contactCache.clear()
+                contactCacheTime = System.currentTimeMillis()
+            }
+            if (contactCache.containsKey(number)) return contactCache[number]
         }
-        return contactCache.getOrPut(number) { contactName(ctx, number) }
+        val n = contactName(ctx, number)
+        synchronized(contactCache) { contactCache[number] = n }
+        return n
     }
 
     // ── Conversations ─────────────────────────────────────────────────────────
 
-    fun loadConversations(ctx: Context): List<Conversation> {
+    /**
+     * The chat list, read from the threads table: one row per chat with its latest snippet and date,
+     * instead of walking every SMS ever received (that took seconds on big phones, and a chat whose
+     * newest message was a picture showed an older text and sat too low in the list).
+     */
+    fun loadConversations(ctx: Context): List<Conversation> =
+        runCatching { loadConversationsFast(ctx) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: loadConversationsFull(ctx)
+
+    private fun loadConversationsFast(ctx: Context): List<Conversation>? {
+        val canon = HashMap<Long, String>()
+        ctx.contentResolver.query(Uri.parse("content://mms-sms/canonical-addresses"), arrayOf("_id", "address"), null, null, null)?.use { c ->
+            while (c.moveToNext()) canon[c.getLong(0)] = c.getString(1) ?: ""
+        } ?: return null
+        // Unread counts per thread
+        val unreadCounts = HashMap<Long, Int>()
+        runCatching {
+            ctx.contentResolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID), Telephony.Sms.READ + " = 0", null, null)?.use { c ->
+                while (c.moveToNext()) { val t = c.getLong(0); unreadCounts[t] = (unreadCounts[t] ?: 0) + 1 }
+            }
+        }
+        runCatching {
+            ctx.contentResolver.query(Uri.parse("content://mms"), arrayOf("thread_id"), "read = 0", null, null)?.use { c ->
+                while (c.moveToNext()) { val t = c.getLong(0); unreadCounts[t] = (unreadCounts[t] ?: 0) + 1 }
+            }
+        }
+        // Was the latest text in each chat sent by me? Only the newest few thousand texts are needed for that.
+        val lastType = HashMap<Long, Int>()
+        runCatching {
+            ctx.contentResolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.TYPE, Telephony.Sms.DATE), null, null,
+                Telephony.Sms.DATE + " DESC LIMIT 3000")?.use { c ->
+                while (c.moveToNext()) { val t = c.getLong(0); if (!lastType.containsKey(t)) lastType[t] = c.getInt(1) }
+            }
+        }
+        val out = ArrayList<Conversation>()
+        ctx.contentResolver.query(Uri.parse("content://mms-sms/conversations?simple=true"),
+            arrayOf("_id", "date", "snippet", "recipient_ids", "message_count", "has_attachment"), null, null, "date DESC")?.use { c ->
+            val iId = c.getColumnIndex("_id"); val iDate = c.getColumnIndex("date"); val iSn = c.getColumnIndex("snippet")
+            val iRec = c.getColumnIndex("recipient_ids"); val iCount = c.getColumnIndex("message_count"); val iAtt = c.getColumnIndex("has_attachment")
+            if (iId < 0 || iDate < 0 || iRec < 0) return null
+            while (c.moveToNext()) {
+                val thread = c.getLong(iId)
+                if (iCount >= 0 && c.getInt(iCount) == 0) continue // empty draft threads
+                val members = (c.getString(iRec) ?: "").split(" ").mapNotNull { it.trim().toLongOrNull()?.let(canon::get) }.filter { it.isNotBlank() }
+                if (members.isEmpty()) continue
+                if (members.size > 1) recipientCache[thread] = members
+                val addr = members.joinToString(";")
+                val name = if (members.size > 1) members.joinToString(", ") { cachedContactName(ctx, it) ?: it } else (cachedContactName(ctx, addr) ?: addr)
+                var snippet = if (iSn >= 0) c.getString(iSn) ?: "" else ""
+                if (snippet.isBlank() && iAtt >= 0 && c.getInt(iAtt) == 1) snippet = "📷 Photo"
+                if (snippet.isBlank()) snippet = mmsSnippetForThread(ctx, thread)
+                val uc = unreadCounts[thread] ?: 0
+                val t = lastType[thread]
+                out.add(Conversation(threadId = thread, address = addr, displayName = name, snippet = snippet, date = c.getLong(iDate),
+                    unread = uc > 0, unreadCount = uc, outgoing = t != null && t != Telephony.Sms.MESSAGE_TYPE_INBOX))
+            }
+        } ?: return null
+        return out.sortedByDescending { it.date }
+    }
+
+    private fun mmsSnippetForThread(ctx: Context, threadId: Long): String = runCatching {
+        ctx.contentResolver.query(Uri.parse("content://mms"), arrayOf("_id"), "thread_id = ?", arrayOf(threadId.toString()), "date DESC LIMIT 1")
+            ?.use { c -> if (c.moveToFirst()) mmsSnippet(ctx, c.getLong(0)) else "" } ?: ""
+    }.getOrDefault("")
+
+    private fun loadConversationsFull(ctx: Context): List<Conversation> {
         val out = ArrayList<Conversation>()
         val seen = HashSet<Long>()
 
@@ -562,8 +635,15 @@ object SmsRepository {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /** The SIM to use: an explicit [subId], else the one picked in Settings, else -1 (system default). */
-    fun effectiveSubId(ctx: Context, subId: Int): Int =
-        if (subId >= 0) subId else ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("sim_sub", -1)
+    fun effectiveSubId(ctx: Context, subId: Int): Int {
+        val s = if (subId >= 0) subId else ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("sim_sub", -1)
+        if (s < 0) return -1
+        // A SIM that was removed or switched off can't send: use the phone's default instead of failing every message
+        val active = runCatching {
+            if (Build.VERSION.SDK_INT >= 22) (ctx.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? android.telephony.SubscriptionManager)?.getActiveSubscriptionInfo(s) != null else true
+        }.getOrDefault(true)
+        return if (active) s else -1
+    }
 
     @Suppress("DEPRECATION")
     internal fun smsManager(ctx: Context, subId: Int = -1): SmsManager {
