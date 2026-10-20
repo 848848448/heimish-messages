@@ -216,6 +216,7 @@ sealed class Screen {
     data object Starred : Screen()
     data object Scheduled : Screen()
     data object Spam : Screen()
+    data class WhatsNew(val info: UpdateInfo?) : Screen()
     data class Extra(val key: String) : Screen()
 }
 
@@ -243,6 +244,8 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     val permL = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { hasPerms = Permissions.granted(ctx) }
     var screen by remember { mutableStateOf<Screen>(Screen.List) }
     LaunchedEffect(Unit) {
+        val seen = prefs.getInt("seen_build", 0)
+        if (seen != BuildConfig.BUILD_NUMBER) { prefs.edit().putInt("seen_build", BuildConfig.BUILD_NUMBER).apply(); if (seen != 0) screen = Screen.WhatsNew(null) }
         val i = (ctx as? android.app.Activity)?.intent
         val tid = i?.getLongExtra("thread_id", -1L) ?: -1L
         val addr = i?.getStringExtra("address")
@@ -279,7 +282,8 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             onGranted = { hasPerms = true }
         )
         else -> when (val s = screen) {
-            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived }, { screen = Screen.Starred }, { screen = Screen.Scheduled }, { screen = Screen.Spam })
+            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived }, { screen = Screen.Starred }, { screen = Screen.Scheduled }, { screen = Screen.Spam }, { screen = Screen.WhatsNew(it) })
+            is Screen.WhatsNew -> WhatsNewScreen(s.info) { screen = Screen.List }
             Screen.Spam     -> SpamScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
             is Screen.Extra -> ExtraScreen(s.key) { screen = Screen.Settings }
             is Screen.Chat  -> ThreadScreen(s.conv) { screen = Screen.List }
@@ -376,7 +380,7 @@ fun rememberProviderTick(): Int {
 
 // One-tap in-app update card: downloads the newest GitHub release APK and opens the installer.
 @Composable
-fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
+fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?, onDetails: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var progress by remember { mutableStateOf<Float?>(null) }
@@ -415,7 +419,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
             else { waitingPerm = true; Toast.makeText(ctx, "Turn on \"Allow from this source\" once, then come back", Toast.LENGTH_LONG).show(); Updater.openInstallPermission(ctx) }
         }
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(20.dp)).background(Tonal).clickable { go() }.padding(horizontal = 16.dp, vertical = 12.dp),
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(20.dp)).background(Tonal).clickable { if (onDetails != null && ready == null && progress == null && !installing) onDetails() else go() }.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Default.SystemUpdate, null, tint = OnTonal)
         Spacer(Modifier.width(14.dp))
@@ -432,6 +436,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
             if (info.notes.isNotBlank() && progress == null && !installing) Text("What's new: " + info.notes.lines().filter { it.isNotBlank() }.take(4).joinToString(" · "), fontSize = 12.sp, color = OnTonal.copy(alpha = .75f), maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             if (progress != null) { Spacer(Modifier.height(6.dp)); LinearProgressIndicator(progress = { progress ?: 0f }, modifier = Modifier.fillMaxWidth(), color = Brand, trackColor = Bg.copy(alpha = .4f)) }
         }
+        if (onDetails != null && progress == null && !installing) { Button({ go() }, colors = ButtonDefaults.buttonColors(Brand, OnBrand), contentPadding = PaddingValues(horizontal = 14.dp)) { Text(if (ready != null) "Install" else "Update") }; Spacer(Modifier.width(4.dp)) }
         if (onDismiss != null && progress == null) IconButton(onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = OnTonal) }
     }
 }
@@ -441,7 +446,7 @@ object ConvCache { @Volatile var list: List<Conversation>? = null }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit, onStarred: () -> Unit, onScheduled: () -> Unit, onSpam: () -> Unit = {}) {
+fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit, onStarred: () -> Unit, onScheduled: () -> Unit, onSpam: () -> Unit = {}, onWhatsNew: (UpdateInfo) -> Unit = {}) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(ConvCache.list ?: emptyList()) }
     var loaded by remember { mutableStateOf(ConvCache.list != null) }
@@ -596,7 +601,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             }
             Text("Message ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER} · " + (if (latestKnown > BuildConfig.BUILD_NUMBER) "update available" else if (latestKnown > 0) "up to date" else "checking for updates…"),
                 Modifier.padding(horizontal = 20.dp, vertical = 2.dp), fontSize = 11.sp, color = if (latestKnown > BuildConfig.BUILD_NUMBER) Brand else TextHint)
-            update?.let { u -> UpdateCard(u) { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null } }
+            update?.let { u -> UpdateCard(u, { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null }, { onWhatsNew(u) }) }
             Spacer(Modifier.height(6.dp))
             if (filtered.isEmpty() && hits.isEmpty() && loaded) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1011,18 +1016,6 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         draft = ""
         Toast.makeText(ctx, "Scheduled for " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(at)), Toast.LENGTH_LONG).show()
     }
-    fun pickScheduleTime() {
-        if (draft.trim().isEmpty()) { Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show(); return }
-        fun at(daysAhead: Int, hour: Int) = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, daysAhead); set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
-        val opts = ArrayList<Pair<String, Long>>()
-        opts.add("In 1 hour" to System.currentTimeMillis() + 3_600_000L)
-        if (at(0, 20) > System.currentTimeMillis() + 600_000L) opts.add("Tonight, 8:00 PM" to at(0, 20))
-        opts.add("Tomorrow morning, 8:00 AM" to at(1, 8))
-        opts.add("Tomorrow afternoon, 1:00 PM" to at(1, 13))
-        val labels = (opts.map { it.first } + "Pick date and time…").toTypedArray()
-        android.app.AlertDialog.Builder(ctx).setTitle("Schedule send").setItems(labels) { _, i -> if (i < opts.size) doSchedule(opts[i].second) else pickCustomTime() }.show()
-    }
-
     fun pickCustomTime() {
         val now = Calendar.getInstance()
         DatePickerDialog(ctx, { _, y, mo, d ->
@@ -1042,6 +1035,18 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 }
             }, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), false).show()
         }, now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH)).show()
+    }
+
+    fun pickScheduleTime() {
+        if (draft.trim().isEmpty()) { Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show(); return }
+        fun at(daysAhead: Int, hour: Int) = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, daysAhead); set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
+        val opts = ArrayList<Pair<String, Long>>()
+        opts.add("In 1 hour" to System.currentTimeMillis() + 3_600_000L)
+        if (at(0, 20) > System.currentTimeMillis() + 600_000L) opts.add("Tonight, 8:00 PM" to at(0, 20))
+        opts.add("Tomorrow morning, 8:00 AM" to at(1, 8))
+        opts.add("Tomorrow afternoon, 1:00 PM" to at(1, 13))
+        val labels = (opts.map { it.first } + "Pick date and time…").toTypedArray()
+        android.app.AlertDialog.Builder(ctx).setTitle("Schedule send").setItems(labels) { _, i -> if (i < opts.size) doSchedule(opts[i].second) else pickCustomTime() }.show()
     }
 
     fun startRecording() {
