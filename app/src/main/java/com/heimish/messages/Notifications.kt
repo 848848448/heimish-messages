@@ -54,8 +54,8 @@ object Notifications {
         val title = if (showSender) sender else "New message"
         val text = if (showPreview) body else ""
 
-        val channelId = channelFor(ctx)
-        ensureChannel(ctx, channelId)
+        val channelId = threadChannel(ctx, threadId) ?: channelFor(ctx)
+        ensureChannel(ctx, channelFor(ctx))
 
         val nid = (threadId % Int.MAX_VALUE).toInt()
 
@@ -100,7 +100,7 @@ object Notifications {
             .setContentIntent(openPi)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(if (channelId == CHANNEL_ID) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(if (channelId != CHANNEL_QUIET) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .addAction(replyAction)
             .addAction(readAction)
         if (text.isNotEmpty()) {
@@ -109,6 +109,31 @@ object Notifications {
         }
 
         try { NotificationManagerCompat.from(ctx).notify(nid, builder.build()) } catch (_: SecurityException) {}
+    }
+
+    fun showSimple(ctx: Context, title: String, text: String, nid: Int) {
+        ensureChannel(ctx, CHANNEL_QUIET)
+        val open = PendingIntent.getActivity(ctx, nid, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val b = NotificationCompat.Builder(ctx, CHANNEL_QUIET).setSmallIcon(android.R.drawable.sym_action_chat)
+            .setContentTitle(title).setContentText(text).setContentIntent(open).setAutoCancel(true)
+        try { NotificationManagerCompat.from(ctx).notify(nid, b.build()) } catch (_: SecurityException) {}
+    }
+
+    /** Per-chat sound: creates a dedicated channel when the user picked a tone for this thread. */
+    fun threadChannel(ctx: Context, threadId: Long): String? {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        if (!prefs.contains("tone_$threadId")) return null
+        val tone = prefs.getString("tone_$threadId", "") ?: ""
+        val id = "thread_${threadId}_" + tone.hashCode()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(id, "Chat tone", NotificationManager.IMPORTANCE_HIGH).apply {
+                if (tone.isEmpty()) setSound(null, null)
+                else setSound(android.net.Uri.parse(tone), android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).build())
+            }
+            (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
+        }
+        return id
     }
 
     fun showTestNotification(ctx: Context) {
