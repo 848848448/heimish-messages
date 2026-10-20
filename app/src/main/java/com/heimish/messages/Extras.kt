@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -184,10 +185,11 @@ fun SpamScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     var list by remember { mutableStateOf(emptyList<Conversation>()) }
     LaunchedEffect(tick) {
         val ids = SpamStore.all(ctx)
-        list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }.filter { it.threadId in ids }
+        // Blocked chats show here too (they were hidden everywhere with no way to unblock them)
+        list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }.filter { it.threadId in ids || BlockedStore.isBlocked(ctx, it.address) }
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("Spam & blocked", fontSize = 22.sp) }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }) }) { pad ->
-        if (list.isEmpty()) Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { Text("No spam", color = MaterialTheme.colorScheme.outline) }
+    Scaffold(topBar = { TopAppBar(title = { Text("Spam & blocked", fontSize = 22.sp) }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { pad ->
+        if (list.isEmpty()) Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { Text("No spam or blocked chats", color = MaterialTheme.colorScheme.outline) }
         else LazyColumn(Modifier.padding(pad)) {
             items(list, key = { it.threadId }) { c ->
                 Row(Modifier.fillMaxWidth().clickable { onOpen(c) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -197,7 +199,8 @@ fun SpamScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                         Text(c.displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, color = MaterialTheme.colorScheme.onSurface)
                         Text(c.snippet, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    TextButton({ SpamStore.remove(ctx, c.threadId); tick++ }) { Text("Not spam") }
+                    if (BlockedStore.isBlocked(ctx, c.address)) TextButton({ BlockedStore.unblock(ctx, c.address); SpamStore.remove(ctx, c.threadId); tick++ }) { Text("Unblock") }
+                    else TextButton({ SpamStore.remove(ctx, c.threadId); tick++ }) { Text("Not spam") }
                 }
             }
         }
@@ -228,7 +231,7 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
         }
     }
     Scaffold(containerColor = Bg, topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-        title = { Text(title) }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }) }) { pad ->
+        title = { Text(title) }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { pad ->
         Column(Modifier.padding(pad)) {
             when (key) {
                 "spam" -> {
@@ -399,7 +402,7 @@ const val WHATS_NEW = """New
 @Composable
 fun WhatsNewScreen(info: UpdateInfo?, onBack: () -> Unit) {
     val notes = if (info != null && info.notes.isNotBlank() && !info.notes.startsWith("Install app-debug")) info.notes else WHATS_NEW
-    Scaffold(topBar = { TopAppBar(title = { Text(if (info != null) "Update to build ${info.build}" else "What's new", fontWeight = FontWeight.SemiBold) }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }) },
+    Scaffold(topBar = { TopAppBar(title = { Text(if (info != null) "Update to build ${info.build}" else "What's new", fontWeight = FontWeight.SemiBold) }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) },
         bottomBar = { if (info != null) Column(Modifier.padding(bottom = 12.dp)) { UpdateCard(info, null) } }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 20.dp)) {
             items(notes.lines().filter { it.isNotBlank() }) { l ->
@@ -492,7 +495,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = Chrome) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 24.dp)) {
-                Row(Modifier.padding(4.dp)) { IconButton(onClose) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) } }
+                Row(Modifier.padding(4.dp)) { IconButton(onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) } }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Avatar(c.displayName, c.address, 120.dp, 48.sp)
                     Spacer(Modifier.height(14.dp))
@@ -549,7 +552,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                     Row2(Icons.Outlined.Block, "Block & report spam", color = Red) { BlockedStore.block(ctx, c.address); Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show() }
                     Row2(Icons.Outlined.Delete, "Delete conversation", color = Red) { confirmDel = true }
                 }
-                if (c.address.contains(";")) Card {
+                Card {
                     val members = c.address.split(";").filter { it.isNotBlank() }
                     Text(if (members.size == 1) "1 other person" else "${members.size} other people", fontSize = 14.sp, color = TextSecond, modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp))
                     members.forEach { num ->
