@@ -130,7 +130,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var reactTick by remember { mutableIntStateOf(0) }
     var lastCount by remember { mutableIntStateOf(-1) }
     var sendingNow by remember { mutableStateOf(false) }
+    val enterSends = remember { prefs.getBoolean("enter_send", false) }
     var detailsMsg by remember { mutableStateOf<Message?>(null) }
+    var schedMsg by remember { mutableStateOf<ScheduledMessage?>(null) }
     // Send to every member of the thread (groups), not just the address of the last message.
     var address by remember(conversation.threadId) { mutableStateOf(conversation.address) }
     LaunchedEffect(conversation.threadId) {
@@ -349,6 +351,15 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     DisposableEffect(Unit) { onDispose { if (isRecording) stopRecording(false) } }
 
     detailsMsg?.let { dm -> MessageDetailsDialog(dm, conversation.displayName, address) { detailsMsg = null } }
+    schedMsg?.let { sm ->
+        AlertDialog(onDismissRequest = { schedMsg = null }, title = { Text("Scheduled message") },
+            text = { Text(sm.body + "\n\n" + SimpleDateFormat("EEEE, MMM d, h:mm a", Locale.getDefault()).format(Date(sm.sendAt))) },
+            confirmButton = { TextButton({ ScheduledSendReceiver.cancel(ctx, sm.id); schedMsg = null; scope.launch(Dispatchers.IO) { SmsRepository.sendSms(ctx, sm.address, sm.body); withContext(Dispatchers.Main) { reload() } } }) { Text("Send now") } },
+            dismissButton = { Row {
+                TextButton({ ScheduledSendReceiver.cancel(ctx, sm.id); if (draft.isBlank()) draft = sm.body; schedMsg = null }) { Text("Edit") }
+                TextButton({ ScheduledSendReceiver.cancel(ctx, sm.id); schedMsg = null; reactTick++ }) { Text("Delete", color = Red) }
+            } })
+    }
 
     // ── Message context menu (long-press) ──
     if (ctxMsg != null) {
@@ -539,10 +550,20 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 draft, { draft = it }, Modifier.weight(1f).padding(vertical = 11.dp),
                                 textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 16.sp, lineHeight = 22.sp),
                                 cursorBrush = androidx.compose.ui.graphics.SolidColor(Brand),
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                                // Enter makes a new line (like Google Messages) unless "Press Enter to send" is on
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = if (enterSends) ImeAction.Send else ImeAction.Default),
                                 keyboardActions = KeyboardActions(onSend = { doSend() }),
-                                maxLines = 5,
-                                decorationBox = { inner -> Box { if (draft.isEmpty()) Text(if (address.contains(";")) "Group message" else "Text message", color = TextHint, fontSize = 16.sp); inner() } }
+                                maxLines = 6,
+                                decorationBox = { inner ->
+                                    Column {
+                                        Box { if (draft.isEmpty()) Text(if (address.contains(";")) "Group message" else "Text message", color = TextHint, fontSize = 16.sp); inner() }
+                                        // SMS counter like Google Messages: shows near the limit / once it's more than one SMS
+                                        if (draft.length > 120 && pendingMediaUri == null) {
+                                            val (left, parts) = smsCounter(draft)
+                                            Text(if (parts > 1) "$left / $parts" else "$left", fontSize = 11.sp, color = TextHint, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
+                                        }
+                                    }
+                                }
                             )
                             IconButton({ imagePicker.launch("image/*") }, Modifier.size(40.dp)) { Icon(Icons.Default.Image, "Photo", tint = TextHint, modifier = Modifier.size(22.dp)) }
                         }
@@ -620,13 +641,30 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     }
                 }
             }
+            // Scheduled messages for this chat, shown in place like Google Messages
+            val norm = { a: String -> SmsRepository.splitRecipients(a).map { it.filter { c -> c.isDigit() }.takeLast(10) }.sorted().joinToString(";") }
+            val mine = ScheduledStore.getAll(ctx).filter { norm(it.address) == norm(address) }.sortedBy { it.sendAt }
+            if (!showSearch && mine.isNotEmpty()) {
+                items(mine, key = { "sched_" + it.id }) { sm ->
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.End) {
+                        Box(Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(20.dp)).border(1.5.dp, Brand.copy(alpha = .6f), RoundedCornerShape(20.dp))
+                            .clickable { schedMsg = sm }.padding(horizontal = 14.dp, vertical = 9.dp)) {
+                            Text(sm.body, color = TextPrimary, fontSize = 15.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, end = 6.dp)) {
+                            Icon(Icons.Default.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
+                            Text("Scheduled · " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(sm.sendAt)), fontSize = 11.sp, color = TextHint)
+                        }
+                    }
+                }
+            }
             if (msgs.isNotEmpty() && msgs.last().incoming) {
                 item {
                     Row(
-                        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp),
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf("OK", "👍", "Thanks!", "On my way").forEach { reply ->
+                        SmartReplies.suggest(msgs.last().body).forEach { reply ->
                             Surface(
                                 onClick = { draft = reply; doSend() },
                                 shape = RoundedCornerShape(20.dp),
