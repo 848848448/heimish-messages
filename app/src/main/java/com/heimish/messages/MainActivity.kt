@@ -610,7 +610,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("archive", it) }; sel = emptySet() }) { Icon(Icons.Default.Archive, "Archive", tint = OnTonal) }
                 IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("delete", it) }; sel = emptySet() }) { Icon(Icons.Default.Delete, "Delete", tint = OnTonal) }
             }
-            Text("Message ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER} · " + (if (latestKnown > BuildConfig.BUILD_NUMBER) "update available" else if (latestKnown > 0) "up to date" else "checking for updates…"),
+            if (latestKnown > BuildConfig.BUILD_NUMBER) Text("Message ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER} · " + (if (latestKnown > BuildConfig.BUILD_NUMBER) "update available" else if (latestKnown > 0) "up to date" else "checking for updates…"),
                 Modifier.padding(horizontal = 20.dp, vertical = 2.dp), fontSize = 11.sp, color = if (latestKnown > BuildConfig.BUILD_NUMBER) Brand else TextHint)
             update?.let { u -> UpdateCard(u, { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null }, { onWhatsNew(u) }) }
             Spacer(Modifier.height(6.dp))
@@ -1244,7 +1244,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(conversation.displayName, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary)
-                            Text(if (conversation.address.contains(";")) "Group · ${conversation.address.split(";").size} people" else conversation.address, fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (conversation.address.contains(";")) "Group · ${conversation.address.split(";").size} people" else if (conversation.displayName == conversation.address) "" else conversation.address, fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 },
