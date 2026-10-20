@@ -202,7 +202,7 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val p = prefs(ctx)
     val scope = rememberCoroutineScope()
-    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; "quick" -> "Quick replies"; "access" -> "Large text & display"; "style" -> "Chat style"; "dnd" -> "Quiet hours"; else -> "Settings" }
+    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; "quick" -> "Quick replies"; "access" -> "Large text & display"; "style" -> "Chat style"; "dnd" -> "Quiet hours"; "sim" -> "SIM card & group texts"; else -> "Settings" }
     var spamOn by remember { mutableStateOf(p.getBoolean("spam_filter", true)) }
     var lockOn by remember { mutableStateOf(p.getBoolean("app_lock", false)) }
     var otpOn by remember { mutableStateOf(p.getBoolean("auto_delete_otp", false)) }
@@ -239,6 +239,23 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
                     SwitchRow("Quiet hours", "Messages arrive silently during these hours", on) { on = it; p.edit().putBoolean("dnd_on", it).apply() }
                     Row(Modifier.fillMaxWidth().clickable { android.app.TimePickerDialog(ctx, { _, h, m -> st = h * 60 + m; p.edit().putInt("dnd_start", st).apply() }, st / 60, st % 60, false).show() }.padding(horizontal = 18.dp, vertical = 14.dp)) { Text("Starts", Modifier.weight(1f), fontSize = 16.sp); Text(Dnd.fmt(st), color = MaterialTheme.colorScheme.primary, fontSize = 16.sp) }
                     Row(Modifier.fillMaxWidth().clickable { android.app.TimePickerDialog(ctx, { _, h, m -> en = h * 60 + m; p.edit().putInt("dnd_end", en).apply() }, en / 60, en % 60, false).show() }.padding(horizontal = 18.dp, vertical = 14.dp)) { Text("Ends", Modifier.weight(1f), fontSize = 16.sp); Text(Dnd.fmt(en), color = MaterialTheme.colorScheme.primary, fontSize = 16.sp) }
+                }
+                "sim" -> {
+                    var sub by remember { mutableStateOf(p.getInt("sim_sub", -1)) }
+                    var grp by remember { mutableStateOf(p.getBoolean("group_mms_send", true)) }
+                    var permOk by remember { mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.READ_PHONE_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
+                    val phoneL = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permOk = it }
+                    SwitchRow("Group texts as MMS", "Send one group message to everyone instead of separate texts", grp) { grp = it; p.edit().putBoolean("group_mms_send", it).apply() }
+                    Text("Send messages with", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth().clickable { sub = -1; p.edit().putInt("sim_sub", -1).apply() }.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(sub == -1, { sub = -1; p.edit().putInt("sim_sub", -1).apply() }); Spacer(Modifier.width(12.dp)); Text("Phone default SIM", fontSize = 16.sp) }
+                    if (!permOk) Button({ phoneL.launch(android.Manifest.permission.READ_PHONE_STATE) }, Modifier.padding(horizontal = 18.dp)) { Text("Show my SIM cards") }
+                    else {
+                        val subs = remember { runCatching { (ctx.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as android.telephony.SubscriptionManager).activeSubscriptionInfoList ?: emptyList() }.getOrElse { emptyList() } }
+                        subs.forEach { si ->
+                            Row(Modifier.fillMaxWidth().clickable { sub = si.subscriptionId; p.edit().putInt("sim_sub", si.subscriptionId).apply() }.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(sub == si.subscriptionId, { sub = si.subscriptionId; p.edit().putInt("sim_sub", si.subscriptionId).apply() }); Spacer(Modifier.width(12.dp)); Text("SIM " + (si.simSlotIndex + 1) + " · " + si.displayName, fontSize = 16.sp) }
+                        }
+                        if (subs.isEmpty()) Text("No SIM cards found", Modifier.padding(18.dp), fontSize = 14.sp)
+                    }
                 }
                 "quick" -> {
                     var txt by remember { mutableStateOf(QuickReplies.get(ctx).joinToString("\n")) }
