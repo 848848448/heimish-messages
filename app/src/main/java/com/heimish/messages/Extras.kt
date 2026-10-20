@@ -290,10 +290,15 @@ object QuickReplies {
 
 fun chatCategory(c: Conversation): String {
     val a = c.address
-    val business = a.any { it.isLetter() } || (a.all { it.isDigit() } && a.length <= 6)
-    if (!business) return "Personal"
+    val saved = c.displayName.isNotBlank() && c.displayName != a
+    if (saved) return "Personal"
     val t = c.snippet.lowercase()
-    val promo = listOf("sale", "% off", "offer", "deal", "discount", "promo", "coupon", "free ", "shop now", "unsubscribe", "reply stop", "stop to").any { t.contains(it) }
+    val digits = a.filter { it.isDigit() }
+    val tollFree = listOf("1800", "1888", "1877", "1866", "1855", "1844", "1833", "800", "888", "877", "866", "855", "844", "833").any { digits.startsWith(it) } && digits.length >= 10
+    val auto = listOf("http", "code", "otp", "order", "shipped", "deliver", "payment", "balance", "appointment", "reminder", "receipt", "account", "verify", "package", "tracking", "bill", "reply stop", "% off").any { t.contains(it) }
+    val business = a.any { it.isLetter() } || digits.length <= 6 || tollFree || auto
+    if (!business) return "Personal"
+    val promo = listOf("sale", "% off", "offer", "deal", "discount", "promo", "coupon", "free ", "shop now", "unsubscribe", "reply stop", "stop to", "limited time").any { t.contains(it) }
     return if (promo) "Promos" else "Transactions"
 }
 
