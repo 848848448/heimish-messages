@@ -202,7 +202,7 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val p = prefs(ctx)
     val scope = rememberCoroutineScope()
-    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; "quick" -> "Quick replies"; "access" -> "Large text & display"; "style" -> "Chat style"; else -> "Settings" }
+    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; "quick" -> "Quick replies"; "access" -> "Large text & display"; "style" -> "Chat style"; "dnd" -> "Quiet hours"; else -> "Settings" }
     var spamOn by remember { mutableStateOf(p.getBoolean("spam_filter", true)) }
     var lockOn by remember { mutableStateOf(p.getBoolean("app_lock", false)) }
     var otpOn by remember { mutableStateOf(p.getBoolean("auto_delete_otp", false)) }
@@ -232,6 +232,14 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
                     else { lockOn = it; p.edit().putBoolean("app_lock", it).apply() }
                 }
                 "otp" -> SwitchRow("Delete codes after 24 hours", "Removes old one-time and verification code texts", otpOn) { otpOn = it; p.edit().putBoolean("auto_delete_otp", it).apply(); if (it) scope.launch(Dispatchers.IO) { OtpCleaner.clean(ctx) } }
+                "dnd" -> {
+                    var on by remember { mutableStateOf(p.getBoolean("dnd_on", false)) }
+                    var st by remember { mutableStateOf(p.getInt("dnd_start", 22 * 60)) }
+                    var en by remember { mutableStateOf(p.getInt("dnd_end", 7 * 60)) }
+                    SwitchRow("Quiet hours", "Messages arrive silently during these hours", on) { on = it; p.edit().putBoolean("dnd_on", it).apply() }
+                    Row(Modifier.fillMaxWidth().clickable { android.app.TimePickerDialog(ctx, { _, h, m -> st = h * 60 + m; p.edit().putInt("dnd_start", st).apply() }, st / 60, st % 60, false).show() }.padding(horizontal = 18.dp, vertical = 14.dp)) { Text("Starts", Modifier.weight(1f), fontSize = 16.sp); Text(Dnd.fmt(st), color = MaterialTheme.colorScheme.primary, fontSize = 16.sp) }
+                    Row(Modifier.fillMaxWidth().clickable { android.app.TimePickerDialog(ctx, { _, h, m -> en = h * 60 + m; p.edit().putInt("dnd_end", en).apply() }, en / 60, en % 60, false).show() }.padding(horizontal = 18.dp, vertical = 14.dp)) { Text("Ends", Modifier.weight(1f), fontSize = 16.sp); Text(Dnd.fmt(en), color = MaterialTheme.colorScheme.primary, fontSize = 16.sp) }
+                }
                 "quick" -> {
                     var txt by remember { mutableStateOf(QuickReplies.get(ctx).joinToString("\n")) }
                     Text("One reply per line. They show up in a chat under the menu, Quick replies.", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -469,4 +477,17 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
             }
         }
     }
+}
+
+
+object Dnd {
+    fun active(ctx: Context): Boolean {
+        val p = prefs(ctx)
+        if (!p.getBoolean("dnd_on", false)) return false
+        val s = p.getInt("dnd_start", 22 * 60); val en = p.getInt("dnd_end", 7 * 60)
+        val c = java.util.Calendar.getInstance()
+        val now = c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
+        return if (s <= en) now in s until en else (now >= s || now < en)
+    }
+    fun fmt(m: Int): String = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, m / 60); set(java.util.Calendar.MINUTE, m % 60) }.time)
 }
