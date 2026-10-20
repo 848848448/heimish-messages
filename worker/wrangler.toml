@@ -6,5 +6,5 @@ compatibility_date = "2024-01-01"
 binding = "CONTACTS_BUCKET"
 bucket_name = "heimish-contacts"
 
-[vars]
-ADMIN_TOKEN = "hm_admin_avrumy_2024"
+# ADMIN_TOKEN is managed as a Cloudflare secret (dashboard or `wrangler secret put`).
+# Never commit it here.
