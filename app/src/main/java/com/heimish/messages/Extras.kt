@@ -377,22 +377,10 @@ fun MediaDialog(msgs: List<Message>, onClose: () -> Unit) {
 
 
 const val WHATS_NEW = """New
-- One-tap update with a What's new screen (this one)
-- Quick times when scheduling a message: in 1 hour, tonight, tomorrow morning or afternoon
-- Quick replies you can edit in Settings
-- Chat tabs on the main screen: Personal, Transactions, Promos
-- Media and links for each chat
-- Add a chat to your home screen
-- Large text and display options, bubble shape and chat backgrounds
-- Spam protection, app lock, backup and restore, home screen widget, per-chat notification sound
-- Search across all messages, undo for delete and archive
+- Mute a chat for 1 hour, 8 hours, 24 hours or always
+- Export a chat as a text file and share it
 Fixed
-- Message bubbles now fit the text, times show under the message like Google Messages
-- The chat list no longer looks empty when you come back from a chat
-- Version and update status always visible on the main screen
-- Tapping a notification opens that chat
-- Cleaner message box and send button
-- Day and time labels like Google Messages (Today, Yesterday, weekday)"""
+- What's new now lists only the changes since the version you had installed"""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -458,7 +446,7 @@ fun Modifier.androidxPointer(onGesture: (Float, androidx.compose.ui.geometry.Off
 @Composable
 fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit, onDelete: () -> Unit) {
     val ctx = LocalContext.current
-    var muted by remember { mutableStateOf(prefs(ctx).getBoolean("muted_${c.threadId}", false)) }
+    var muted by remember { mutableStateOf(Mute.isMuted(ctx, c.threadId)) }
     var media by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
     val unsaved = c.displayName == c.address
@@ -486,7 +474,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(20.dp))
                     Text("Notifications", Modifier.weight(1f), fontSize = 16.sp)
-                    Switch(!muted, { muted = !it; prefs(ctx).edit().putBoolean("muted_${c.threadId}", muted).apply() })
+                    Switch(!muted, { muted = !it; if (muted) Mute.setFor(ctx, c.threadId, 0) else Mute.clear(ctx, c.threadId) })
                 }
                 Item(Icons.Default.PhotoLibrary, "Media and links (" + msgs.count { it.imageUri != null } + " photos)") { media = true }
                 Item(Icons.Default.Block, "Block and report spam", true) { BlockedStore.block(ctx, c.address); Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show() }
@@ -507,4 +495,22 @@ object Dnd {
         return if (s <= en) now in s until en else (now >= s || now < en)
     }
     fun fmt(m: Int): String = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, m / 60); set(java.util.Calendar.MINUTE, m % 60) }.time)
+}
+
+
+object Mute {
+    fun isMuted(ctx: Context, tid: Long): Boolean { val p = prefs(ctx); return p.getBoolean("muted_$tid", false) || p.getLong("muted_until_$tid", 0L) > System.currentTimeMillis() }
+    fun setFor(ctx: Context, tid: Long, ms: Long) { prefs(ctx).edit().apply { if (ms <= 0) { putBoolean("muted_$tid", true); remove("muted_until_$tid") } else putLong("muted_until_$tid", System.currentTimeMillis() + ms) }.apply() }
+    fun clear(ctx: Context, tid: Long) { prefs(ctx).edit().remove("muted_$tid").remove("muted_until_$tid").apply() }
+}
+
+fun exportChat(ctx: Context, c: Conversation, msgs: List<Message>) {
+    runCatching {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+        val sb = StringBuilder("Chat with ").append(c.displayName).append(" (").append(c.address).append(")\n\n")
+        msgs.forEach { m -> sb.append('[').append(fmt.format(java.util.Date(m.date))).append("] ").append(if (m.incoming) c.displayName else "Me").append(": ").append(m.body.ifBlank { "(media)" }).append('\n') }
+        val f = java.io.File(ctx.cacheDir, "chat_" + c.threadId + ".txt"); f.writeText(sb.toString())
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f)
+        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Export chat"))
+    }.onFailure { Toast.makeText(ctx, "Could not export", Toast.LENGTH_SHORT).show() }
 }
