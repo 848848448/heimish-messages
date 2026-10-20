@@ -1013,7 +1013,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         }
         if (body.isEmpty()) return
         scope.launch(Dispatchers.IO) {
-            val ok = SmsRepository.sendSms(ctx, conversation.address, body)
+            val ok = if (conversation.address.contains(";") && prefs.getBoolean("group_mms_send", true)) (SmsRepository.sendGroupText(ctx, conversation.address, body) || SmsRepository.sendSms(ctx, conversation.address, body)) else SmsRepository.sendSms(ctx, conversation.address, body)
             withContext(Dispatchers.Main) { if (ok) { draft = ""; replyTo = null; keyboard?.hide(); reload() } else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
         }
     }
@@ -1674,6 +1674,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.Report, "Spam protection", "Filter scam texts") { onSub("x_spam") } }
             item { SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN") { onSub("x_lock") } }
             item { SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes") { onSub("x_otp") } }
+            item { SettRow(Icons.Default.SimCard, "SIM card & group texts", "Choose SIM, group MMS") { onSub("x_sim") } }
             item { SettRow(Icons.Default.NotificationsOff, "Quiet hours", "Silent messages at night") { onSub("x_dnd") } }
             item { SettRow(Icons.Default.Reply, "Quick replies", "Edit your canned replies") { onSub("x_quick") } }
             item { SettRow(Icons.Default.TextFields, "Large text & display", "Bigger text everywhere") { onSub("x_access") } }
