@@ -65,10 +65,52 @@ object Updater {
         ctx.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    fun install(ctx: Context, apk: File) {
-        val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", apk)
-        ctx.startActivity(Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+    /** Installs through a PackageInstaller session. On Android 12+ an update from the installer of record needs no confirmation. */
+    fun install(ctx: Context, apk: File): Boolean = runCatching {
+        val pi = ctx.packageManager.packageInstaller
+        val params = android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        params.setAppPackageName(ctx.packageName)
+        if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+        val id = pi.createSession(params)
+        pi.openSession(id).use { session ->
+            apk.inputStream().use { ins -> session.openWrite("update", 0, apk.length()).use { out -> ins.copyTo(out); session.fsync(out) } }
+            val cb = Intent(ctx, InstallResultReceiver::class.java).setPackage(ctx.packageName)
+            val pend = android.app.PendingIntent.getBroadcast(ctx, id, cb, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE)
+            session.commit(pend.intentSender)
+        }
+        true
+    }.getOrElse { android.util.Log.e("Updater", "install failed", it); false }
+}
+
+/** Receives the installer's result. Shows the system confirmation only when Android requires it. */
+class InstallResultReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        val status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -1)
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        when (status) {
+            android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                val confirm = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) else @Suppress("DEPRECATION") intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                confirm?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (confirm != null) runCatching { ctx.startActivity(confirm) }
+            }
+            android.content.pm.PackageInstaller.STATUS_SUCCESS -> prefs.edit().remove("upd_error").apply()
+            else -> {
+                val msg = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "Install failed"
+                prefs.edit().putString("upd_error", msg).apply()
+                android.util.Log.e("Updater", "status=$status $msg")
+            }
+        }
+    }
+}
+
+/** After the app is replaced, tell the user and try to reopen. */
+class PackageReplacedReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        Notifications.init(ctx)
+        ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putLong("upd_last", 0L).apply()
+        val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        runCatching { ctx.startActivity(open) }
+        Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER}). Tap to open.", 7777)
     }
 }
