@@ -376,7 +376,9 @@ object SmsRepository {
     fun sendMms(ctx: Context, address: String, mediaUri: Uri, caption: String = "", overrideMime: String? = null): Boolean {
         return runCatching {
             val rawBytes = ctx.contentResolver.openInputStream(mediaUri)?.use { it.readBytes() } ?: return false
-            var mimeType = overrideMime ?: ctx.contentResolver.getType(mediaUri) ?: "application/octet-stream"
+            var mimeType = overrideMime ?: ctx.contentResolver.getType(mediaUri)
+                ?: android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(mediaUri.toString().substringAfterLast('.', "").lowercase())
+                ?: "application/octet-stream"
             val threadId = getOrCreateThreadId(ctx, address)
             val bytes = if (mimeType.startsWith("image/") && !(mimeType == "image/gif" && rawBytes.size < 600_000)) {
                 mimeType = "image/jpeg"
