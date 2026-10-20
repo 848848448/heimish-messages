@@ -1239,7 +1239,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     if (showSearch) {
                         TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat…", color = TextHint) }, singleLine = true,
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary), modifier = Modifier.fillMaxWidth())
-                    } else Row(verticalAlignment = Alignment.CenterVertically) {
+                    } else Row(Modifier.clickable { showDetails = true }, verticalAlignment = Alignment.CenterVertically) {
                         Avatar(conversation.displayName, conversation.address, 40.dp, 16.sp)
                         Spacer(Modifier.width(12.dp))
                         Column {
