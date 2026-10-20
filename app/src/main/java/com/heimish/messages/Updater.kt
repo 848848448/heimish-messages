@@ -33,8 +33,44 @@ object Updater {
             if (a.optString("name").endsWith(".apk")) { url = a.optString("browser_download_url"); size = a.optLong("size"); break }
         }
         if (url.isEmpty()) return null
-        UpdateInfo(build, tag, url, j.optString("body"), size)
+        UpdateInfo(build, tag, url, aggregateNotes(j.optString("body")), size)
     }.getOrNull()
+
+    /** Notes of every release newer than the installed build, merged, repeated lines removed. */
+    private fun aggregateNotes(latestBody: String): String {
+        val news = LinkedHashSet<String>(); val fixed = LinkedHashSet<String>()
+        fun add(body: String) {
+            var sec = news
+            for (raw in body.lines()) {
+                val l = raw.trim(); if (l.isEmpty()) continue
+                when {
+                    l.equals("New", true) || l.equals("New:", true) -> sec = news
+                    l.equals("Fixed", true) || l.equals("Fixed:", true) -> sec = fixed
+                    l.startsWith("-") || l.startsWith("*") -> sec.add(l)
+                }
+            }
+        }
+        var got = false
+        runCatching {
+            val c = URL("https://api.github.com/repos/848848448/heimish-messages/releases?per_page=30").openConnection() as HttpURLConnection
+            c.connectTimeout = 10_000; c.readTimeout = 15_000
+            c.setRequestProperty("Accept", "application/vnd.github+json")
+            if (c.responseCode == 200) {
+                val arr = org.json.JSONArray(c.inputStream.bufferedReader().readText())
+                for (i in 0 until arr.length()) {
+                    val r = arr.getJSONObject(i)
+                    if (r.optBoolean("prerelease") || r.optBoolean("draft")) continue
+                    val b = BUILD_RE.find(r.optString("tag_name"))?.groupValues?.get(1)?.toIntOrNull() ?: continue
+                    if (b > BuildConfig.BUILD_NUMBER) { add(r.optString("body")); got = true }
+                }
+            }
+        }
+        if (!got) add(latestBody)
+        val sb = StringBuilder()
+        if (news.isNotEmpty()) { sb.append("New\n"); news.forEach { sb.append(it).append('\n') } }
+        if (fixed.isNotEmpty()) { sb.append("Fixed\n"); fixed.forEach { sb.append(it).append('\n') } }
+        return sb.toString()
+    }
 
     fun isNewer(info: UpdateInfo) = info.build > BuildConfig.BUILD_NUMBER
 
