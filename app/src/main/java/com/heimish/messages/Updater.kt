@@ -17,24 +17,53 @@ object Updater {
     private const val API = "https://api.github.com/repos/848848448/heimish-messages/releases/latest"
     private val BUILD_RE = Regex("-b(\\d+)")
 
-    /** Blocking. Returns info about the latest release (even if not newer). Null on network/parse failure. */
-    fun fetchLatest(): UpdateInfo? = runCatching {
-        val c = URL(API).openConnection() as HttpURLConnection
-        c.connectTimeout = 10_000; c.readTimeout = 15_000
-        c.setRequestProperty("Accept", "application/vnd.github+json")
-        if (c.responseCode != 200) return null
-        val j = JSONObject(c.inputStream.bufferedReader().readText())
-        val tag = j.optString("tag_name")
-        val build = BUILD_RE.find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-        val assets = j.optJSONArray("assets") ?: return null
-        var url = ""; var size = 0L
-        for (i in 0 until assets.length()) {
-            val a = assets.getJSONObject(i)
-            if (a.optString("name").endsWith(".apk")) { url = a.optString("browser_download_url"); size = a.optLong("size"); break }
-        }
-        if (url.isEmpty()) return null
-        UpdateInfo(build, tag, url, aggregateNotes(j.optString("body")), size)
-    }.getOrNull()
+    @Volatile var lastError: String = ""
+    private const val UA = "Message-App/1.0 (Android)"
+    private const val WEB = "https://github.com/848848448/heimish-messages/releases"
+
+    private fun conn(url: String, follow: Boolean = true): HttpURLConnection {
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.connectTimeout = 15_000; c.readTimeout = 20_000; c.instanceFollowRedirects = follow
+        c.setRequestProperty("User-Agent", UA)
+        return c
+    }
+
+    /** Blocking. Returns info about the latest release (even if not newer). Null on failure, with lastError set. */
+    fun fetchLatest(): UpdateInfo? {
+        lastError = ""
+        val errs = ArrayList<String>()
+        try {
+            val c = conn(API); c.setRequestProperty("Accept", "application/vnd.github+json")
+            if (c.responseCode == 200) {
+                val j = JSONObject(c.inputStream.bufferedReader().readText())
+                val tag = j.optString("tag_name")
+                val build = BUILD_RE.find(tag)?.groupValues?.get(1)?.toIntOrNull()
+                val assets = j.optJSONArray("assets")
+                var url = ""; var size = 0L
+                if (assets != null) for (i in 0 until assets.length()) {
+                    val a = assets.getJSONObject(i)
+                    if (a.optString("name").endsWith(".apk")) { url = a.optString("browser_download_url"); size = a.optLong("size"); break }
+                }
+                if (build != null && url.isNotEmpty()) return UpdateInfo(build, tag, url, aggregateNotes(j.optString("body")), size)
+                errs.add("api: no apk in latest release")
+            } else errs.add("api: HTTP " + c.responseCode)
+        } catch (e: Exception) { errs.add("api: " + e.javaClass.simpleName + " " + (e.message ?: "")) }
+        // Fallback without the API (no rate limit): the web redirect of /releases/latest
+        try {
+            val c = conn("$WEB/latest", follow = false)
+            val loc = c.getHeaderField("Location") ?: ""
+            val tag = loc.substringAfterLast("/tag/", "")
+            val build = BUILD_RE.find(tag)?.groupValues?.get(1)?.toIntOrNull()
+            if (build != null) {
+                val apk = "$WEB/download/$tag/app-debug.apk"
+                val h = conn(apk); h.requestMethod = "HEAD"
+                val size = if (h.responseCode == 200) h.contentLengthLong.coerceAtLeast(0L) else { errs.add("web: apk HTTP " + h.responseCode); -1L }
+                if (size >= 0) return UpdateInfo(build, tag, apk, "", size)
+            } else errs.add("web: HTTP " + c.responseCode + " " + loc.take(60))
+        } catch (e: Exception) { errs.add("web: " + e.javaClass.simpleName + " " + (e.message ?: "")) }
+        lastError = errs.joinToString("; ")
+        return null
+    }
 
     /** Notes of every release newer than the installed build, merged, repeated lines removed. */
     private fun aggregateNotes(latestBody: String): String {
@@ -54,7 +83,7 @@ object Updater {
         runCatching {
             val c = URL("https://api.github.com/repos/848848448/heimish-messages/releases?per_page=30").openConnection() as HttpURLConnection
             c.connectTimeout = 10_000; c.readTimeout = 15_000
-            c.setRequestProperty("Accept", "application/vnd.github+json")
+            c.setRequestProperty("Accept", "application/vnd.github+json"); c.setRequestProperty("User-Agent", UA)
             if (c.responseCode == 200) {
                 val arr = org.json.JSONArray(c.inputStream.bufferedReader().readText())
                 for (i in 0 until arr.length()) {
@@ -79,7 +108,7 @@ object Updater {
         val out = File(ctx.cacheDir, "update.apk")
         if (out.exists()) out.delete()
         val c = URL(info.url).openConnection() as HttpURLConnection
-        c.instanceFollowRedirects = true; c.connectTimeout = 15_000; c.readTimeout = 30_000
+        c.instanceFollowRedirects = true; c.connectTimeout = 15_000; c.readTimeout = 30_000; c.setRequestProperty("User-Agent", UA)
         val total = (if (c.contentLengthLong > 0) c.contentLengthLong else info.sizeBytes).coerceAtLeast(1)
         var done = 0L; var lastP = 0f
         c.inputStream.use { ins -> out.outputStream().use { os ->
