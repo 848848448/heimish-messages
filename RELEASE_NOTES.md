@@ -1,7 +1,5 @@
 New
-- Swipe right on a chat to mark it read or unread (choose both swipe directions in Settings > Swipe actions)
-- Group chats get a group picture instead of a letter
-- Settings cleaned up: no more double spam switch or confusing "Group MMS", clearer names for text size and bubble options
+- All settings pages have the new look: big title, roomier rows, tap anywhere on a row to switch it
 
 Fixed
-- In Settings, Text size, Link previews and Swipe actions didn't show your choice until you left the screen
+- Long setting names squeezed the on/off switch
