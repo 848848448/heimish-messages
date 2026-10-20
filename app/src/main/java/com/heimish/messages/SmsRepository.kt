@@ -467,6 +467,14 @@ object SmsRepository {
         }
     }
 
+    fun markThreadUnread(ctx: Context, threadId: Long) {
+        runCatching {
+            var id = -1L
+            ctx.contentResolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID), Telephony.Sms.THREAD_ID + " = ? AND " + Telephony.Sms.TYPE + " = 1", arrayOf(threadId.toString()), Telephony.Sms.DATE + " DESC LIMIT 1")?.use { if (it.moveToFirst()) id = it.getLong(0) }
+            if (id >= 0) ctx.contentResolver.update(Uri.withAppendedPath(Telephony.Sms.CONTENT_URI, id.toString()), ContentValues().apply { put(Telephony.Sms.READ, 0); put(Telephony.Sms.SEEN, 0) }, null, null)
+        }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     @Suppress("DEPRECATION")
