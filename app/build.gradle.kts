@@ -20,8 +20,8 @@ android {
         applicationId = "com.heimish.messages"
         minSdk = 24
         targetSdk = 34
-        versionCode = 16
-        versionName = "3.4"
+        versionCode = 17
+        versionName = "3.5"
 
         buildConfigField("String", "ADMIN_TOKEN", "\"$adminToken\"")
         buildConfigField("String", "WORKER_URL", "\"$workerUrl\"")
