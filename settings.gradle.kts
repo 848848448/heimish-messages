@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Message"
 include(":app")
+// v3.6
