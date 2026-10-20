@@ -104,6 +104,12 @@ object Notifications {
             .setPriority(if (channelId != CHANNEL_QUIET) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .addAction(replyAction)
             .addAction(readAction)
+        if (Regex("code|otp|verif|passcode|\\bpin\\b", RegexOption.IGNORE_CASE).containsMatchIn(body)) {
+            Regex("\\b(\\d{4,8})\\b").find(body)?.groupValues?.get(1)?.let { code ->
+                val ci = Intent(ctx, CopyCodeReceiver::class.java).putExtra("code", code)
+                builder.addAction(NotificationCompat.Action.Builder(android.R.drawable.ic_menu_edit, "Copy " + code, PendingIntent.getBroadcast(ctx, nid + 30000, ci, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build())
+            }
+        }
         if (text.isNotEmpty()) {
             builder.setContentText(text)
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -169,5 +175,14 @@ class MarkReadReceiver : BroadcastReceiver() {
         val nid = intent.getIntExtra("nid", 0)
         if (threadId >= 0) SmsRepository.markThreadRead(ctx, threadId)
         NotificationManagerCompat.from(ctx).cancel(nid)
+    }
+}
+
+
+class CopyCodeReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(ctx: Context, i: Intent) {
+        val code = i.getStringExtra("code") ?: return
+        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("code", code))
+        android.widget.Toast.makeText(ctx, "Copied $code", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
