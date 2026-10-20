@@ -18,7 +18,9 @@ data class Conversation(
     val displayName: String,
     val snippet: String,
     val date: Long,
-    val unread: Boolean
+    val unread: Boolean,
+    val unreadCount: Int = 0,
+    val outgoing: Boolean = false
 )
 
 data class Message(
@@ -53,28 +55,53 @@ object SmsRepository {
         val out = ArrayList<Conversation>()
         val seen = HashSet<Long>()
 
+        // Unread counts per thread (any unread message, not just the latest)
+        val unreadCounts = HashMap<Long, Int>()
+        runCatching {
+            ctx.contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                arrayOf(Telephony.Sms.THREAD_ID),
+                Telephony.Sms.READ + " = 0", null, null
+            )?.use { c ->
+                val iT = c.getColumnIndex(Telephony.Sms.THREAD_ID)
+                while (c.moveToNext()) { val t = c.getLong(iT); unreadCounts[t] = (unreadCounts[t] ?: 0) + 1 }
+            }
+        }
+        runCatching {
+            ctx.contentResolver.query(
+                Uri.parse("content://mms"),
+                arrayOf("thread_id"), "read = 0", null, null
+            )?.use { c ->
+                val iT = c.getColumnIndex("thread_id")
+                while (c.moveToNext()) { val t = c.getLong(iT); unreadCounts[t] = (unreadCounts[t] ?: 0) + 1 }
+            }
+        }
+
         // SMS
         ctx.contentResolver.query(
             Telephony.Sms.CONTENT_URI,
-            arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.READ),
+            arrayOf(Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.READ, Telephony.Sms.TYPE),
             null, null, Telephony.Sms.DATE + " DESC"
         )?.use { c ->
             val iThread = c.getColumnIndex(Telephony.Sms.THREAD_ID)
             val iAddr   = c.getColumnIndex(Telephony.Sms.ADDRESS)
             val iBody   = c.getColumnIndex(Telephony.Sms.BODY)
             val iDate   = c.getColumnIndex(Telephony.Sms.DATE)
-            val iRead   = c.getColumnIndex(Telephony.Sms.READ)
+            val iType   = c.getColumnIndex(Telephony.Sms.TYPE)
             while (c.moveToNext()) {
                 val thread = c.getLong(iThread)
                 if (!seen.add(thread)) continue
                 val addr = c.getString(iAddr) ?: ""
+                val uc = unreadCounts[thread] ?: 0
                 out.add(Conversation(
                     threadId    = thread,
                     address     = addr,
                     displayName = cachedContactName(ctx, addr) ?: addr,
                     snippet     = c.getString(iBody) ?: "",
                     date        = c.getLong(iDate),
-                    unread      = c.getInt(iRead) == 0
+                    unread      = uc > 0,
+                    unreadCount = uc,
+                    outgoing    = iType >= 0 && c.getInt(iType) != Telephony.Sms.MESSAGE_TYPE_INBOX
                 ))
             }
         }
@@ -82,26 +109,29 @@ object SmsRepository {
         // MMS threads not already in SMS list
         ctx.contentResolver.query(
             Uri.parse("content://mms"),
-            arrayOf("_id", "thread_id", "date", "read"),
+            arrayOf("_id", "thread_id", "date", "msg_box"),
             null, null, "date DESC"
         )?.use { c ->
             val iId     = c.getColumnIndex("_id")
             val iThread = c.getColumnIndex("thread_id")
             val iDate   = c.getColumnIndex("date")
-            val iRead   = c.getColumnIndex("read")
+            val iBox    = c.getColumnIndex("msg_box")
             while (c.moveToNext()) {
                 val thread = c.getLong(iThread)
                 if (!seen.add(thread)) continue
                 val mmsId = c.getLong(iId)
                 val addr = mmsAddress(ctx, thread)
                 val snippet = mmsSnippet(ctx, mmsId)
+                val uc = unreadCounts[thread] ?: 0
                 out.add(Conversation(
                     threadId    = thread,
                     address     = addr,
                     displayName = cachedContactName(ctx, addr) ?: addr,
                     snippet     = snippet,
                     date        = c.getLong(iDate) * 1000L,
-                    unread      = c.getInt(iRead) == 0
+                    unread      = uc > 0,
+                    unreadCount = uc,
+                    outgoing    = iBox >= 0 && c.getInt(iBox) == 2
                 ))
             }
         }
@@ -543,6 +573,25 @@ object SmsRepository {
 
         fun getContactName(ctx: Context, address: String): String? {
             return cachedContactName(ctx, address)
+        }
+
+
+        private val photoCache = HashMap<String, Uri?>()
+
+        fun contactPhotoUri(ctx: Context, number: String): Uri? {
+            if (number.isBlank() || number.contains(";")) return null
+            photoCache[number]?.let { return it }
+            if (photoCache.containsKey(number)) return null
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number)
+            )
+            val result = runCatching {
+                ctx.contentResolver.query(
+                    uri, arrayOf(ContactsContract.PhoneLookup.PHOTO_URI), null, null, null
+                )?.use { c -> if (c.moveToFirst()) c.getString(0)?.let(Uri::parse) else null }
+            }.getOrNull()
+            photoCache[number] = result
+            return result
         }
 
 
