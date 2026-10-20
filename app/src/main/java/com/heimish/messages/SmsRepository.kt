@@ -334,7 +334,35 @@ object SmsRepository {
         }.getOrElse { e -> Log.e("SmsRepo", "sendMms: ${e.message}"); false }
     }
 
-    private fun buildSendReqPdu(address: String, mediaBytes: ByteArray, mimeType: String, caption: String): ByteArray {
+    fun sendGroupText(ctx: Context, address: String, body: String): Boolean {
+        return runCatching {
+            val sms = smsManager(ctx)
+            val threadId = getOrCreateThreadId(ctx, address)
+            val pdu = buildSendReqPdu(address, ByteArray(0), "text/plain", body, true)
+            val pduFile = java.io.File(ctx.cacheDir, "mms_send_${System.currentTimeMillis()}.dat")
+            pduFile.writeBytes(pdu)
+            val pduUri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", pduFile)
+            ctx.grantUriPermission("com.android.mms.service", pduUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val cfg = android.os.Bundle()
+            cfg.putBoolean(android.telephony.SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, true)
+            val sendIntent = android.app.PendingIntent.getBroadcast(ctx, System.currentTimeMillis().toInt(), Intent("com.heimish.messages.MMS_SENT"),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+            sms.sendMultimediaMessage(ctx, pduUri, null, cfg, sendIntent)
+            val mmsId = ctx.contentResolver.insert(Uri.parse("content://mms"), ContentValues().apply {
+                put("thread_id", threadId); put("msg_box", 2); put("read", 1); put("seen", 1)
+                put("date", System.currentTimeMillis() / 1000); put("ct_t", "application/vnd.wap.multipart.mixed")
+            })?.lastPathSegment?.toLong()
+            if (mmsId != null) {
+                for (rcp in address.split(";").map { it.trim() }.filter { it.isNotBlank() })
+                    ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/addr"), ContentValues().apply { put("address", rcp); put("msg_id", mmsId); put("type", 151); put("charset", 106) })
+                ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), ContentValues().apply { put("mid", mmsId); put("ct", "text/plain"); put("chset", 106); put("text", body) })
+            }
+            Thread { Thread.sleep(30_000); pduFile.delete() }.start()
+            true
+        }.getOrElse { e -> Log.e("SmsRepo", "sendGroupText: ${e.message}"); false }
+    }
+
+    private fun buildSendReqPdu(address: String, mediaBytes: ByteArray, mimeType: String, caption: String, textOnly: Boolean = false): ByteArray {
         val out = java.io.ByteArrayOutputStream()
 
         // M-Send.req (0x80), Transaction-ID, MMS Version 1.3
@@ -359,7 +387,7 @@ object SmsRepository {
         }
 
         // Subject (optional)
-        if (caption.isNotBlank()) {
+        if (caption.isNotBlank() && !textOnly) {
             out.write(0x96)
             val subjBytes = caption.take(40).toByteArray(Charsets.UTF_8)
             writeValueLength(out, subjBytes.size + 2)
@@ -371,16 +399,18 @@ object SmsRepository {
         out.write(0x84); out.write(0xA3.toByte().toInt())
 
         // Part count
-        val partCount = 1 + (if (caption.isNotBlank()) 1 else 0)
+        val partCount = if (textOnly) 1 else 1 + (if (caption.isNotBlank()) 1 else 0)
         writeUintVar(out, partCount)
 
         // Media part
+        if (!textOnly) {
         val mediaPartHeaders = java.io.ByteArrayOutputStream()
         mediaPartHeaders.write(mimeType.toByteArray()); mediaPartHeaders.write(0x00)
         writeUintVar(out, mediaPartHeaders.size())
         writeUintVar(out, mediaBytes.size)
         out.write(mediaPartHeaders.toByteArray())
         out.write(mediaBytes)
+        }
 
         // Text part (optional)
         if (caption.isNotBlank()) {
@@ -478,11 +508,14 @@ object SmsRepository {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     @Suppress("DEPRECATION")
-    private fun smsManager(ctx: Context): SmsManager =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+    private fun smsManager(ctx: Context): SmsManager {
+        val sub = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("sim_sub", -1)
+        if (sub >= 0) runCatching { return SmsManager.getSmsManagerForSubscriptionId(sub) }
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             ctx.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
         else
             SmsManager.getDefault()
+    }
 
     private fun getOrCreateThreadId(ctx: Context, address: String): Long {
         return runCatching {
