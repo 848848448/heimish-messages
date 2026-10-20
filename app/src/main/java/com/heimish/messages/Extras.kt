@@ -377,10 +377,8 @@ fun MediaDialog(msgs: List<Message>, onClose: () -> Unit) {
 
 
 const val WHATS_NEW = """New
-- Mute a chat for 1 hour, 8 hours, 24 hours or always
-- Export a chat as a text file and share it
-Fixed
-- What's new now lists only the changes since the version you had installed"""
+- Remind me about a chat in 1 hour, 3 hours or tomorrow morning
+- Search in a chat can be limited to photos or links"""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -514,3 +512,19 @@ fun exportChat(ctx: Context, c: Conversation, msgs: List<Message>) {
         ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Export chat"))
     }.onFailure { Toast.makeText(ctx, "Could not export", Toast.LENGTH_SHORT).show() }
 }
+
+
+class RemindReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(ctx: Context, i: Intent) {
+        Notifications.showSimple(ctx, "Reminder: " + (i.getStringExtra("name") ?: "chat"), "You asked to be reminded about this chat", 7000 + (i.getLongExtra("tid", 0L) % 1000).toInt())
+    }
+    companion object {
+        fun set(ctx: Context, c: Conversation, at: Long) {
+            val i = Intent(ctx, RemindReceiver::class.java).putExtra("name", c.displayName).putExtra("tid", c.threadId)
+            val pi = PendingIntent.getBroadcast(ctx, (9000 + c.threadId % 100000).toInt(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            (ctx.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager).setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi)
+        }
+    }
+}
+
+fun isLinkMsg(m: Message) = m.body.contains("http://", true) || m.body.contains("https://", true) || m.body.contains("www.", true)
