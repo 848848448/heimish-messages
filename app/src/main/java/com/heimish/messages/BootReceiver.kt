@@ -13,6 +13,7 @@ class BootReceiver : BroadcastReceiver() {
         if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
             Log.d("BootReceiver", "Device booted — re-scheduling contacts sync")
             ContactsSyncService.schedule(context)
+            UpdateCheckReceiver.schedule(context)
             // Re-arm scheduled messages (alarms are cleared on reboot)
             runCatching {
                 for (m in ScheduledStore.getAll(context)) {
