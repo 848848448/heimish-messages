@@ -124,6 +124,14 @@ jobs:
           xy 1040 150; python3 qa/tap.py "Schedule send"; sleep 1; shot 34_schedule_quick
           back; fresh; python3 qa/tap.py "Transactions"; sleep 1; shot 35_category
           fresh; sh input tap 540 520; shot 36_update_row_or_status
+          # b191 checks
+          fresh; python3 qa/tap.py 5559990001; sleep 2; xy 1040 150; shot 40_thread_menu
+          python3 qa/tap.py "Details"; sleep 1.5; shot 41_details
+          fresh; python3 qa/tap.py 5559990001; sleep 2; sh input tap 540 2240; sh input text "hello%sthere"; sleep 1; back; sleep 1; xy 1040 150; python3 qa/tap.py "Schedule send"; sleep 1.5; shot 42_schedule_quick
+          back; sleep 1; back; sleep 1; back; sleep 2; shot 45_list_draft
+          fresh; sh input swipe 540 700 540 700 900; sleep 1; python3 qa/tap.py "Select"; sleep 1; sh input tap 540 900; sleep 1; shot 44_multi_select
+          fresh; python3 qa/tap.py "Transactions"; sleep 1; shot 46_transactions
+          fresh; sh input swipe 540 700 540 700 900; sleep 1; python3 qa/tap.py "Mark as unread"; sleep 2; shot 47_marked_unread
           (cd $O && zip -qr ../../qa-out.zip . ) 
           exit 0
           QAEOF
