@@ -93,8 +93,8 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(containerColor = Bg, modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = SettPageBg, modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = SettPageBg, scrolledContainerColor = SettPageBg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
             title = { Text("Settings") }, scrollBehavior = scroll) }
     ) { pad ->
@@ -154,8 +154,11 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
 
 /** A rounded card holding a group of settings rows, like Google Messages / Android 14 settings. */
 @Composable fun SettGroup(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(SearchBg), content = content)
+    // Material 3 Expressive "segmented" look: round outer corners, a thin gap between rows
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)), verticalArrangement = Arrangement.spacedBy(2.dp), content = content)
 }
+internal val SettPageBg: Color get() = if (D) Bg else Chrome
+internal val SettCardBg: Color get() = if (D) Surf else Bg
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -375,7 +378,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
     }
 }
 @Composable fun SettRow(icon: ImageVector, title: String, sub: String, tint: Color = Brand, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(SettCardBg).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(40.dp).clip(CircleShape).background(tint.copy(alpha = if (D) .28f else .14f)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = if (D) tint.copy(alpha = .95f).compositeOver(Color.White.copy(alpha = .35f)) else tint, modifier = Modifier.size(22.dp))
         }
