@@ -92,12 +92,14 @@ object Backup {
             null, null, Telephony.Sms.DATE + " ASC")?.use { c ->
             while (c.moveToNext()) arr.put(JSONObject().put("a", c.getString(0) ?: "").put("b", c.getString(1) ?: "").put("d", c.getLong(2)).put("t", c.getInt(3)).put("r", c.getInt(4)))
         }
-        ctx.contentResolver.openOutputStream(uri)?.use { it.write(JSONObject().put("app", "message").put("version", 1).put("sms", arr).toString().toByteArray()) }
+        ctx.contentResolver.openOutputStream(uri)?.use { it.write(JSONObject().put("app", "message").put("version", 2).put("sms", arr).put("settings", settingsToJson(ctx)).toString().toByteArray()) }
         return arr.length()
     }
     fun restore(ctx: Context, uri: Uri): Int {
         val text = ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return 0
-        val arr = JSONObject(text).getJSONArray("sms")
+        val root = JSONObject(text)
+        runCatching { root.optJSONObject("settings")?.let { settingsFromJson(ctx, it) } }
+        val arr = root.getJSONArray("sms")
         var n = 0
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
@@ -377,8 +379,14 @@ fun MediaDialog(msgs: List<Message>, onClose: () -> Unit) {
 
 
 const val WHATS_NEW = """New
-- Remind me about a chat in 1 hour, 3 hours or tomorrow morning
-- Search in a chat can be limited to photos or links"""
+- Pin a message in a chat, it shows at the top
+- Labels for chats, with a tab for each label
+- Unknown senders tab
+- Blocked words, texts with them go to Spam
+- Auto-reply when busy
+- Edit a scheduled message
+- Backup now also saves your settings
+- Chat menu is shorter, with a More item"""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -549,3 +557,108 @@ class RemindReceiver : android.content.BroadcastReceiver() {
 }
 
 fun isLinkMsg(m: Message) = m.body.contains("http://", true) || m.body.contains("https://", true) || m.body.contains("www.", true)
+
+
+object KeywordStore {
+    fun all(ctx: Context): List<String> = (prefs(ctx).getString("blocked_keywords", "") ?: "").split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+    private fun save(ctx: Context, l: List<String>) { prefs(ctx).edit().putString("blocked_keywords", l.joinToString("\n")).apply() }
+    fun add(ctx: Context, k: String) { val t = k.trim(); if (t.isNotEmpty() && all(ctx).none { it.equals(t, true) }) save(ctx, all(ctx) + t) }
+    fun remove(ctx: Context, k: String) { save(ctx, all(ctx).filter { it != k }) }
+    fun matches(ctx: Context, body: String) = all(ctx).any { body.contains(it, true) }
+}
+
+object LabelStore {
+    fun get(ctx: Context, t: Long): String? = prefs(ctx).getString("label_$t", null)?.takeIf { it.isNotBlank() }
+    fun set(ctx: Context, t: Long, l: String) {
+        val p = prefs(ctx); val ids = (p.getStringSet("label_threads", emptySet()) ?: emptySet()).toMutableSet()
+        if (l.isBlank()) { ids.remove(t.toString()); p.edit().remove("label_$t").putStringSet("label_threads", ids).apply() }
+        else { ids.add(t.toString()); p.edit().putString("label_$t", l.trim()).putStringSet("label_threads", ids).apply() }
+    }
+    fun allLabels(ctx: Context): List<String> = (prefs(ctx).getStringSet("label_threads", emptySet()) ?: emptySet()).mapNotNull { it.toLongOrNull()?.let { t -> get(ctx, t) } }.distinct().sorted()
+}
+
+object MsgPinStore {
+    fun has(ctx: Context, key: String) = (prefs(ctx).getStringSet("pinned_msgs", emptySet()) ?: emptySet()).contains(key)
+    fun toggle(ctx: Context, key: String) {
+        val s = (prefs(ctx).getStringSet("pinned_msgs", emptySet()) ?: emptySet()).toMutableSet()
+        if (!s.add(key)) s.remove(key)
+        prefs(ctx).edit().putStringSet("pinned_msgs", s).apply()
+    }
+}
+
+object AutoReply {
+    fun maybe(ctx: Context, address: String) {
+        runCatching {
+            val p = prefs(ctx)
+            if (!p.getBoolean("auto_reply_on", false)) return
+            val text = p.getString("auto_reply_text", "") ?: ""
+            if (text.isBlank()) return
+            val digits = address.filter { it.isDigit() }
+            if (address.any { it.isLetter() } || digits.length < 7) return
+            val k = "ar_last_$digits"; val now = System.currentTimeMillis()
+            if (now - p.getLong(k, 0L) < 6 * 3600_000L) return
+            p.edit().putLong(k, now).apply()
+            SmsRepository.sendSms(ctx, address, text)
+        }
+    }
+}
+
+@Composable
+fun KeywordEditor() {
+    val ctx = LocalContext.current
+    var list by remember { mutableStateOf(KeywordStore.all(ctx)) }
+    var input by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text("Blocked words", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text("Texts from unknown numbers containing these words go to Spam silently", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(input, { input = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text("Add a word") })
+            TextButton({ KeywordStore.add(ctx, input); input = ""; list = KeywordStore.all(ctx) }) { Text("Add") }
+        }
+        list.forEach { k -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(k, Modifier.weight(1f)); TextButton({ KeywordStore.remove(ctx, k); list = KeywordStore.all(ctx) }) { Text("Remove") } } }
+    }
+}
+
+@Composable
+fun AutoReplyEditor() {
+    val ctx = LocalContext.current
+    var on by remember { mutableStateOf(prefs(ctx).getBoolean("auto_reply_on", false)) }
+    var text by remember { mutableStateOf(prefs(ctx).getString("auto_reply_text", "I'm busy right now, I'll get back to you soon.") ?: "") }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Text("Auto-reply when busy", fontSize = 16.sp); Text("Answers a new text once per sender every 6 hours", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Switch(on, { on = it; prefs(ctx).edit().putBoolean("auto_reply_on", it).putString("auto_reply_text", text).apply() })
+        }
+        OutlinedTextField(text, { text = it; prefs(ctx).edit().putString("auto_reply_text", it).apply() }, Modifier.fillMaxWidth(), label = { Text("Reply text") })
+    }
+}
+
+fun settingsToJson(ctx: Context): JSONObject {
+    val o = JSONObject()
+    for ((k, v) in prefs(ctx).all) {
+        if (k.startsWith("ar_last_") || k.startsWith("draft_")) continue
+        when (v) {
+            is Boolean -> o.put(k, JSONObject().put("t", "b").put("v", v))
+            is Int -> o.put(k, JSONObject().put("t", "i").put("v", v))
+            is Long -> o.put(k, JSONObject().put("t", "l").put("v", v))
+            is Float -> o.put(k, JSONObject().put("t", "f").put("v", v.toDouble()))
+            is String -> o.put(k, JSONObject().put("t", "s").put("v", v))
+            is Set<*> -> o.put(k, JSONObject().put("t", "set").put("v", JSONArray(v.map { it.toString() })))
+        }
+    }
+    return o
+}
+
+fun settingsFromJson(ctx: Context, o: JSONObject) {
+    val ed = prefs(ctx).edit()
+    o.keys().forEach { k ->
+        val x = o.getJSONObject(k)
+        when (x.getString("t")) {
+            "b" -> ed.putBoolean(k, x.getBoolean("v")); "i" -> ed.putInt(k, x.getInt("v")); "l" -> ed.putLong(k, x.getLong("v"))
+            "f" -> ed.putFloat(k, x.getDouble("v").toFloat()); "s" -> ed.putString(k, x.getString("v"))
+            "set" -> { val a = x.getJSONArray("v"); ed.putStringSet(k, (0 until a.length()).map { a.getString(it) }.toSet()) }
+        }
+    }
+    ed.apply()
+}
