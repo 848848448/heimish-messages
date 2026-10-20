@@ -178,6 +178,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNowIfStale(this)
+        Thread { OtpCleaner.clean(applicationContext) }.start()
         setContent {
             MaterialTheme(colorScheme = GMColors) {
                 Surface(Modifier.fillMaxSize(), color = Bg) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
@@ -209,6 +210,8 @@ sealed class Screen {
     data object Archived : Screen()
     data object Starred : Screen()
     data object Scheduled : Screen()
+    data object Spam : Screen()
+    data class Extra(val key: String) : Screen()
 }
 
 @Composable
@@ -238,21 +241,36 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     BackHandler(enabled = screen !is Screen.List) {
         screen = when (screen) {
             is Screen.SettingSub -> Screen.Settings
+            is Screen.Extra -> Screen.Settings
             else -> Screen.List
         }
     }
 
+    var locked by remember { mutableStateOf(prefs.getBoolean("app_lock", false)) }
+    DisposableEffect(Unit) {
+        var stopAt = 0L
+        val lc = (ctx as? ComponentActivity)?.lifecycle
+        val lo = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_STOP) stopAt = System.currentTimeMillis()
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_START && prefs.getBoolean("app_lock", false) && stopAt > 0 && System.currentTimeMillis() - stopAt > 30_000) locked = true
+        }
+        lc?.addObserver(lo)
+        onDispose { lc?.removeObserver(lo) }
+    }
     when {
+        locked && prefs.getBoolean("app_lock", false) -> LockScreen { locked = false }
         !isDefault -> SetupScreen(onRequestDefault)
         !hasPerms  -> SetupPerms(
             onRequest = { permL.launch(Permissions.ALL) },
             onGranted = { hasPerms = true }
         )
         else -> when (val s = screen) {
-            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived }, { screen = Screen.Starred }, { screen = Screen.Scheduled })
+            Screen.List     -> ConvListScreen({ screen = Screen.Chat(it) }, { screen = Screen.NewConv }, { screen = Screen.Settings }, { screen = Screen.Admin }, { screen = Screen.Archived }, { screen = Screen.Starred }, { screen = Screen.Scheduled }, { screen = Screen.Spam })
+            Screen.Spam     -> SpamScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
+            is Screen.Extra -> ExtraScreen(s.key) { screen = Screen.Settings }
             is Screen.Chat  -> ThreadScreen(s.conv) { screen = Screen.List }
             Screen.NewConv  -> NewConvScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
-            Screen.Settings -> SettingsScreen({ screen = Screen.SettingSub(it) }) { screen = Screen.List }
+            Screen.Settings -> SettingsScreen({ screen = if (it.startsWith("x_")) Screen.Extra(it.removePrefix("x_")) else Screen.SettingSub(it) }) { screen = Screen.List }
             is Screen.SettingSub -> SettingSubScreen(s.key, { themeChoice = it }) { screen = Screen.Settings }
             Screen.Admin    -> AdminScreen { screen = Screen.List }
             Screen.Archived -> ArchivedScreen({ screen = Screen.Chat(it) }) { screen = Screen.List }
@@ -350,9 +368,28 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
     var progress by remember { mutableStateOf<Float?>(null) }
     var ready by remember { mutableStateOf<File?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
+    var waitingPerm by remember { mutableStateOf(false) }
+    var installing by remember { mutableStateOf(false) }
+    fun doInstall(file: File) {
+        waitingPerm = false
+        installing = true
+        err = null
+        if (!Updater.install(ctx, file)) { installing = false; err = "Could not start install. Tap to retry." }
+    }
+    DisposableEffect(Unit) {
+        val lc = (ctx as? ComponentActivity)?.lifecycle
+        val lo = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                val f = ready
+                if (waitingPerm && f != null && Updater.canInstall(ctx)) doInstall(f)
+            }
+        }
+        lc?.addObserver(lo)
+        onDispose { lc?.removeObserver(lo) }
+    }
     fun go() {
         val f = ready
-        if (f != null) { if (Updater.canInstall(ctx)) Updater.install(ctx, f) else Updater.openInstallPermission(ctx); return }
+        if (f != null) { if (Updater.canInstall(ctx)) doInstall(f) else { waitingPerm = true; Updater.openInstallPermission(ctx) }; return }
         if (progress != null) return
         err = null; progress = 0f
         scope.launch {
@@ -360,8 +397,8 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
             progress = null
             if (file == null) { err = "Download failed. Tap to retry."; return@launch }
             ready = file
-            if (Updater.canInstall(ctx)) Updater.install(ctx, file)
-            else { Toast.makeText(ctx, "Allow installs from this app, then tap Install again", Toast.LENGTH_LONG).show(); Updater.openInstallPermission(ctx) }
+            if (Updater.canInstall(ctx)) doInstall(file)
+            else { waitingPerm = true; Toast.makeText(ctx, "Turn on \"Allow from this source\" once, then come back", Toast.LENGTH_LONG).show(); Updater.openInstallPermission(ctx) }
         }
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(20.dp)).background(Tonal).clickable { go() }.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -369,10 +406,12 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
         Icon(Icons.Default.SystemUpdate, null, tint = OnTonal)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(if (ready != null) "Ready to install" else "Update available", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = OnTonal)
+            Text(if (installing) "Updating" else if (ready != null) "Ready to install" else "Update available", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = OnTonal)
             val sub = err ?: when {
                 progress != null -> "Downloading… ${((progress ?: 0f) * 100).toInt()}%"
-                ready != null -> "Tap to install version build ${info.build}"
+                installing -> "Installing… the app will restart"
+                waitingPerm -> "Allow installs from this app, then come back"
+                ready != null -> "Tap to install build ${info.build}"
                 else -> "Build ${info.build} · tap to download and install"
             }
             Text(sub, fontSize = 13.sp, color = OnTonal.copy(alpha = .8f))
@@ -385,7 +424,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
 // ━━━━━━━━━━━━━━━━ CONVERSATION LIST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit, onStarred: () -> Unit, onScheduled: () -> Unit) {
+fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit, onStarred: () -> Unit, onScheduled: () -> Unit, onSpam: () -> Unit = {}) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(emptyList<Conversation>()) }
     var search by remember { mutableStateOf("") }
@@ -414,7 +453,27 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         }
     }
 
-    val visible = remember(list, tick) { list.filter { !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) } }
+    val snackbar = remember { SnackbarHostState() }
+    var hidden by remember { mutableStateOf(setOf<Long>()) }
+    fun act(kind: String, c: Conversation) {
+        scope.launch {
+            if (kind == "delete") {
+                hidden = hidden + c.threadId
+                val r = snackbar.showSnackbar("Conversation deleted", "Undo", duration = SnackbarDuration.Short)
+                if (r == SnackbarResult.ActionPerformed) hidden = hidden - c.threadId
+                else { withContext(Dispatchers.IO) { SmsRepository.deleteThread(ctx, c.threadId) }; refresh(); hidden = hidden - c.threadId }
+            } else {
+                ArchiveStore.setArchived(ctx, c.threadId, true); tick++
+                val r = snackbar.showSnackbar("Conversation archived", "Undo", duration = SnackbarDuration.Short)
+                if (r == SnackbarResult.ActionPerformed) { ArchiveStore.setArchived(ctx, c.threadId, false); tick++ }
+            }
+        }
+    }
+    val spamIds = remember(list, tick) { SpamStore.all(ctx) }
+    val hits by produceState(emptyList<MsgHit>(), search) {
+        value = if (search.trim().length >= 2) { delay(250); withContext(Dispatchers.IO) { SmsRepository.searchMessages(ctx, search.trim()) } } else emptyList()
+    }
+    val visible = remember(list, tick, hidden, spamIds) { list.filter { !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) && it.threadId !in hidden && it.threadId !in spamIds } }
     val searched = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
     val filtered = remember(searched, tick) { searched.sortedWith(compareByDescending<Conversation> { if (PinStore.isPinned(ctx, it.threadId)) 1 else 0 }.thenByDescending { it.date }) }
 
@@ -438,8 +497,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                         PinStore.toggle(ctx, c.threadId); tick++; ctxConv = null
                     }
                     MenuBtn(Icons.Default.Archive, "Archive") {
-                        ArchiveStore.setArchived(ctx, c.threadId, true)
-                        Toast.makeText(ctx, "Archived", Toast.LENGTH_SHORT).show(); tick++; ctxConv = null
+                        act("archive", c); ctxConv = null
                     }
                     MenuBtn(if (c.unread) Icons.Default.Drafts else Icons.Default.MarkEmailUnread,
                         if (c.unread) "Mark as read" else "Mark as unread") {
@@ -451,8 +509,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                         Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); tick++; ctxConv = null
                     }
                     MenuBtn(Icons.Default.Delete, "Delete", Red) {
-                        scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, c.threadId) }
-                        Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show(); refresh(); ctxConv = null
+                        act("delete", c); ctxConv = null
                     }
                 }
             },
@@ -461,6 +518,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     }
 
     Scaffold(containerColor = Bg,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, actionIconContentColor = TextSecond),
@@ -472,6 +530,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                             DropdownMenuItem({ Text("Starred messages", color = TextPrimary) }, { showMenu = false; onStarred() }, leadingIcon = { Icon(Icons.Default.Star, null, tint = TextSecond) })
                             DropdownMenuItem({ Text("Archived", color = TextPrimary) }, { showMenu = false; onArchived() }, leadingIcon = { Icon(Icons.Default.Archive, null, tint = TextSecond) })
                             DropdownMenuItem({ Text("Scheduled", color = TextPrimary) }, { showMenu = false; onScheduled() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
+                            DropdownMenuItem({ Text("Spam", color = TextPrimary) }, { showMenu = false; onSpam() }, leadingIcon = { Icon(Icons.Default.Report, null, tint = TextSecond) })
                             DropdownMenuItem({ Text("Mark all as read", color = TextPrimary) }, {
                                 showMenu = false
                                 scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
@@ -508,7 +567,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             )
             update?.let { u -> UpdateCard(u) { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null } }
             Spacer(Modifier.height(6.dp))
-            if (filtered.isEmpty()) {
+            if (filtered.isEmpty() && hits.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Outlined.Forum, null, tint = TextHint.copy(.6f), modifier = Modifier.size(72.dp))
@@ -527,7 +586,20 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     contentPadding = PaddingValues(bottom = 96.dp)
                 ) {
                     items(filtered, key = { it.threadId }) { conv ->
-                        SwipeableConvRow(conv, PinStore.isPinned(ctx, conv.threadId), onOpen, onRefresh = { refresh(); tick++ }, onLongPress = { ctxConv = it })
+                        SwipeableConvRow(conv, PinStore.isPinned(ctx, conv.threadId), onOpen, onRefresh = { refresh(); tick++ }, onLongPress = { ctxConv = it }, onAction = { k, cc -> act(k, cc) })
+                    }
+                    if (hits.isNotEmpty()) {
+                        item { Text("Messages", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand, letterSpacing = 0.8.sp, modifier = Modifier.padding(start = 18.dp, top = 14.dp, bottom = 4.dp)) }
+                        items(hits, key = { "hit" + it.id }) { h ->
+                            Row(Modifier.fillMaxWidth().clickable { onOpen(Conversation(h.threadId, h.address, h.name, h.body, h.date, false)) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Avatar(h.name, h.address, 40.dp, 16.sp)
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Row { Text(h.name, fontWeight = FontWeight.Medium, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary); Text(shortTime(h.date), fontSize = 12.sp, color = TextHint) }
+                                    Text(h.body, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TextSecond)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -538,7 +610,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
 // ── Swipeable conversation row ───────────────────────────────────────────────
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) -> Unit, onRefresh: () -> Unit, onLongPress: (Conversation) -> Unit) {
+fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) -> Unit, onRefresh: () -> Unit, onLongPress: (Conversation) -> Unit, onAction: (String, Conversation) -> Unit = { _, _ -> }) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -574,12 +646,10 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                         onDragEnd = {
                             if (offsetX < -threshold && swipeAction != "none") {
                                 when (swipeAction) {
-                                    "delete" -> scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, c.threadId) }
-                                    "read" -> scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId) }
-                                    else -> ArchiveStore.setArchived(ctx, c.threadId, true)
+                                    "delete" -> onAction("delete", c)
+                                    "read" -> { scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId) }; Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show(); onRefresh() }
+                                    else -> onAction("archive", c)
                                 }
-                                Toast.makeText(ctx, when (swipeAction) { "delete" -> "Deleted"; "read" -> "Marked as read"; else -> "Archived" }, Toast.LENGTH_SHORT).show()
-                                onRefresh()
                             }
                             offsetX = 0f
                         },
@@ -961,6 +1031,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             showAttach = false
         }
     }
+    val toneL = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        if (r.resultCode == android.app.Activity.RESULT_OK) {
+            val u = if (Build.VERSION.SDK_INT >= 33) r.data?.getParcelableExtra(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java) else @Suppress("DEPRECATION") r.data?.getParcelableExtra<Uri>(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            prefs.edit().putString("tone_${conversation.threadId}", u?.toString() ?: "").apply()
+            Toast.makeText(ctx, "Notification sound saved for this chat", Toast.LENGTH_SHORT).show()
+        }
+    }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) cameraUri?.let { pendingMediaUri = it; pendingMediaType = "image"; showAttach = false }
@@ -1107,6 +1184,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     prefs.edit().putBoolean(k, !prefs.getBoolean(k, false)).apply()
                                     Toast.makeText(ctx, if (prefs.getBoolean(k, false)) "Muted" else "Unmuted", Toast.LENGTH_SHORT).show()
                                 }, leadingIcon = { Icon(Icons.Default.NotificationsOff, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Notification sound", color = TextPrimary) }, {
+                                    showMenu = false
+                                    toneL.launch(Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_NOTIFICATION).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true))
+                                }, leadingIcon = { Icon(Icons.Default.MusicNote, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Block & report spam", color = TextPrimary) }, {
                                     showMenu = false; BlockedStore.block(ctx, conversation.address)
                                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
@@ -1489,6 +1570,11 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.ChatBubble, "Chat bubbles", "Bubble color") { onSub("bubbles") } }
             item { SettRow(Icons.Default.FormatSize, "Text size", "Message text size") { onSub("textsize") } }
             item { SettRow(Icons.Default.Link, "Automatic previews", "Web link previews") { onSub("previews") } }
+            item { SettingsHeader("Privacy & storage") }
+            item { SettRow(Icons.Default.Report, "Spam protection", "Filter scam texts") { onSub("x_spam") } }
+            item { SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN") { onSub("x_lock") } }
+            item { SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes") { onSub("x_otp") } }
+            item { SettRow(Icons.Default.Backup, "Backup & restore", "Save or restore your texts") { onSub("x_backup") } }
             item { SettingsHeader("About") }
             item { SettRow(Icons.Default.Info, "About Message", "Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})") { onSub("about") } }
         }
