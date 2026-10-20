@@ -113,6 +113,17 @@ jobs:
           gfx list: $(grep -E 'Total frames|Janky frames|50th|90th|95th|99th' $O/gfx_list.txt | tr '\n' ' ')
           gfx thread: $(grep -E 'Total frames|Janky frames|50th|90th|95th|99th' $O/gfx_thread.txt | tr '\n' ' ')
           S
+          # b187 checks: populated numeric dataset
+          for n in $(seq 1 25); do adb emu sms send 1718555$(printf %04d $n) "Order $n shipped, track at https://example.com/t/$n"; sleep 0.5; done
+          adb emu sms send 18005551234 "50% off sale today only. Reply STOP to opt out"; sleep 1
+          adb emu sms send 5559990001 "."; sleep 1; adb emu sms send 5559990001 "ok"; sleep 1; adb emu sms send 5559990001 "see you at 8, bring the kids and the folding chairs please"; sleep 2
+          fresh; shot 30_list_populated
+          sh input tap 540 1000; sleep 1; shot 31_back_check
+          fresh; python3 qa/tap.py 5559990001; sleep 2; shot 32_short_bubbles
+          sh input tap 540 2240; sh input text "hello%sthere"; xy 540 2240; shot 33_compose
+          xy 1040 150; python3 qa/tap.py "Schedule send"; sleep 1; shot 34_schedule_quick
+          back; fresh; python3 qa/tap.py "Transactions"; sleep 1; shot 35_category
+          fresh; sh input tap 540 520; shot 36_update_row_or_status
           (cd $O && zip -qr ../../qa-out.zip . ) 
           exit 0
           QAEOF
