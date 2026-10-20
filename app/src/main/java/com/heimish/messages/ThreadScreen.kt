@@ -587,7 +587,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                             true
                                         }
                                     },
-                                textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 16.sp, lineHeight = 22.sp),
+                                textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 16.sp, lineHeight = 22.sp, fontFamily = FontState.family),
                                 cursorBrush = androidx.compose.ui.graphics.SolidColor(Brand),
                                 // Enter makes a new line (like Google Messages) unless "Press Enter to send" is on
                                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = if (enterSends) ImeAction.Send else ImeAction.Default),
@@ -886,7 +886,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                                 }
                                 if (last < m.body.length) withStyle(SpanStyle(color = outText)) { append(m.body.substring(last)) }
                             }
-                            ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = textSize, lineHeight = (textSize.value + 6).sp),
+                            ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontFamily = FontState.family, fontSize = textSize, lineHeight = (textSize.value + 6).sp),
                                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp),
                                 onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { a -> val v = a.item
                                 if (v.startsWith("http", true) && isIn && LinkSafety.shouldWarn(ctx, m, v)) { warnUrl = v; return@let }
