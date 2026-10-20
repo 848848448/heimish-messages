@@ -361,6 +361,7 @@ Fixed
 - Cleaner message box and send button
 - Day and time labels like Google Messages (Today, Yesterday, weekday)"""
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WhatsNewScreen(info: UpdateInfo?, onBack: () -> Unit) {
     val notes = if (info != null && info.notes.isNotBlank() && !info.notes.startsWith("Install app-debug")) info.notes else WHATS_NEW
