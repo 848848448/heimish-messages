@@ -94,6 +94,7 @@
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>
         <receiver android:name=".MarkReadReceiver" android:exported="false" />
+        <receiver android:name=".CopyCodeReceiver" android:exported="false" />
         <receiver android:name=".ScheduledSendReceiver" android:exported="false" />
 
         <!-- Nightly contacts sync -->
