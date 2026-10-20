@@ -15,6 +15,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -197,7 +199,7 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val p = prefs(ctx)
     val scope = rememberCoroutineScope()
-    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; else -> "Settings" }
+    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; "quick" -> "Quick replies"; "access" -> "Large text & display"; "style" -> "Chat style"; else -> "Settings" }
     var spamOn by remember { mutableStateOf(p.getBoolean("spam_filter", true)) }
     var lockOn by remember { mutableStateOf(p.getBoolean("app_lock", false)) }
     var otpOn by remember { mutableStateOf(p.getBoolean("auto_delete_otp", false)) }
@@ -227,6 +229,40 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
                     else { lockOn = it; p.edit().putBoolean("app_lock", it).apply() }
                 }
                 "otp" -> SwitchRow("Delete codes after 24 hours", "Removes old one-time and verification code texts", otpOn) { otpOn = it; p.edit().putBoolean("auto_delete_otp", it).apply(); if (it) scope.launch(Dispatchers.IO) { OtpCleaner.clean(ctx) } }
+                "quick" -> {
+                    var txt by remember { mutableStateOf(QuickReplies.get(ctx).joinToString("\n")) }
+                    Text("One reply per line. They show up in a chat under the menu, Quick replies.", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(txt, { txt = it; QuickReplies.set(ctx, it) }, Modifier.fillMaxWidth().padding(horizontal = 18.dp), minLines = 6)
+                }
+                "access" -> {
+                    var fs by remember { mutableStateOf(p.getFloat("font_scale", 0f)) }
+                    Text("Text size across the whole app", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    listOf("System default" to 0f, "Small" to 0.9f, "Large" to 1.15f, "Larger" to 1.3f, "Largest" to 1.5f).forEach { (l, v) ->
+                        Row(Modifier.fillMaxWidth().clickable { fs = v; p.edit().putFloat("font_scale", v).apply(); (ctx as? android.app.Activity)?.recreate() }.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(fs == v, { fs = v; p.edit().putFloat("font_scale", v).apply(); (ctx as? android.app.Activity)?.recreate() }); Spacer(Modifier.width(12.dp)); Text(l, fontSize = 16.sp * (if (v == 0f) 1f else v))
+                        }
+                    }
+                }
+                "style" -> {
+                    var cr by remember { mutableStateOf(p.getInt("bubble_corner", 20)) }
+                    var bg by remember { mutableStateOf(p.getInt("chat_bg", 0)) }
+                    Text("Bubble shape", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf("Round" to 20, "Soft" to 12, "Square" to 4).forEach { (l, v) ->
+                            if (cr == v) Button({ }) { Text(l) } else OutlinedButton({ cr = v; p.edit().putInt("bubble_corner", v).apply() }) { Text(l) }
+                        }
+                    }
+                    Text("Chat background", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        listOf(0, 0x33FFB74D, 0x3381C784, 0x3364B5F6, 0x33BA68C8, 0x33F06292).forEach { v ->
+                            val col = if (v == 0) androidx.compose.ui.graphics.Color.Gray.copy(alpha = .15f) else androidx.compose.ui.graphics.Color(v)
+                            Box(Modifier.size(44.dp).clip(androidx.compose.foundation.shape.CircleShape).background(col)
+                                .border(if (bg == v) 3.dp else 1.dp, if (bg == v) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Gray.copy(alpha = .4f), androidx.compose.foundation.shape.CircleShape)
+                                .clickable { bg = v; p.edit().putInt("chat_bg", v).apply() })
+                        }
+                    }
+                    Text("Open a chat to see the change.", Modifier.padding(18.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
+                }
                 "backup" -> {
                     Text("Save all your text messages to a file, or restore them from one. Restoring skips messages that already exist.", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Button({ exportL.launch("message-backup.json") }, Modifier.padding(horizontal = 18.dp)) { Text("Back up messages") }
@@ -234,6 +270,73 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
                     OutlinedButton({ importL.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }, Modifier.padding(horizontal = 18.dp)) { Text("Restore from file") }
                     if (status.isNotEmpty()) Text(status, Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                 }
+            }
+        }
+    }
+}
+
+
+object QuickReplies {
+    private val DEF = listOf("On my way", "Can't talk now, I'll call you later", "Thanks!", "Yes", "No", "OK")
+    fun get(ctx: Context): List<String> {
+        val s = prefs(ctx).getString("quick_replies", null) ?: return DEF
+        return s.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+    }
+    fun set(ctx: Context, text: String) { prefs(ctx).edit().putString("quick_replies", text).apply() }
+}
+
+fun chatCategory(c: Conversation): String {
+    val a = c.address
+    val business = a.any { it.isLetter() } || (a.all { it.isDigit() } && a.length <= 6)
+    if (!business) return "Personal"
+    val t = c.snippet.lowercase()
+    val promo = listOf("sale", "% off", "offer", "deal", "discount", "promo", "coupon", "free ", "shop now", "unsubscribe", "reply stop", "stop to").any { t.contains(it) }
+    return if (promo) "Promos" else "Transactions"
+}
+
+fun pinChatShortcut(ctx: Context, c: Conversation) {
+    val intent = Intent(ctx, MainActivity::class.java).setAction(Intent.ACTION_VIEW)
+        .putExtra("thread_id", c.threadId).putExtra("address", c.address).putExtra("name", c.displayName)
+    val info = androidx.core.content.pm.ShortcutInfoCompat.Builder(ctx, "chat_" + c.threadId)
+        .setShortLabel(c.displayName.ifBlank { c.address }.take(24))
+        .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(ctx, R.mipmap.ic_launcher))
+        .setIntent(intent).build()
+    if (androidx.core.content.pm.ShortcutManagerCompat.isRequestPinShortcutSupported(ctx)) {
+        androidx.core.content.pm.ShortcutManagerCompat.requestPinShortcut(ctx, info, null)
+    } else Toast.makeText(ctx, "Your launcher can't add shortcuts", Toast.LENGTH_LONG).show()
+}
+
+private val LINK_RE = Regex("https?://[^\\s]+")
+
+@Composable
+fun MediaDialog(msgs: List<Message>, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val media = msgs.filter { it.imageUri != null && (it.mediaMime ?: "image/").startsWith("image/") }
+    val links = msgs.flatMap { m -> LINK_RE.findAll(m.body).map { it.value.trimEnd('.', ',', ')') }.toList() }.distinct()
+    androidx.compose.ui.window.Dialog(onClose) {
+        Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Media and links", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                Spacer(Modifier.height(10.dp))
+                if (media.isEmpty() && links.isEmpty()) Text("Nothing shared in this chat yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (media.isNotEmpty()) {
+                    Text("Photos (${media.size})", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Fixed(3), Modifier.fillMaxWidth().heightIn(max = 260.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(media.size) { i ->
+                            coil.compose.AsyncImage(media[i].imageUri, "photo", Modifier.aspectRatio(1f).clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+                if (links.isNotEmpty()) {
+                    Text("Links (${links.size})", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                    LazyColumn(Modifier.heightIn(max = 220.dp)) {
+                        items(links) { l ->
+                            Text(l, Modifier.fillMaxWidth().clickable { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(l)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }.padding(vertical = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                        }
+                    }
+                }
+                TextButton(onClose, Modifier.align(Alignment.End)) { Text("Close") }
             }
         }
     }
