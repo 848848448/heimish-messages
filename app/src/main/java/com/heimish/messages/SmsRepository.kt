@@ -176,7 +176,7 @@ object SmsRepository {
 
     // ── Messages ──────────────────────────────────────────────────────────────
 
-    fun loadMessages(ctx: Context, threadId: Long): List<Message> {
+    fun loadMessages(ctx: Context, threadId: Long, limit: Int = 800): List<Message> {
         val out = ArrayList<Message>()
 
         // SMS
@@ -184,7 +184,7 @@ object SmsRepository {
             Telephony.Sms.CONTENT_URI,
             arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS, Telephony.Sms.SUBSCRIPTION_ID, Telephony.Sms.DATE_SENT),
             Telephony.Sms.THREAD_ID + " = ?", arrayOf(threadId.toString()),
-            Telephony.Sms.DATE + " DESC LIMIT 800"
+            Telephony.Sms.DATE + " DESC LIMIT " + limit
         )?.use { c ->
             val iId   = c.getColumnIndex(Telephony.Sms._ID)
             val iBody = c.getColumnIndex(Telephony.Sms.BODY)
@@ -214,7 +214,7 @@ object SmsRepository {
             Uri.parse("content://mms"),
             arrayOf("_id", "date", "msg_box"),
             "thread_id = ?", arrayOf(threadId.toString()),
-            "date DESC LIMIT 300"
+            "date DESC LIMIT " + (limit * 3 / 8)
         )?.use { c ->
             val iId   = c.getColumnIndex("_id")
             val iDate = c.getColumnIndex("date")

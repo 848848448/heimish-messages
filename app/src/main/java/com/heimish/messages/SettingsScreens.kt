@@ -149,6 +149,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                     item { ToggleRow("Vibrate", "notif_vibrate", prefs) }
                     item { ToggleRow("Show sender name", "notif_sender", prefs) }
                     item { ToggleRow("Show message preview", "notif_preview", prefs) }
+                    item { ToggleRow("Chat bubbles (Android 11+)", "bubbles", prefs) }
                     item {
                         Spacer(Modifier.height(14.dp))
                         Button(onClick = {

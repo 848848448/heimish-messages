@@ -202,6 +202,14 @@ object Notifications {
             val icon = IconCompat.createWithBitmap(contactBitmap(ctx, if (isGroup) sendTo else address, if (isGroup) groupTitle else sender))
             val shortcutId = pushShortcut(ctx, threadId, sendTo, if (isGroup) groupTitle else sender, icon, persons.values.toList())
             builder.setShortcutId(shortcutId).setLocusId(LocusIdCompat(shortcutId))
+            // Chat bubble (Android 11+): shows when bubbles are allowed for this conversation
+            if (Build.VERSION.SDK_INT >= 30 && prefs.getBoolean("bubbles", true)) runCatching {
+                val bi = Intent(ctx, BubbleActivity::class.java).setAction(Intent.ACTION_VIEW)
+                    .setData(Uri.parse("heimish://thread/$threadId"))
+                    .putExtra("thread_id", threadId).putExtra("address", sendTo).putExtra("name", if (isGroup) groupTitle else sender)
+                val bpi = PendingIntent.getActivity(ctx, nid + 50000, bi, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+                builder.setBubbleMetadata(NotificationCompat.BubbleMetadata.Builder(bpi, icon).setDesiredHeight(640).setSuppressNotification(false).setAutoExpandBubble(false).build())
+            }
             builder.setLargeIcon(contactBitmap(ctx, if (isGroup) sendTo else address, if (isGroup) groupTitle else sender))
             if (lines.size > 1) builder.setNumber(lines.size)
         } else {
