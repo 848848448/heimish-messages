@@ -143,6 +143,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     LaunchedEffect(conversation.threadId) {
         address = withContext(Dispatchers.IO) { SmsRepository.threadAddress(ctx, conversation.threadId, conversation.address) }
     }
+    val isGroupChat = address.contains(";")
     DisposableEffect(conversation.threadId) {
         ActiveThread.id = conversation.threadId
         Notifications.cancelThread(ctx, conversation.threadId)
@@ -656,7 +657,16 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     val sameAsPrev = i > 0 && dayMsgs[i - 1].incoming == m.incoming
                     Column {
                         if (i > 0) Spacer(Modifier.height(if (sameAsPrev) 2.dp else 10.dp))
-                        SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m }, showMeta = i == dayMsgs.lastIndex || dayMsgs[i + 1].incoming != m.incoming || dayMsgs[i + 1].date - m.date > 300_000)
+                        // Group chats: who wrote it, above the first bubble of each run (like Google Messages)
+                        if (isGroupChat && m.incoming && !m.address.isNullOrBlank() && (i == 0 || dayMsgs[i - 1].address != m.address || !dayMsgs[i - 1].incoming)) {
+                            val who = remember(m.address) { SmsRepository.getContactName(ctx, m.address!!) ?: m.address!! }
+                            Text(who, fontSize = 12.sp, color = avatarColor(m.address!!), fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 2.dp))
+                        }
+                        SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m },
+                            showMeta = i == dayMsgs.lastIndex || dayMsgs[i + 1].incoming != m.incoming || dayMsgs[i + 1].date - m.date > 300_000,
+                            joinedAbove = i > 0 && dayMsgs[i - 1].incoming == m.incoming && m.date - dayMsgs[i - 1].date <= 300_000 && (!m.incoming || dayMsgs[i - 1].address == m.address),
+                            joinedBelow = i < dayMsgs.lastIndex && dayMsgs[i + 1].incoming == m.incoming && dayMsgs[i + 1].date - m.date <= 300_000 && (!m.incoming || dayMsgs[i + 1].address == m.address),
+                            onTap = if (m.failed && !m.isMms) ({ scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } } }) else null)
                     }
                 }
             }
@@ -702,7 +712,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
 
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
 @Composable
-fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongClick: () -> Unit, showMeta: Boolean = true) {
+fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongClick: () -> Unit, showMeta: Boolean = true, joinedAbove: Boolean = false, joinedBelow: Boolean = false, onTap: (() -> Unit)? = null) {
     var offsetX by remember { mutableFloatStateOf(0f) }
     val threshold = 100f
     Box(Modifier.fillMaxWidth().pointerInput(m.id) {
@@ -719,7 +729,7 @@ fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongCl
             }
         }
         Box(Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }) {
-            MessageBubble(m, reactTick, onLongClick, showMeta)
+            MessageBubble(m, reactTick, onLongClick, showMeta, joinedAbove, joinedBelow, onTap)
         }
     }
 }
@@ -771,7 +781,7 @@ internal val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+|[
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta: Boolean = true) {
+fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta: Boolean = true, joinedAbove: Boolean = false, joinedBelow: Boolean = false, onTap: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     val isIn = m.incoming
@@ -801,16 +811,18 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     var viewing by remember { mutableStateOf(false) }
     if (viewing && m.imageUri != null) PhotoViewer(m.imageUri) { viewing = false }
     val cr = prefs.getInt("bubble_corner", 20).dp
-    val tail = if (cr < 5.dp) cr else 5.dp
+    // Google Messages style: bubbles in a run from the same person get tight corners where they touch
+    val tight = if (cr < 4.dp) cr else 4.dp
     val shape = RoundedCornerShape(
-        topStart = cr, topEnd = cr,
-        bottomEnd = if (isIn) cr else tail,
-        bottomStart = if (isIn) tail else cr
+        topStart = if (isIn && joinedAbove) tight else cr,
+        topEnd = if (!isIn && joinedAbove) tight else cr,
+        bottomEnd = if (!isIn && joinedBelow) tight else cr,
+        bottomStart = if (isIn && joinedBelow) tight else cr
     )
     Box(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth()
-                .combinedClickable(onClick = {}, onLongClick = onLongClick, indication = null, interactionSource = remember { MutableInteractionSource() }),
+                .combinedClickable(onClick = { onTap?.invoke() }, onLongClick = onLongClick, indication = null, interactionSource = remember { MutableInteractionSource() }),
             horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
         ) {
             if (!isIn) Spacer(Modifier.width(56.dp))
@@ -883,7 +895,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                         if (failed) {
                             Icon(Icons.Default.ErrorOutline, "Failed", tint = Color(0xFFD93025), modifier = Modifier.size(13.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Not sent · hold to retry", fontSize = 11.sp, color = Color(0xFFD93025), fontWeight = FontWeight.Medium)
+                            Text("Not sent · tap to retry", fontSize = 11.sp, color = Color(0xFFD93025), fontWeight = FontWeight.Medium)
                             Spacer(Modifier.width(6.dp))
                         }
                         if (starred) {
