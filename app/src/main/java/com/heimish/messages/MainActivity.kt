@@ -1328,6 +1328,11 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             IconButton({ pendingMediaUri = null }) { Icon(Icons.Default.Close, "Remove", tint = TextHint) }
                         }
                     }
+                    if (draft.length > 100) {
+                        val gsm = draft.all { it.code < 128 }
+                        val per = if (gsm) (if (draft.length <= 160) 160 else 153) else (if (draft.length <= 70) 70 else 67)
+                        Text("${draft.length} chars · ${(draft.length + per - 1) / per} SMS", Modifier.fillMaxWidth().padding(end = 22.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End, fontSize = 11.sp, color = TextHint)
+                    }
                     Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(Tonal)) {
                             Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, "Attach", tint = OnTonal, modifier = Modifier.size(22.dp))
@@ -1503,7 +1508,7 @@ fun EmojiPicker(onPick: (String) -> Unit) {
 }
 
 // ━━━━━━━━━━━━━━━━ MESSAGE BUBBLE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+)", RegexOption.IGNORE_CASE)
+private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+|[\\w.+-]+@[\\w-]+\\.[\\w.-]+[A-Za-z]|\\+?\\d[\\d ().-]{7,}\\d)", RegexOption.IGNORE_CASE)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1585,9 +1590,9 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                             }
                             ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = textSize, lineHeight = (textSize.value + 6).sp),
                                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp),
-                                onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) } })
-                            if (previewMode != "none") {
-                                val url = urls.first().value
+                                onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { a -> val v = a.item; runCatching { ctx.startActivity(if (v.startsWith("http", true)) Intent(Intent.ACTION_VIEW, Uri.parse(v)) else if (v.contains("@")) Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + v)) else Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + v.filter { c -> c.isDigit() || c == '+' }))) } } })
+                            if (previewMode != "none" && urls.any { it.value.startsWith("http", true) }) {
+                                val url = urls.first { it.value.startsWith("http", true) }.value
                                 val domain = try { java.net.URL(url).host.removePrefix("www.") } catch (_: Exception) { url }
                                 Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
                                     .background(previewBg)
