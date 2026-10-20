@@ -1,5 +1,3 @@
 New
-- Mute a chat for 1 hour, 8 hours, 24 hours or always
-- Export a chat as a text file and share it
-Fixed
-- What's new now lists only the changes since the version you had installed
+- Remind me about a chat in 1 hour, 3 hours or tomorrow morning
+- Search in a chat can be limited to photos or links
