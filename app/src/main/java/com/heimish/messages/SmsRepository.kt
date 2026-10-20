@@ -150,7 +150,7 @@ object SmsRepository {
             Telephony.Sms.CONTENT_URI,
             arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.ADDRESS, Telephony.Sms.STATUS),
             Telephony.Sms.THREAD_ID + " = ?", arrayOf(threadId.toString()),
-            Telephony.Sms.DATE + " ASC"
+            Telephony.Sms.DATE + " DESC LIMIT 800"
         )?.use { c ->
             val iId   = c.getColumnIndex(Telephony.Sms._ID)
             val iBody = c.getColumnIndex(Telephony.Sms.BODY)
@@ -175,7 +175,7 @@ object SmsRepository {
             Uri.parse("content://mms"),
             arrayOf("_id", "date", "msg_box"),
             "thread_id = ?", arrayOf(threadId.toString()),
-            "date ASC"
+            "date DESC LIMIT 300"
         )?.use { c ->
             val iId   = c.getColumnIndex("_id")
             val iDate = c.getColumnIndex("date")
