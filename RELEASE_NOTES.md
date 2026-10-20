@@ -1,3 +1,3 @@
-Fixed
-- Removed the always-visible "up to date" line on the chat list
-- Chat header no longer repeats the phone number twice
+New
+- Tap the contact name at the top of a chat to open Details, like Google Messages
+- Details has round Call, Video and Add contact / Contact buttons, and lists the people in a group
