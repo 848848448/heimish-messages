@@ -1,12 +1,9 @@
 New
-- Material You: the app takes its colors from your wallpaper (Settings > Theme, can be turned off)
-- Pure black dark mode option
-- "Unread" filter on the main screen
-- Scheduled messages show inside the chat; tap one to send now, edit or delete
-- Smarter quick replies, in Yiddish when the message is in Yiddish
-- Character counter while typing a long text (shows how many SMS it will be)
-- "Press Enter to send" option (Settings > Advanced)
+- Send several photos at once (pick up to 10 from the gallery or share them in)
+- Chat bubbles: a chat can float over other apps (Android 11+, from the notification)
+- Translate any message (hold it > Translate)
+- "Copy code" when you hold a message with a verification code
+- Load older messages: long chats are no longer cut off at the last 800
 
 Fixed
-- Enter always sent the message, so you couldn't write on more than one line
-- Filter chips on the main screen ran off the edge when you had labels
+- The character counter showed twice when typing a long text

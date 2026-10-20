@@ -111,6 +111,14 @@
             </intent-filter>
         </service>
 
+        <activity
+            android:name=".BubbleActivity"
+            android:exported="false"
+            android:allowEmbedded="true"
+            android:resizeableActivity="true"
+            android:documentLaunchMode="always"
+            android:windowSoftInputMode="adjustResize" />
+
         <receiver android:name=".DirectReplyReceiver" android:exported="false" />
         <receiver android:name=".SmsStatusReceiver" android:exported="false" />
         <receiver android:name=".UpdateCheckReceiver" android:exported="false" />

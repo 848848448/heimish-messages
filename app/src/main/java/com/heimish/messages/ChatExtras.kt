@@ -183,3 +183,15 @@ object SmartReplies {
         }
     }
 }
+
+object Translate {
+    fun open(ctx: Context, text: String) {
+        // Android's system translate (Google Translate / Lens) first, then the web as a fallback
+        val tries = buildList {
+            if (Build.VERSION.SDK_INT >= 29) add(Intent(Intent.ACTION_TRANSLATE).putExtra(Intent.EXTRA_TEXT, text))
+            add(Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain").setPackage("com.google.android.apps.translate").putExtra(Intent.EXTRA_PROCESS_TEXT, text).putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true))
+            add(Intent(Intent.ACTION_VIEW, Uri.parse("https://translate.google.com/?sl=auto&tl=en&op=translate&text=" + Uri.encode(text))))
+        }
+        for (i in tries) { if (runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return }
+    }
+}
