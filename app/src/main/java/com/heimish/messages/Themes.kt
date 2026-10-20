@@ -17,6 +17,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -97,18 +98,27 @@ fun ChatThemeScreen(c: Conversation, onClose: (applied: Boolean) -> Unit) {
     var color by remember { mutableIntStateOf(ChatPalettes.indexOf(ChatThemeStore.palette(ctx, c.threadId)).coerceAtLeast(0)) }
     var wall by remember { mutableStateOf(ChatThemeStore.wallpaper(ctx, c.threadId)) }
     var ver by remember { mutableIntStateOf(0) }
+    // A picked photo is only kept if you press Apply; Back puts the old wallpaper photo back.
+    val backup = remember { java.io.File(ctx.cacheDir, "wall_bak_${c.threadId}.jpg") }
+    var touched by remember { mutableStateOf(false) }
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u: Uri? ->
         if (u != null) runCatching {
-            ctx.contentResolver.openInputStream(u)?.use { ins -> ChatThemeStore.wallFile(ctx, c.threadId).outputStream().use { ins.copyTo(it) } }
+            val f = ChatThemeStore.wallFile(ctx, c.threadId)
+            if (!touched) { touched = true; if (f.exists()) f.copyTo(backup, true) else backup.delete() }
+            ctx.contentResolver.openInputStream(u)?.use { ins -> f.outputStream().use { ins.copyTo(it) } }
             wall = "photo"; ver++
         }
     }
+    fun cancel() {
+        if (touched) runCatching { val f = ChatThemeStore.wallFile(ctx, c.threadId); if (backup.exists()) backup.copyTo(f, true) else f.delete() }
+        onClose(false)
+    }
     val pal = ChatPalettes[color]
-    Dialog(onDismissRequest = { onClose(false) }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        BackHandler { onClose(false) }
+    Dialog(onDismissRequest = { cancel() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        BackHandler { cancel() }
         Column(Modifier.fillMaxSize().background(Chrome).systemBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ onClose(false) }) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) }
+                IconButton({ cancel() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
                 Column(Modifier.weight(1f)) {
                     Text("Chat theme", color = TextPrimary, fontSize = 20.sp)
                     Text("Only you will see these changes", color = TextSecond, fontSize = 13.sp)

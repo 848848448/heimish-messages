@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -117,7 +118,7 @@ fun MessageDetailsDialog(m: Message, name: String, address: String, onClose: () 
             if (m.dateSent > 0) add("Sent" to fmt.format(Date(m.dateSent)))
             add("Received" to fmt.format(Date(m.date)))
         } else add("Sent" to fmt.format(Date(m.date)))
-        if (!m.incoming) add("Status" to when { m.failed -> "Not sent"; m.sending -> "Sending"; m.delivered -> "Delivered"; else -> "Sent" })
+        if (!m.incoming) add("Status" to when { m.failed -> "Not sent"; m.sending -> "Sending"; m.notDelivered -> "Not delivered"; m.delivered -> "Delivered"; else -> "Sent" })
         if (!m.isMms && m.body.isNotEmpty()) {
             val (_, segs) = smsCounter(m.body)
             add("Length" to "${m.body.length} characters · $segs ${if (segs == 1) "part" else "parts"}")
@@ -128,7 +129,7 @@ fun MessageDetailsDialog(m: Message, name: String, address: String, onClose: () 
         Surface(Modifier.fillMaxSize(), color = Chrome) {
             Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).navigationBarsPadding()) {
                 Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClose) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) }
+                    IconButton(onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
                     Text("Message details", fontSize = 22.sp, color = TextPrimary, modifier = Modifier.padding(start = 4.dp))
                 }
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) { MessageBubble(m, 0, onLongClick = {}, showMeta = false) }
