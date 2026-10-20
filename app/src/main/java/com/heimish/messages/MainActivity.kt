@@ -992,7 +992,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             msgs = filteredMsgs
             if (grew || lastCount == -1) {
                 lastCount = filteredMsgs.size
-                if (filteredMsgs.isNotEmpty()) listState.animateScrollToItem(filteredMsgs.size - 1)
+                if (filteredMsgs.isNotEmpty()) { delay(80); listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0), 100000) }
             }
         }
     }
