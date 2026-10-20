@@ -10,6 +10,7 @@ val localProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val adminToken: String = System.getenv("ADMIN_TOKEN") ?: localProps.getProperty("adminToken") ?: ""
+val buildNumber: Int = (System.getenv("BUILD_NUMBER") ?: System.getenv("GITHUB_RUN_NUMBER") ?: localProps.getProperty("buildNumber") ?: "178").toInt()
 val workerUrl: String = System.getenv("HEIMISH_WORKER_URL") ?: localProps.getProperty("workerUrl") ?: ""
 
 android {
@@ -20,11 +21,22 @@ android {
         applicationId = "com.heimish.messages"
         minSdk = 24
         targetSdk = 34
-        versionCode = 17
-        versionName = "3.5"
+        versionCode = buildNumber
+        versionName = "3.6"
 
+        buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
         buildConfigField("String", "ADMIN_TOKEN", "\"$adminToken\"")
         buildConfigField("String", "WORKER_URL", "\"$workerUrl\"")
+    }
+
+    val ksPath = System.getenv("KEYSTORE_PATH")
+    if (ksPath != null && file(ksPath).exists()) {
+        signingConfigs.getByName("debug") {
+            storeFile = file(ksPath)
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEYSTORE_PASSWORD")
+        }
     }
 
     buildTypes {
