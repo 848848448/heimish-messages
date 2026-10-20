@@ -135,3 +135,24 @@ internal val GMColors: ColorScheme
             outline = TextHint, outlineVariant = DivLt
         )
     }
+
+/** Rubik: clean, modern, and draws Yiddish / Hebrew letters beautifully. Settings > Theme can switch back to the system font. */
+internal val Rubik = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(R.font.rubik_regular, androidx.compose.ui.text.font.FontWeight.Normal),
+    androidx.compose.ui.text.font.Font(R.font.rubik_medium, androidx.compose.ui.text.font.FontWeight.Medium),
+    androidx.compose.ui.text.font.Font(R.font.rubik_bold, androidx.compose.ui.text.font.FontWeight.Bold),
+)
+
+object FontState { var family by mutableStateOf<androidx.compose.ui.text.font.FontFamily>(Rubik) }
+
+internal fun appTypography(ff: androidx.compose.ui.text.font.FontFamily): Typography {
+    val b = Typography()
+    fun androidx.compose.ui.text.TextStyle.f() = copy(fontFamily = ff)
+    return Typography(
+        displayLarge = b.displayLarge.f(), displayMedium = b.displayMedium.f(), displaySmall = b.displaySmall.f(),
+        headlineLarge = b.headlineLarge.f(), headlineMedium = b.headlineMedium.f(), headlineSmall = b.headlineSmall.f(),
+        titleLarge = b.titleLarge.f().copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), titleMedium = b.titleMedium.f(), titleSmall = b.titleSmall.f(),
+        bodyLarge = b.bodyLarge.f(), bodyMedium = b.bodyMedium.f(), bodySmall = b.bodySmall.f(),
+        labelLarge = b.labelLarge.f(), labelMedium = b.labelMedium.f(), labelSmall = b.labelSmall.f(),
+    )
+}
