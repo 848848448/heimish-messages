@@ -159,3 +159,27 @@ object LinkSafety {
         return risky.any { it.containsMatchIn(url) } || SpamFilter.isSpam(ctx, from, m.body)
     }
 }
+
+/** On-device reply suggestions (no internet, no AI service): picks chips from the last message, in Yiddish when it is in Hebrew letters. */
+object SmartReplies {
+    private fun hebrew(t: String) = t.any { it in '\u0590'..'\u05FF' }
+    fun suggest(last: String): List<String> {
+        val t = last.trim()
+        val yi = hebrew(t)
+        val q = t.endsWith("?") || t.endsWith("?")
+        val thanks = Regex("(?i)\\b(thanks|thank you|thx)\\b|א דאנק|שכח|ת\"ח").containsMatchIn(t)
+        val where = Regex("(?i)\\b(where|when|what time)\\b|וואו|ווען|וויפיל אזייגער").containsMatchIn(t)
+        val code = Regex("\\b\\d{4,8}\\b").containsMatchIn(t) && Regex("(?i)code|otp|verif|קאוד|קוד").containsMatchIn(t)
+        return when {
+            code -> emptyList()
+            yi && thanks -> listOf("👍", "ס'איז גארנישט", "❤️")
+            yi && where -> listOf("איך בין אויפן וועג", "באלד", "איך וועל דיר לאזן וויסן")
+            yi && q -> listOf("יא", "ניין", "אפשר", "איך וועל קוקן")
+            yi -> listOf("אקעי", "👍", "א דאנק!", "איך בין אויפן וועג")
+            thanks -> listOf("You're welcome!", "👍", "❤️")
+            where -> listOf("On my way", "Soon", "I'll let you know")
+            q -> listOf("Yes", "No", "Maybe", "Let me check")
+            else -> listOf("OK", "👍", "Thanks!", "On my way")
+        }
+    }
+}

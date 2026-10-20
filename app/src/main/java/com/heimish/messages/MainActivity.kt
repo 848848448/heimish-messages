@@ -185,6 +185,10 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
         else -> isSystemInDarkTheme()
     }
     val darkBar = ThemeState.dark
+    // Material You: colors from your wallpaper (Android 12+), unless turned off in Settings > Theme
+    val useDynamic = remember(ThemeState.version) { prefs.getBoolean("dynamic_color", true) } && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    ThemeState.amoled = remember(ThemeState.version) { prefs.getBoolean("amoled", false) }
+    ThemeState.scheme = if (useDynamic) (if (darkBar) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)) else null
     LaunchedEffect(darkBar, ThemeState.version) {
         (ctx as? android.app.Activity)?.window?.let { w ->
             w.statusBarColor = Bg.toArgb()

@@ -197,6 +197,15 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                     item { RadioRow("System default", themeNow == "system") { prefs.edit().putString("theme", "system").apply(); themeNow = "system"; onThemeChange("system") } }
                     item { RadioRow("Light", themeNow == "light") { prefs.edit().putString("theme", "light").apply(); themeNow = "light"; onThemeChange("light") } }
                     item { RadioRow("Dark", themeNow == "dark") { prefs.edit().putString("theme", "dark").apply(); themeNow = "dark"; onThemeChange("dark") } }
+                    item { HorizontalDivider(Modifier.padding(vertical = 8.dp), color = DivLt) }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) item {
+                        var dyn by remember { mutableStateOf(prefs.getBoolean("dynamic_color", true)) }
+                        SettingSwitch("Wallpaper colors", "Material You colors from your wallpaper", dyn) { dyn = it; prefs.edit().putBoolean("dynamic_color", it).apply(); ThemeState.version++ }
+                    }
+                    item {
+                        var black by remember { mutableStateOf(prefs.getBoolean("amoled", false)) }
+                        SettingSwitch("Pure black dark mode", "True black background in dark mode, easy on OLED screens", black) { black = it; prefs.edit().putBoolean("amoled", it).apply(); ThemeState.version++ }
+                    }
                 }
                 "textsize" -> {
                     item { RadioRow("Small", prefs.getString("text_size", "default") == "small") { prefs.edit().putString("text_size", "small").apply() } }
@@ -243,6 +252,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                     item { ToggleRow("MMS delivery reports", "mms_delivery", prefs, false) }
                     item { ToggleRow("Group MMS", "group_mms", prefs) }
                     item { ToggleRow("Hear outgoing message sounds", "sent_sound", prefs, false) }
+                    item { ToggleRow("Press Enter to send", "enter_send", prefs, false) }
                     item { ToggleRow("Notify me about app updates", "upd_notify", prefs) }
                     item {
                         val scope = rememberCoroutineScope()
@@ -394,3 +404,11 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 }
 
+
+@Composable fun SettingSwitch(label: String, sub: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { Text(label, fontSize = 15.sp, color = TextPrimary); Text(sub, fontSize = 13.sp, color = TextSecond) }
+        Spacer(Modifier.width(12.dp))
+        Switch(on, onChange, colors = SwitchDefaults.colors(checkedTrackColor = Brand, checkedThumbColor = OnBrand))
+    }
+}
