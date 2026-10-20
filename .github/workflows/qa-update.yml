@@ -1,0 +1,101 @@
+name: QA updater
+on:
+  workflow_dispatch:
+    inputs:
+      old_tag:
+        description: older release tag to install first
+        default: v3.6-b178
+  push:
+    paths: ['.github/workflows/qa-update.yml']
+permissions:
+  contents: write
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write QA scripts
+        run: |
+          mkdir -p qa
+          cat > qa/tap.py <<'QAEOF'
+          #!/usr/bin/env python3
+          # usage: tap.py "text"  -> taps first node whose text/desc contains it (case-insens). exit 1 if missing.
+          import subprocess,sys,re,xml.etree.ElementTree as ET
+          def dump():
+              subprocess.run(["adb","shell","uiautomator","dump","/sdcard/u.xml"],capture_output=True)
+              x=subprocess.run(["adb","exec-out","cat","/sdcard/u.xml"],capture_output=True,text=True).stdout
+              return ET.fromstring(x[x.find("<"):])
+          def nodes(r):
+              for n in r.iter("node"):
+                  m=re.findall(r"\d+",n.get("bounds",""))
+                  if len(m)==4:
+                      yield n,[int(i) for i in m]
+          if __name__=="__main__":
+              q=sys.argv[1].lower(); idx=int(sys.argv[2]) if len(sys.argv)>2 else 0
+              hits=[(n,b) for n,b in nodes(dump()) if q in (n.get("text","")+" "+n.get("content-desc","")).lower()]
+              if len(hits)<=idx: print("MISSING",q); sys.exit(1)
+              b=hits[idx][1]; subprocess.run(["adb","shell","input","tap",str((b[0]+b[2])//2),str((b[1]+b[3])//2)]); print("tapped",q)
+          QAEOF
+          cat > qa/dump.py <<'QAEOF'
+          import sys; sys.path.insert(0,"qa")
+          from tap import dump,nodes
+          for n,b in nodes(dump()):
+              t=(n.get("text") or n.get("content-desc") or "")
+              if t or n.get("clickable")=="true": print(b,n.get("class","").split(".")[-1],repr(t),"click" if n.get("clickable")=="true" else "")
+          QAEOF
+          cat > qa/upd.sh <<'QAEOF'
+          #!/bin/bash
+          P=com.heimish.messages
+          O=qa/out; mkdir -p $O
+          sh(){ adb shell "$@"; }
+          shot(){ sleep 1.5; adb exec-out screencap -p > $O/$1.png; python3 qa/dump.py > $O/$1.txt 2>&1; }
+          curl -sL -o old.apk "https://github.com/848848448/heimish-messages/releases/download/$OLD_TAG/app-debug.apk"
+          ls -la old.apk > $O/old.txt
+          adb install -r old.apk >> $O/old.txt 2>&1
+          sh dumpsys package $P | grep -E 'versionCode|versionName' > $O/ver_before.txt
+          for p in READ_SMS SEND_SMS RECEIVE_SMS RECEIVE_MMS READ_CONTACTS POST_NOTIFICATIONS; do sh pm grant $P android.permission.$p; done
+          sh cmd role add-role-holder --user 0 android.app.role.SMS $P
+          sh appops set $P REQUEST_INSTALL_PACKAGES allow
+          adb emu sms send 5551110001 "hello"; sleep 3
+          sh am start -n $P/.MainActivity; sleep 6
+          shot u1_list
+          python3 qa/tap.py "Update available" || echo "NO UPDATE CARD" >> $O/problems.txt
+          sleep 3; shot u2_downloading
+          for i in $(seq 1 30); do sleep 4; python3 qa/dump.py > /tmp/d.txt 2>&1; if grep -qiE "Install|Update" /tmp/d.txt && grep -qi "package installer\|Do you want" /tmp/d.txt; then break; fi; done
+          shot u3_installer
+          python3 qa/tap.py "Install" || python3 qa/tap.py "Update" || echo "NO INSTALL BUTTON" >> $O/problems.txt
+          sleep 8; shot u4_after_install
+          for i in 1 2 3; do sleep 5; done
+          sh dumpsys package $P | grep -E 'versionCode|versionName' > $O/ver_after.txt
+          sh am start -n $P/.MainActivity; sleep 4; shot u5_relaunched
+          adb logcat -d | grep -iE "FATAL|Updater|PackageInstaller" | head -40 > $O/log.txt
+          (cd $O && zip -qr ../../qa-out.zip . )
+          exit 0
+          QAEOF
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Emulator updater QA
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          OLD_TAG: ${{ inputs.old_tag || 'v3.6-b178' }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash qa/upd.sh
+      - name: Publish evidence
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: qaupd-b${{ github.run_number }}
+          name: "QA updater ${{ github.run_number }}"
+          prerelease: true
+          make_latest: false
+          files: qa-out.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
