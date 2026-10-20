@@ -27,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -422,7 +423,7 @@ fun PhotoViewer(uri: Uri, onClose: () -> Unit) {
 }
 
 fun Modifier.androidxPointer(onGesture: (Float, androidx.compose.ui.geometry.Offset) -> Unit): Modifier =
-    this.pointerInput(Unit) { androidx.compose.foundation.gestures.detectTransformGestures { _, pan, zoom, _ -> onGesture(zoom, pan) } }
+    this.pointerInput(Unit) { detectTransformGestures { _, pan, zoom, _ -> onGesture(zoom, pan) } }
 
 @Composable
 fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit, onDelete: () -> Unit) {
