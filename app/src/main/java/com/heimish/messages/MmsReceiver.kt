@@ -137,7 +137,7 @@ class MmsReceiver : BroadcastReceiver() {
             val name = SmsRepository.getContactName(context, addr) ?: addr
             val body = getMmsText(context, mmsId)
             val prefs = context.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-            if (prefs.getBoolean("notif_allow", true) && !prefs.getBoolean("muted_$threadId", false)) {
+            if (prefs.getBoolean("notif_allow", true) && !Mute.isMuted(context, threadId)) {
                 Notifications.showMessage(
                     context, name,
                     body.ifBlank { "📷 MMS" },
