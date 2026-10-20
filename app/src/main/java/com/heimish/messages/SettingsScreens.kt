@@ -168,11 +168,12 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
     val blocked = remember(blockedTick) { BlockedStore.getAll(ctx).toList() }
     var themeNow by remember { mutableStateOf(prefs.getString("theme", "system") ?: "system") }
 
-    Scaffold(containerColor = Bg,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, title = { Text(title, fontWeight = FontWeight.SemiBold) }) }
+    val subScroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    Scaffold(containerColor = Bg, modifier = Modifier.nestedScroll(subScroll.nestedScrollConnection),
+        topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+            navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, title = { Text(title) }, scrollBehavior = subScroll) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).padding(horizontal = 18.dp)) {
+        LazyColumn(Modifier.padding(pad).padding(horizontal = 18.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
             when (key) {
                 "notifications" -> {
                     item { ToggleRow("Allow notifications", "notif_allow", prefs) }
@@ -363,13 +364,14 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
 
 @Composable fun ToggleRow(label: String, key: String, prefs: android.content.SharedPreferences, default: Boolean = true) {
     var on by remember { mutableStateOf(prefs.getBoolean(key, default)) }
-    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, fontSize = 15.sp, color = TextPrimary); Switch(on, { on = it; prefs.edit().putBoolean(key, it).apply() }, colors = SwitchDefaults.colors(checkedTrackColor = Brand, checkedThumbColor = OnBrand))
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { on = !on; prefs.edit().putBoolean(key, on).apply() }.padding(vertical = 14.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 16.sp, color = TextPrimary, modifier = Modifier.weight(1f)); Spacer(Modifier.width(12.dp))
+        Switch(on, { on = it; prefs.edit().putBoolean(key, it).apply() }, colors = SwitchDefaults.colors(checkedTrackColor = Brand, checkedThumbColor = OnBrand))
     }
 }
 @Composable fun RadioRow(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected, onClick, colors = RadioButtonDefaults.colors(selectedColor = Brand)); Spacer(Modifier.width(12.dp)); Text(label, fontSize = 15.sp, color = TextPrimary)
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected, onClick, colors = RadioButtonDefaults.colors(selectedColor = Brand)); Spacer(Modifier.width(12.dp)); Text(label, fontSize = 16.sp, color = TextPrimary)
     }
 }
 @Composable fun SettRow(icon: ImageVector, title: String, sub: String, tint: Color = Brand, onClick: () -> Unit) {
