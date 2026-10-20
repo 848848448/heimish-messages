@@ -107,11 +107,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var showAttach by remember { mutableStateOf(false) }
     var pendingMediaUri by remember { mutableStateOf<Uri?>(null) }
     var pendingMediaType by remember { mutableStateOf("image") }
+    var extraMedia by remember { mutableStateOf(listOf<Uri>()) }
     var replyTo by remember { mutableStateOf<Message?>(null) }
     // Text / photo shared in from another app (share sheet, sms: link without a number)
     LaunchedEffect(Unit) {
         if (!ShareState.isEmpty) {
             ShareState.text?.takeIf { it.isNotBlank() }?.let { t -> draft = if (draft.isBlank()) t else draft + "\n" + t }
+            extraMedia = ShareState.uris.drop(1).take(9)
             ShareState.uris.firstOrNull()?.let { u ->
                 val mt = runCatching { ctx.contentResolver.getType(u) }.getOrNull() ?: ShareState.mime ?: ""
                 pendingMediaUri = u
@@ -130,6 +132,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var reactTick by remember { mutableIntStateOf(0) }
     var lastCount by remember { mutableIntStateOf(-1) }
     var sendingNow by remember { mutableStateOf(false) }
+    var msgLimit by remember { mutableIntStateOf(800) }
+    var hasOlder by remember { mutableStateOf(false) }
+    var loadingOlder by remember { mutableStateOf(false) }
     val enterSends = remember { prefs.getBoolean("enter_send", false) }
     var detailsMsg by remember { mutableStateOf<Message?>(null) }
     var schedMsg by remember { mutableStateOf<ScheduledMessage?>(null) }
@@ -146,11 +151,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
 
     fun reload() {
         scope.launch {
-            val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId) }
+            val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, msgLimit) }
+            hasOlder = raw.size >= msgLimit
             val filteredMsgs = raw.filter { it.body.isNotBlank() || it.imageUri != null }
             val grew = filteredMsgs.size != msgs.size
             msgs = filteredMsgs
-            if (grew || lastCount == -1) {
+            if (loadingOlder) { loadingOlder = false; lastCount = filteredMsgs.size }
+            else if (grew || lastCount == -1) {
                 lastCount = filteredMsgs.size
                 if (filteredMsgs.isNotEmpty()) { delay(80); listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0), 100000) }
             }
@@ -168,11 +175,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 else -> null
             }
             sendingNow = true
+            val extras = extraMedia
             scope.launch(Dispatchers.IO) {
                 val ok = SmsRepository.sendMms(ctx, address, uri, body, mime)
+                if (ok) extras.forEach { u -> SmsRepository.sendMms(ctx, address, u, "", null) }
                 withContext(Dispatchers.Main) {
                     sendingNow = false
-                    if (ok) { draft = ""; pendingMediaUri = null; replyTo = null; SendSound.play(ctx); reload() }
+                    if (ok) { draft = ""; pendingMediaUri = null; extraMedia = emptyList(); replyTo = null; SendSound.play(ctx); reload() }
                     else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -272,7 +281,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         }
     }
 
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { uri -> pendingMediaUri = uri; pendingMediaType = "image"; showAttach = false } }
+    // Pick several photos at once; they go out one after another (the first one carries the text)
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> if (uris.isNotEmpty()) { pendingMediaUri = uris.first(); extraMedia = uris.drop(1).take(9); pendingMediaType = "image"; showAttach = false } }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { uri -> pendingMediaUri = uri; pendingMediaType = "video"; showAttach = false } }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
@@ -411,6 +421,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         StarStore.toggle(ctx, key); reactTick++
                         Toast.makeText(ctx, if (starred) "Unstarred" else "Starred", Toast.LENGTH_SHORT).show(); ctxMsg = null
                     }
+                    Regex("\\b(\\d{4,8})\\b").find(m.body)?.takeIf { Regex("(?i)code|otp|verif|passcode|קאוד|קוד").containsMatchIn(m.body) }?.groupValues?.get(1)?.let { code ->
+                        MenuBtn(Icons.Default.Password, "Copy code $code") {
+                            (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("code", code))
+                            Toast.makeText(ctx, "Copied $code", Toast.LENGTH_SHORT).show(); ctxMsg = null
+                        }
+                    }
+                    if (m.body.isNotBlank()) MenuBtn(Icons.Default.Translate, "Translate") { Translate.open(ctx, m.body); ctxMsg = null }
                     MenuBtn(Icons.Default.Info, "Details") { detailsMsg = m; ctxMsg = null }
                     MenuBtn(Icons.Default.Delete, "Delete", Red) {
                         scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m); withContext(Dispatchers.Main) { reload() } }
@@ -530,8 +547,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
-                            Text(when (pendingMediaType) { "image" -> "Photo ready to send"; "video" -> "Video ready to send"; else -> "Voice note ready to send" }, fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
-                            IconButton({ pendingMediaUri = null }) { Icon(Icons.Default.Close, "Remove", tint = TextHint) }
+                            extraMedia.take(3).forEach { u -> Spacer(Modifier.width(6.dp)); AsyncImage(u, null, Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop) }
+                            Spacer(Modifier.width(8.dp))
+                            Text(when (pendingMediaType) { "image" -> if (extraMedia.isEmpty()) "Photo ready to send" else "${extraMedia.size + 1} photos ready to send"; "video" -> "Video ready to send"; else -> "Voice note ready to send" }, fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
+                            IconButton({ pendingMediaUri = null; extraMedia = emptyList() }) { Icon(Icons.Default.Close, "Remove", tint = TextHint) }
                         }
                     }
                     if (draft.length > 100) {
@@ -557,11 +576,6 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 decorationBox = { inner ->
                                     Column {
                                         Box { if (draft.isEmpty()) Text(if (address.contains(";")) "Group message" else "Text message", color = TextHint, fontSize = 16.sp); inner() }
-                                        // SMS counter like Google Messages: shows near the limit / once it's more than one SMS
-                                        if (draft.length > 120 && pendingMediaUri == null) {
-                                            val (left, parts) = smsCounter(draft)
-                                            Text(if (parts > 1) "$left / $parts" else "$left", fontSize = 11.sp, color = TextHint, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
-                                        }
                                     }
                                 }
                             )
@@ -625,6 +639,11 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             val displayMsgs = if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
             val grouped = displayMsgs.groupByDate()
             val pins = if (showSearch) emptyList() else msgs.filter { MsgPinStore.has(ctx, msgKey(it)) }
+            if (hasOlder && !showSearch) item(key = "load_older") {
+                Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                    TextButton({ loadingOlder = true; msgLimit += 800; reload() }) { Text("Load older messages", color = Brand) }
+                }
+            }
             if (pins.isNotEmpty()) item(key = "pinned_banner") {
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
