@@ -97,9 +97,7 @@ fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
 
 @Composable fun DayHeader(label: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.clip(RoundedCornerShape(50)).background(SearchBg).padding(horizontal = 14.dp, vertical = 5.dp)) {
-            Text(label, fontSize = 12.sp, color = TextSecond, fontWeight = FontWeight.Medium)
-        }
+        Text(label, fontSize = 13.sp, color = TextSecond, fontWeight = FontWeight.Medium)
     }
 }
 internal val palette = listOf(Color(0xFF0B57D0), Color(0xFF146C2E), Color(0xFF8C4A2E), Color(0xFF6A2E8C), Color(0xFFB3261E), Color(0xFF185ABC), Color(0xFF0D652D), Color(0xFF9C27B0))
