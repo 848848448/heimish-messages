@@ -341,3 +341,37 @@ fun MediaDialog(msgs: List<Message>, onClose: () -> Unit) {
         }
     }
 }
+
+
+const val WHATS_NEW = """New
+- One-tap update with a What's new screen (this one)
+- Quick times when scheduling a message: in 1 hour, tonight, tomorrow morning or afternoon
+- Quick replies you can edit in Settings
+- Chat tabs on the main screen: Personal, Transactions, Promos
+- Media and links for each chat
+- Add a chat to your home screen
+- Large text and display options, bubble shape and chat backgrounds
+- Spam protection, app lock, backup and restore, home screen widget, per-chat notification sound
+- Search across all messages, undo for delete and archive
+Fixed
+- Message bubbles now fit the text, times show under the message like Google Messages
+- The chat list no longer looks empty when you come back from a chat
+- Version and update status always visible on the main screen
+- Tapping a notification opens that chat
+- Cleaner message box and send button
+- Day and time labels like Google Messages (Today, Yesterday, weekday)"""
+
+@Composable
+fun WhatsNewScreen(info: UpdateInfo?, onBack: () -> Unit) {
+    val notes = if (info != null && info.notes.isNotBlank() && !info.notes.startsWith("Install app-debug")) info.notes else WHATS_NEW
+    Scaffold(topBar = { TopAppBar(title = { Text(if (info != null) "Update to build ${info.build}" else "What's new", fontWeight = FontWeight.SemiBold) }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } }) },
+        bottomBar = { if (info != null) Column(Modifier.padding(bottom = 12.dp)) { UpdateCard(info, null) } }) { pad ->
+        LazyColumn(Modifier.padding(pad).padding(horizontal = 20.dp)) {
+            items(notes.lines().filter { it.isNotBlank() }) { l ->
+                val t = l.trim()
+                if (t == "New" || t == "Fixed" || t.endsWith(":") || t.startsWith("#")) Text(t.trimStart('#', ' ').trimEnd(':'), Modifier.padding(top = 18.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                else Text("•  " + t.removePrefix("- ").removePrefix("* "), Modifier.padding(vertical = 4.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+    }
+}
