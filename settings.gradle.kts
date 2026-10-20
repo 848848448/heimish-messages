@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "Heimish Messages"
+rootProject.name = "Message"
 include(":app")
