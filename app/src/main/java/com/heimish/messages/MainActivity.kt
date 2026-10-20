@@ -180,11 +180,16 @@ class MainActivity : ComponentActivity() {
         ContactsSyncService.syncNowIfStale(this)
         Thread { OtpCleaner.clean(applicationContext) }.start()
         setContent {
+            val fsc = getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getFloat("font_scale", 0f)
+            val dens = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides (if (fsc > 0f) androidx.compose.ui.unit.Density(dens.density, fsc) else dens)) {
             MaterialTheme(colorScheme = GMColors) {
                 Surface(Modifier.fillMaxSize(), color = Bg) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
             }
+            }
         }
     }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); recreate() }
     private fun requestDefault() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val rm = getSystemService(RoleManager::class.java)
@@ -237,6 +242,15 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     var hasPerms by remember { mutableStateOf(Permissions.granted(ctx)) }
     val permL = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { hasPerms = Permissions.granted(ctx) }
     var screen by remember { mutableStateOf<Screen>(Screen.List) }
+    LaunchedEffect(Unit) {
+        val i = (ctx as? android.app.Activity)?.intent
+        val tid = i?.getLongExtra("thread_id", -1L) ?: -1L
+        val addr = i?.getStringExtra("address")
+        if (tid >= 0 && addr != null) {
+            screen = Screen.Chat(Conversation(tid, addr, i.getStringExtra("name") ?: addr, "", System.currentTimeMillis(), false))
+            i.removeExtra("thread_id")
+        }
+    }
 
     BackHandler(enabled = screen !is Screen.List) {
         screen = when (screen) {
@@ -415,6 +429,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
                 else -> "Build ${info.build} · tap to download and install"
             }
             Text(sub, fontSize = 13.sp, color = OnTonal.copy(alpha = .8f))
+            if (info.notes.isNotBlank() && progress == null && !installing) Text("What's new: " + info.notes.lines().filter { it.isNotBlank() }.take(4).joinToString(" · "), fontSize = 12.sp, color = OnTonal.copy(alpha = .75f), maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             if (progress != null) { Spacer(Modifier.height(6.dp)); LinearProgressIndicator(progress = { progress ?: 0f }, modifier = Modifier.fillMaxWidth(), color = Brand, trackColor = Bg.copy(alpha = .4f)) }
         }
         if (onDismiss != null && progress == null) IconButton(onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = OnTonal) }
@@ -422,11 +437,14 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?) {
 }
 
 // ━━━━━━━━━━━━━━━━ CONVERSATION LIST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+object ConvCache { @Volatile var list: List<Conversation>? = null }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit, onStarred: () -> Unit, onScheduled: () -> Unit, onSpam: () -> Unit = {}) {
     val ctx = LocalContext.current
-    var list by remember { mutableStateOf(emptyList<Conversation>()) }
+    var list by remember { mutableStateOf(ConvCache.list ?: emptyList()) }
+    var loaded by remember { mutableStateOf(ConvCache.list != null) }
     var search by remember { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
     var ctxConv by remember { mutableStateOf<Conversation?>(null) }
@@ -435,20 +453,22 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     val listState = rememberLazyListState()
     val fabExtended by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
-    fun refresh() { scope.launch { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) } } }
+    fun refresh() { scope.launch { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; ConvCache.list = list; loaded = true } }
     val providerTick = rememberProviderTick()
     LaunchedEffect(providerTick) {
         if (providerTick > 1) delay(150)
         val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }
         if (fresh != list) list = fresh
+        ConvCache.list = fresh; loaded = true
         tick++
     }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    var latestKnown by remember { mutableIntStateOf(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("upd_latest", 0)) }
     LaunchedEffect(Unit) {
         val p = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-        if (System.currentTimeMillis() - p.getLong("upd_last", 0L) > 3 * 3600_000L) {
+        if (System.currentTimeMillis() - p.getLong("upd_last", 0L) > 20 * 60_000L) {
             val i = withContext(Dispatchers.IO) { Updater.fetchLatest() }
-            if (i != null) p.edit().putLong("upd_last", System.currentTimeMillis()).apply()
+            if (i != null) { p.edit().putLong("upd_last", System.currentTimeMillis()).putInt("upd_latest", i.build).apply(); latestKnown = i.build }
             if (i != null && Updater.isNewer(i) && p.getInt("upd_dismissed", 0) < i.build) update = i
         }
     }
@@ -474,7 +494,9 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         value = if (search.trim().length >= 2) { delay(250); withContext(Dispatchers.IO) { SmsRepository.searchMessages(ctx, search.trim()) } } else emptyList()
     }
     val visible = remember(list, tick, hidden, spamIds) { list.filter { !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) && it.threadId !in hidden && it.threadId !in spamIds } }
-    val searched = if (search.isBlank()) visible else visible.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
+    var cat by remember { mutableStateOf("All") }
+    val searched0 = if (cat == "All") visible else visible.filter { chatCategory(it) == cat }
+    val searched = if (search.isBlank()) searched0 else searched0.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
     val filtered = remember(searched, tick) { searched.sortedWith(compareByDescending<Conversation> { if (PinStore.isPinned(ctx, it.threadId)) 1 else 0 }.thenByDescending { it.date }) }
 
     if (ctxConv != null) {
@@ -565,9 +587,18 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary
                 )
             )
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("All", "Personal", "Transactions", "Promos").forEach { c ->
+                    Box(Modifier.clip(RoundedCornerShape(50)).background(if (cat == c) Tonal else SearchBg).clickable { cat = c }.padding(horizontal = 14.dp, vertical = 7.dp)) {
+                        Text(c, fontSize = 13.sp, fontWeight = if (cat == c) FontWeight.SemiBold else FontWeight.Normal, color = if (cat == c) OnTonal else TextSecond)
+                    }
+                }
+            }
+            Text("Message ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER} · " + (if (latestKnown > BuildConfig.BUILD_NUMBER) "update available" else if (latestKnown > 0) "up to date" else "checking for updates…"),
+                Modifier.padding(horizontal = 20.dp, vertical = 2.dp), fontSize = 11.sp, color = if (latestKnown > BuildConfig.BUILD_NUMBER) Brand else TextHint)
             update?.let { u -> UpdateCard(u) { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null } }
             Spacer(Modifier.height(6.dp))
-            if (filtered.isEmpty() && hits.isEmpty()) {
+            if (filtered.isEmpty() && hits.isEmpty() && loaded) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Outlined.Forum, null, tint = TextHint.copy(.6f), modifier = Modifier.size(72.dp))
@@ -965,7 +996,34 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         }
     }
 
+    var showQuick by remember { mutableStateOf(false) }
+    var showMedia by remember { mutableStateOf(false) }
+    if (showQuick) {
+        val qr = QuickReplies.get(ctx)
+        AlertDialog(onDismissRequest = { showQuick = false }, containerColor = Surf, title = { Text("Quick replies", color = TextPrimary) },
+            text = { Column { qr.forEach { r -> Text(r, Modifier.fillMaxWidth().clickable { draft = if (draft.isBlank()) r else draft + " " + r; showQuick = false }.padding(vertical = 12.dp), color = TextPrimary, fontSize = 16.sp) } } },
+            confirmButton = { TextButton({ showQuick = false }) { Text("Close") } })
+    }
+    if (showMedia) MediaDialog(msgs) { showMedia = false }
+    fun doSchedule(at: Long) {
+        val body = draft.trim()
+        ScheduledSendReceiver.schedule(ctx, conversation.address, body, at)
+        draft = ""
+        Toast.makeText(ctx, "Scheduled for " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(at)), Toast.LENGTH_LONG).show()
+    }
     fun pickScheduleTime() {
+        if (draft.trim().isEmpty()) { Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show(); return }
+        fun at(daysAhead: Int, hour: Int) = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, daysAhead); set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
+        val opts = ArrayList<Pair<String, Long>>()
+        opts.add("In 1 hour" to System.currentTimeMillis() + 3_600_000L)
+        if (at(0, 20) > System.currentTimeMillis() + 600_000L) opts.add("Tonight, 8:00 PM" to at(0, 20))
+        opts.add("Tomorrow morning, 8:00 AM" to at(1, 8))
+        opts.add("Tomorrow afternoon, 1:00 PM" to at(1, 13))
+        val labels = (opts.map { it.first } + "Pick date and time…").toTypedArray()
+        android.app.AlertDialog.Builder(ctx).setTitle("Schedule send").setItems(labels) { _, i -> if (i < opts.size) doSchedule(opts[i].second) else pickCustomTime() }.show()
+    }
+
+    fun pickCustomTime() {
         val now = Calendar.getInstance()
         DatePickerDialog(ctx, { _, y, mo, d ->
             TimePickerDialog(ctx, { _, h, mi ->
@@ -1177,6 +1235,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf), shape = RoundedCornerShape(16.dp)) {
                                 DropdownMenuItem({ Text("Search", color = TextPrimary) }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Icons.Default.Reply, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text(if (prefs.getBoolean("muted_${conversation.threadId}", false)) "Unmute" else "Mute notifications", color = TextPrimary) }, {
                                     showMenu = false
@@ -1245,24 +1306,26 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         IconButton(onClick = { showAttach = !showAttach; showEmoji = false }, Modifier.size(44.dp).clip(CircleShape).background(Tonal)) {
-                            Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, "Attach", tint = OnTonal, modifier = Modifier.size(24.dp))
+                            Icon(if (showAttach) Icons.Default.Close else Icons.Default.Add, "Attach", tint = OnTonal, modifier = Modifier.size(22.dp))
                         }
-                        Spacer(Modifier.width(6.dp))
-                        TextField(
-                            draft, { draft = it }, Modifier.weight(1f),
-                            placeholder = { Text(if (conversation.address.contains(";")) "Group message" else "Text message", color = TextHint, fontSize = 15.sp) },
-                            shape = RoundedCornerShape(26.dp),
-                            colors = TextFieldDefaults.colors(focusedContainerColor = SearchBg, unfocusedContainerColor = SearchBg, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, cursorColor = Brand),
-                            leadingIcon = { IconButton({ showEmoji = !showEmoji; showAttach = false }) { Icon(Icons.Default.EmojiEmotions, "Emoji", tint = TextHint) } },
-                            trailingIcon = { IconButton({ imagePicker.launch("image/*") }) { Icon(Icons.Default.Image, "Photo", tint = TextHint) } },
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { doSend() }),
-                            maxLines = 4
-                        )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Row(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(24.dp)).background(SearchBg).padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
+                            IconButton({ showEmoji = !showEmoji; showAttach = false }, Modifier.size(40.dp)) { Icon(Icons.Default.EmojiEmotions, "Emoji", tint = TextHint, modifier = Modifier.size(22.dp)) }
+                            androidx.compose.foundation.text.BasicTextField(
+                                draft, { draft = it }, Modifier.weight(1f).padding(vertical = 11.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 16.sp, lineHeight = 22.sp),
+                                cursorBrush = androidx.compose.ui.graphics.SolidColor(Brand),
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { doSend() }),
+                                maxLines = 5,
+                                decorationBox = { inner -> Box { if (draft.isEmpty()) Text(if (conversation.address.contains(";")) "Group message" else "Text message", color = TextHint, fontSize = 16.sp); inner() } }
+                            )
+                            IconButton({ imagePicker.launch("image/*") }, Modifier.size(40.dp)) { Icon(Icons.Default.Image, "Photo", tint = TextHint, modifier = Modifier.size(22.dp)) }
+                        }
+                        Spacer(Modifier.width(8.dp))
                         val hasCont = draft.isNotBlank() || pendingMediaUri != null
                         Box(
-                            Modifier.size(46.dp).clip(CircleShape)
+                            Modifier.size(44.dp).clip(CircleShape)
                                 .background(if (hasCont) Brand else SearchBg)
                                 .clickable { if (hasCont) doSend() else audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
                             contentAlignment = Alignment.Center
@@ -1311,7 +1374,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     ) { pad ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(pad).padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxSize().background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0))).padding(pad).padding(horizontal = 10.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
             val displayMsgs = if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) } else msgs
@@ -1322,7 +1385,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     val sameAsPrev = i > 0 && dayMsgs[i - 1].incoming == m.incoming
                     Column {
                         if (i > 0) Spacer(Modifier.height(if (sameAsPrev) 2.dp else 10.dp))
-                        SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m })
+                        SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); ctxMsg = m }, showMeta = i == dayMsgs.lastIndex || dayMsgs[i + 1].incoming != m.incoming || dayMsgs[i + 1].date - m.date > 300_000)
                     }
                 }
             }
@@ -1351,7 +1414,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
 
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
 @Composable
-fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongClick: () -> Unit) {
+fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongClick: () -> Unit, showMeta: Boolean = true) {
     var offsetX by remember { mutableFloatStateOf(0f) }
     val threshold = 100f
     Box(Modifier.fillMaxWidth().pointerInput(m.id) {
@@ -1368,7 +1431,7 @@ fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongCl
             }
         }
         Box(Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }) {
-            MessageBubble(m, reactTick, onLongClick)
+            MessageBubble(m, reactTick, onLongClick, showMeta)
         }
     }
 }
@@ -1420,7 +1483,7 @@ private val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+)",
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit) {
+fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta: Boolean = true) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     val isIn = m.incoming
@@ -1439,10 +1502,12 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit) {
     val starred = remember(reactTick) { StarStore.isStarred(ctx, msgKey(m)) }
     val failed = m.status == Telephony.Sms.STATUS_FAILED
     val sending = m.status == Telephony.Sms.STATUS_PENDING
+    val cr = prefs.getInt("bubble_corner", 20).dp
+    val tail = if (cr < 5.dp) cr else 5.dp
     val shape = RoundedCornerShape(
-        topStart = 20.dp, topEnd = 20.dp,
-        bottomEnd = if (isIn) 20.dp else 5.dp,
-        bottomStart = if (isIn) 5.dp else 20.dp
+        topStart = cr, topEnd = cr,
+        bottomEnd = if (isIn) cr else tail,
+        bottomStart = if (isIn) tail else cr
     )
     Box(Modifier.fillMaxWidth()) {
         Row(
@@ -1451,6 +1516,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit) {
             horizontalArrangement = if (isIn) Arrangement.Start else Arrangement.End
         ) {
             if (!isIn) Spacer(Modifier.width(56.dp))
+            Column(horizontalAlignment = if (isIn) Alignment.Start else Alignment.End) {
             Box(Modifier.widthIn(max = 300.dp).clip(shape).background(outColor)) {
                 Column {
                     if (m.imageUri != null) {
@@ -1478,7 +1544,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit) {
                         val urls = URL_REGEX.findAll(m.body).toList()
                         if (urls.isEmpty()) {
                             Text(m.body, color = outText, fontSize = textSize, lineHeight = (textSize.value + 6).sp,
-                                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 10.dp, bottom = 2.dp))
+                                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp))
                         } else {
                             val annotated = buildAnnotatedString {
                                 var last = 0
@@ -1492,7 +1558,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit) {
                                 if (last < m.body.length) withStyle(SpanStyle(color = outText)) { append(m.body.substring(last)) }
                             }
                             ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontSize = textSize, lineHeight = (textSize.value + 6).sp),
-                                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 10.dp, bottom = 2.dp),
+                                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp),
                                 onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.item))) } })
                             if (previewMode != "none") {
                                 val url = urls.first().value
@@ -1509,19 +1575,22 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit) {
                             }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 7.dp, top = 1.dp).fillMaxWidth(),
+                }
+            }
+                if (showMeta || failed || sending || starred) {
+                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         if (failed) {
-                            Icon(Icons.Default.ErrorOutline, "Failed", tint = if (isIn) Color(0xFFD93025) else Color(0xFFFF8A80), modifier = Modifier.size(13.dp))
+                            Icon(Icons.Default.ErrorOutline, "Failed", tint = Color(0xFFD93025), modifier = Modifier.size(13.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Not sent", fontSize = 11.sp, color = if (isIn) Color(0xFFD93025) else Color(0xFFFF8A80), fontWeight = FontWeight.Medium)
+                            Text("Not sent", fontSize = 11.sp, color = Color(0xFFD93025), fontWeight = FontWeight.Medium)
                             Spacer(Modifier.width(6.dp))
                         }
                         if (starred) {
-                            Icon(Icons.Default.Star, null, tint = if (isIn) Amber else outSub, modifier = Modifier.size(12.dp))
+                            Icon(Icons.Default.Star, null, tint = Amber, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.width(3.dp))
                         }
-                        Text(msgTime(m.date), fontSize = 11.sp, color = outSub)
+                        Text(msgTime(m.date), fontSize = 11.sp, color = TextHint)
                         if (!isIn && !failed) {
                             Spacer(Modifier.width(3.dp))
                             Icon(
@@ -1531,7 +1600,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit) {
                                     else -> Icons.Default.Check
                                 },
                                 when { sending -> "Sending"; m.status == Telephony.Sms.STATUS_COMPLETE -> "Delivered"; else -> "Sent" },
-                                tint = outSub, modifier = Modifier.size(13.dp))
+                                tint = TextHint, modifier = Modifier.size(13.dp))
                         }
                     }
                 }
@@ -1574,6 +1643,9 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettRow(Icons.Default.Report, "Spam protection", "Filter scam texts") { onSub("x_spam") } }
             item { SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN") { onSub("x_lock") } }
             item { SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes") { onSub("x_otp") } }
+            item { SettRow(Icons.Default.Reply, "Quick replies", "Edit your canned replies") { onSub("x_quick") } }
+            item { SettRow(Icons.Default.TextFields, "Large text & display", "Bigger text everywhere") { onSub("x_access") } }
+            item { SettRow(Icons.Default.Palette, "Chat style", "Bubble shape and backgrounds") { onSub("x_style") } }
             item { SettRow(Icons.Default.Backup, "Backup & restore", "Save or restore your texts") { onSub("x_backup") } }
             item { SettingsHeader("About") }
             item { SettRow(Icons.Default.Info, "About Message", "Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})") { onSub("about") } }
@@ -1859,7 +1931,7 @@ fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
     val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
     val today = fmt.format(Date()); val yest = fmt.format(Date(System.currentTimeMillis() - 86_400_000))
     val g = LinkedHashMap<String, MutableList<Message>>()
-    forEach { m -> val l = when (val d = fmt.format(Date(m.date))) { today -> "Today"; yest -> "Yesterday"; else -> d }; g.getOrPut(l) { mutableListOf() }.add(m) }
+    forEach { m -> val l = when (val d = fmt.format(Date(m.date))) { today -> "Today"; yest -> "Yesterday"; else -> if (Calendar.getInstance().apply { timeInMillis = m.date }.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR)) SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date(m.date)) else d }; g.getOrPut(l) { mutableListOf() }.add(m) }
     return g.map { it.key to it.value }
 }
 
@@ -1875,7 +1947,14 @@ fun avatarColor(seed: String): Color = palette[seed.hashCode().mod(palette.size)
 fun initial(name: String): String = (name.firstOrNull()?.uppercaseChar() ?: '#').toString()
 fun msgTime(ms: Long): String { if (ms <= 0) return ""; return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms)) }
 fun shortTime(ms: Long): String {
-    if (ms <= 0) return ""; val n = Calendar.getInstance(); val t = Calendar.getInstance().apply { timeInMillis = ms }
-    return if (n.get(Calendar.DAY_OF_YEAR) == t.get(Calendar.DAY_OF_YEAR) && n.get(Calendar.YEAR) == t.get(Calendar.YEAR)) SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms))
-    else SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(ms))
+    if (ms <= 0) return ""
+    val now = Calendar.getInstance(); val t = Calendar.getInstance().apply { timeInMillis = ms }
+    val dayDiff = ((now.apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis) - Calendar.getInstance().apply { timeInMillis = ms; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis) / 86_400_000L
+    return when {
+        dayDiff <= 0 -> SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms))
+        dayDiff == 1L -> "Yesterday"
+        dayDiff < 7 -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(ms))
+        t.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR) -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(ms))
+        else -> SimpleDateFormat("M/d/yy", Locale.getDefault()).format(Date(ms))
+    }
 }
