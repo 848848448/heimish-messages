@@ -206,7 +206,7 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val p = prefs(ctx)
     val scope = rememberCoroutineScope()
-    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; "quick" -> "Quick replies"; "access" -> "Large text & display"; "style" -> "Chat style"; "dnd" -> "Quiet hours"; "sim" -> "SIM card & group texts"; else -> "Settings" }
+    val title = when (key) { "spam" -> "Spam protection"; "lock" -> "App lock"; "otp" -> "Verification codes"; "backup" -> "Backup & restore"; "quick" -> "Quick replies"; "access" -> "App text size"; "style" -> "Bubble shape & background"; "dnd" -> "Quiet hours"; "sim" -> "SIM card & group texts"; else -> "Settings" }
     var spamOn by remember { mutableStateOf(p.getBoolean("spam_filter", true)) }
     var lockOn by remember { mutableStateOf(p.getBoolean("app_lock", false)) }
     var otpOn by remember { mutableStateOf(p.getBoolean("auto_delete_otp", false)) }

@@ -313,12 +313,24 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
     val swipeAction = remember { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("swipe_action", "archive") ?: "archive" }
     val actionLabel = when (swipeAction) { "delete" -> "Delete"; "read" -> "Read"; "none" -> ""; else -> "Archive" }
     val actionColor = when (swipeAction) { "delete" -> Red; "read" -> Brand; else -> Color(0xFF5F6368) }
+    // Swipe right has its own action, like Google Messages (default: mark read / unread)
+    val rightAction = remember { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("swipe_right", "read") ?: "read" }
+    val rightColor = when (rightAction) { "delete" -> Red; "archive" -> Color(0xFF5F6368); else -> Brand }
+    val rightLabel = when (rightAction) { "delete" -> "Delete"; "archive" -> "Archive"; "none" -> ""; else -> if (c.unread) "Read" else "Unread" }
 
     Box(
         Modifier.fillMaxWidth().background(
-            if (offsetX < -20f && swipeAction != "none") actionColor else Color.Transparent
+            if (offsetX < -20f && swipeAction != "none") actionColor else if (offsetX > 20f && rightAction != "none") rightColor else Color.Transparent
         )
     ) {
+        if (offsetX > 20f && rightAction != "none") {
+            Box(Modifier.fillMaxSize().padding(start = 24.dp), contentAlignment = Alignment.CenterStart) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(when (rightAction) { "delete" -> Icons.Default.Delete; "archive" -> Icons.Default.Archive; else -> if (c.unread) Icons.Default.DoneAll else Icons.Default.MarkChatUnread }, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Text(rightLabel, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
         if (offsetX < -20f && swipeAction != "none") {
             Box(Modifier.fillMaxSize().padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -329,7 +341,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
         }
         Row(
             Modifier.fillMaxWidth()
-                .offset { IntOffset(offsetX.roundToInt().coerceAtMost(0), 0) }
+                .offset { IntOffset(offsetX.roundToInt(), 0) }
                 .background(Bg)
                 .combinedClickable(
                     onClick = { onOpen(c) },
@@ -344,10 +356,16 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                                     "read" -> { scope.launch(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, c.threadId) }; Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show(); onRefresh() }
                                     else -> onAction("archive", c)
                                 }
+                            } else if (offsetX > threshold && rightAction != "none") {
+                                when (rightAction) {
+                                    "delete" -> onAction("delete", c)
+                                    "archive" -> onAction("archive", c)
+                                    else -> { val wasUnread = c.unread; scope.launch(Dispatchers.IO) { if (wasUnread) SmsRepository.markThreadRead(ctx, c.threadId) else SmsRepository.markThreadUnread(ctx, c.threadId); withContext(Dispatchers.Main) { onRefresh() } } }
+                                }
                             }
                             offsetX = 0f
                         },
-                        onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(-200f, 0f) }
+                        onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(if (swipeAction == "none") 0f else -200f, if (rightAction == "none") 0f else 200f) }
                     )
                 }
                 .padding(horizontal = 16.dp, vertical = 11.dp),

@@ -330,7 +330,8 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
             AsyncImage(photo, name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
             val ch = name.firstOrNull()
-            if (ch != null && ch.isLetter()) Text(initial(name), color = Color.White, fontWeight = FontWeight.Medium, fontSize = fontSize)
+            if (address.contains(";")) Icon(Icons.Filled.Group, null, tint = Color.White, modifier = Modifier.size(size * 0.56f))
+            else if (ch != null && ch.isLetter()) Text(initial(name), color = Color.White, fontWeight = FontWeight.Medium, fontSize = fontSize)
             else Icon(Icons.Filled.Person, null, tint = Color.White, modifier = Modifier.size(size * 0.56f))
         }
     }

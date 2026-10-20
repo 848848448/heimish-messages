@@ -114,10 +114,10 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             item { SettingsHeader("Personalize") }
             item { SettGroup {
                 SettRow(Icons.Default.Palette, "Theme", "Dark mode, wallpaper colors, font", Color(0xFF7B5CF5)) { onSub("theme") }
-                SettRow(Icons.Default.ChatBubble, "Chat bubbles", "Bubble color", Color(0xFF1A73E8)) { onSub("bubbles") }
-                SettRow(Icons.Default.Style, "Chat style", "Bubble shape and backgrounds", Color(0xFF00897B)) { onSub("x_style") }
-                SettRow(Icons.Default.FormatSize, "Text size", "Message text size", Color(0xFFE8710A)) { onSub("textsize") }
-                SettRow(Icons.Default.TextFields, "Large text & display", "Bigger text everywhere", Color(0xFFD93025)) { onSub("x_access") }
+                SettRow(Icons.Default.ChatBubble, "Bubble color", "The color of your messages", Color(0xFF1A73E8)) { onSub("bubbles") }
+                SettRow(Icons.Default.Style, "Bubble shape & background", "Round or square bubbles, chat wallpaper", Color(0xFF00897B)) { onSub("x_style") }
+                SettRow(Icons.Default.FormatSize, "Message text size", "Text inside chat bubbles", Color(0xFFE8710A)) { onSub("textsize") }
+                SettRow(Icons.Default.TextFields, "App text size", "Bigger text everywhere in the app", Color(0xFFD93025)) { onSub("x_access") }
             } }
             item { SettingsHeader("Notifications") }
             item { SettGroup {
@@ -134,8 +134,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             } }
             item { SettingsHeader("Privacy & safety") }
             item { SettGroup {
-                SettRow(Icons.Default.Shield, "Protection & safety", "Blocked numbers, keywords, link warnings", Color(0xFF188038)) { onSub("safety") }
-                SettRow(Icons.Default.Report, "Spam protection", "Filter scam texts", Color(0xFFD93025)) { onSub("x_spam") }
+                SettRow(Icons.Default.Shield, "Spam & blocking", "Spam filter, blocked numbers, keywords, link warnings", Color(0xFF188038)) { onSub("safety") }
                 SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN", Color(0xFF1A73E8)) { onSub("x_lock") }
                 SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes", Color(0xFFE8710A)) { onSub("x_otp") }
             } }
@@ -163,8 +162,8 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
 fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-    val title = when (key) { "notifications" -> "Notifications"; "bubbles" -> "Chat bubbles"; "theme" -> "Theme"; "textsize" -> "Text size"
-        "previews" -> "Automatic previews"; "safety" -> "Protection & safety"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; else -> "Settings" }
+    val title = when (key) { "notifications" -> "Notifications"; "bubbles" -> "Bubble color"; "theme" -> "Theme"; "textsize" -> "Message text size"
+        "previews" -> "Automatic previews"; "safety" -> "Spam & blocking"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; else -> "Settings" }
     var blockedTick by remember { mutableIntStateOf(0) }
     val blocked = remember(blockedTick) { BlockedStore.getAll(ctx).toList() }
     var themeNow by remember { mutableStateOf(prefs.getString("theme", "system") ?: "system") }
@@ -248,19 +247,15 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                     }
                 }
                 "textsize" -> {
-                    item { RadioRow("Small", prefs.getString("text_size", "default") == "small") { prefs.edit().putString("text_size", "small").apply() } }
-                    item { RadioRow("Default", prefs.getString("text_size", "default") == "default") { prefs.edit().putString("text_size", "default").apply() } }
-                    item { RadioRow("Large", prefs.getString("text_size", "default") == "large") { prefs.edit().putString("text_size", "large").apply() } }
-                    item { RadioRow("Largest", prefs.getString("text_size", "default") == "largest") { prefs.edit().putString("text_size", "largest").apply() } }
+                    item { RadioPref(prefs, "text_size", "default", listOf("small" to "Small", "default" to "Default", "large" to "Large", "largest" to "Largest")) }
                     item { Spacer(Modifier.height(8.dp)); Text("Applies to message bubbles.", fontSize = 13.sp, color = TextHint) }
                 }
                 "previews" -> {
-                    item { RadioRow("All previews", prefs.getString("preview_mode", "links") == "all") { prefs.edit().putString("preview_mode", "all").apply() } }
-                    item { RadioRow("Links only", prefs.getString("preview_mode", "links") == "links") { prefs.edit().putString("preview_mode", "links").apply() } }
-                    item { RadioRow("No previews", prefs.getString("preview_mode", "links") == "none") { prefs.edit().putString("preview_mode", "none").apply() } }
+                    item { RadioPref(prefs, "preview_mode", "links", listOf("all" to "All previews", "links" to "Links only", "none" to "No previews")) }
                 }
+
                 "safety" -> {
-                    item { ToggleRow("Spam protection", "spam_filter", prefs) }
+                    item { ToggleRow("Spam filter: texts that look like scams go to Spam, no notification", "spam_filter", prefs) }
                     item { KeywordEditor() }
                     item { AutoReplyEditor() }
                     item { ToggleRow("Warn about suspicious links", "warn_links", prefs) }
@@ -282,15 +277,22 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                     item { Spacer(Modifier.height(4.dp)); Text("Blocked numbers are hidden and won't notify you.", fontSize = 12.sp, color = TextHint) }
                 }
                 "swipe" -> {
-                    item { RadioRow("Archive", prefs.getString("swipe_action", "archive") == "archive") { prefs.edit().putString("swipe_action", "archive").apply() } }
-                    item { RadioRow("Delete", prefs.getString("swipe_action", "archive") == "delete") { prefs.edit().putString("swipe_action", "delete").apply() } }
-                    item { RadioRow("Mark as read", prefs.getString("swipe_action", "archive") == "read") { prefs.edit().putString("swipe_action", "read").apply() } }
-                    item { RadioRow("Nothing", prefs.getString("swipe_action", "archive") == "none") { prefs.edit().putString("swipe_action", "none").apply() } }
+                    item { Text("Swipe left", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Brand, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) }
+                    item {
+                        var left by remember { mutableStateOf(prefs.getString("swipe_action", "archive") ?: "archive") }
+                        Column { listOf("archive" to "Archive", "delete" to "Delete", "read" to "Mark as read", "none" to "Nothing").forEach { (k, l) ->
+                            RadioRow(l, left == k) { left = k; prefs.edit().putString("swipe_action", k).apply() } } }
+                    }
+                    item { Text("Swipe right", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Brand, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+                    item {
+                        var right by remember { mutableStateOf(prefs.getString("swipe_right", "read") ?: "read") }
+                        Column { listOf("read" to "Mark as read / unread", "archive" to "Archive", "delete" to "Delete", "none" to "Nothing").forEach { (k, l) ->
+                            RadioRow(l, right == k) { right = k; prefs.edit().putString("swipe_right", k).apply() } } }
+                    }
                 }
                 "advanced" -> {
                     item { ToggleRow("SMS delivery reports", "sms_delivery", prefs, false) }
                     item { ToggleRow("MMS delivery reports", "mms_delivery", prefs, false) }
-                    item { ToggleRow("Group MMS", "group_mms", prefs) }
                     item { ToggleRow("Hear outgoing message sounds", "sent_sound", prefs, false) }
                     item { ToggleRow("Press Enter to send", "enter_send", prefs, false) }
                     item { ToggleRow("Notify me about app updates", "upd_notify", prefs) }
@@ -455,4 +457,10 @@ fun AdminScreen(onBack: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Switch(on, onChange, colors = SwitchDefaults.colors(checkedTrackColor = Brand, checkedThumbColor = OnBrand))
     }
+}
+
+/** Radio list bound to a preference; the selection updates right away (it used to only change after leaving the screen). */
+@Composable fun RadioPref(prefs: android.content.SharedPreferences, key: String, default: String, options: List<Pair<String, String>>) {
+    var cur by remember { mutableStateOf(prefs.getString(key, default) ?: default) }
+    Column { options.forEach { (k, l) -> RadioRow(l, cur == k) { cur = k; prefs.edit().putString(key, k).apply() } } }
 }
