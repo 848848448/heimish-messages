@@ -119,6 +119,9 @@ internal val TextSecond: Color   get() = S?.onSurfaceVariant ?: if (D) Color(0xF
 internal val TextHint: Color     get() = S?.outline ?: if (D) Color(0xFF8E918F) else Color(0xFF747775)
 internal val DivLt: Color        get() = if (Black) Color(0xFF222224) else S?.outlineVariant ?: if (D) Color(0xFF2F3033) else Color(0xFFE8EAED)
 internal val AttachSurf: Color   get() = if (Black) Color(0xFF1C1C1E) else S?.surfaceContainerHighest ?: if (D) Color(0xFF2D2F31) else Color(0xFFE9EEF6)
+internal val MenuSurf: Color     get() = if (Black) Color(0xFF1C1C1E) else S?.surfaceContainerHigh ?: if (D) Color(0xFF282A2C) else Color(0xFFF0F4F9)
+internal val FabColor: Color     get() = S?.primaryContainer ?: if (D) Color(0xFF004A77) else Color(0xFFC2E7FF)
+internal val OnFabColor: Color   get() = S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF001D35)
 internal val Red: Color          get() = S?.error ?: if (D) Color(0xFFF2B8B5) else Color(0xFFB3261E)
 internal val Amber: Color        get() = Color(0xFFFFC107)
 
