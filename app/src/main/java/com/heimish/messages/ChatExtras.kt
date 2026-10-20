@@ -124,16 +124,27 @@ fun MessageDetailsDialog(m: Message, name: String, address: String, onClose: () 
         }
         if (m.subId >= 0) add("SIM" to simLabel(LocalContext.current, m.subId))
     }
-    AlertDialog(onDismissRequest = onClose, title = { Text("Message details") },
-        text = {
-            Column {
-                rows.forEach { (k, v) ->
-                    Text(k, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(v, fontSize = 15.sp, modifier = Modifier.padding(bottom = 10.dp))
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize(), color = Chrome) {
+            Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).navigationBarsPadding()) {
+                Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClose) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) }
+                    Text("Message details", fontSize = 22.sp, color = TextPrimary, modifier = Modifier.padding(start = 4.dp))
+                }
+                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) { MessageBubble(m, 0, onLongClick = {}, showMeta = false) }
+                Column(Modifier.fillMaxWidth().padding(16.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).background(Surf).padding(vertical = 6.dp)) {
+                    rows.forEach { (k, v) ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(when (k) { "Type" -> Icons.Default.Sms; "From", "To" -> Icons.Default.Person; "Sent", "Received" -> Icons.Default.Schedule; "Status" -> Icons.Default.DoneAll; "Length" -> Icons.Default.Notes; else -> Icons.Default.SimCard },
+                                null, tint = TextSecond, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(18.dp))
+                            Column { Text(k, fontSize = 13.sp, color = TextSecond); Text(v, fontSize = 16.sp, color = TextPrimary) }
+                        }
+                    }
                 }
             }
-        },
-        confirmButton = { TextButton(onClose) { Text("OK") } })
+        }
+    }
 }
 
 @android.annotation.SuppressLint("MissingPermission")
