@@ -146,7 +146,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     var cat by remember { mutableStateOf("All") }
     var sel by remember { mutableStateOf(setOf<Long>()) }
     BackHandler(enabled = sel.isNotEmpty()) { sel = emptySet() }
-    val searched0 = if (cat == "All") visible else if (cat == "Unknown") visible.filter { it.displayName == it.address } else if (cat in listOf("Personal", "Transactions", "Promos")) visible.filter { chatCategory(it) == cat } else visible.filter { LabelStore.get(ctx, it.threadId) == cat }
+    val searched0 = if (cat == "All") visible else if (cat == "Unread") visible.filter { it.unread } else if (cat == "Unknown") visible.filter { it.displayName == it.address } else if (cat in listOf("Personal", "Transactions", "Promos")) visible.filter { chatCategory(it) == cat } else visible.filter { LabelStore.get(ctx, it.threadId) == cat }
     val searched = if (search.isBlank()) searched0 else searched0.filter { it.displayName.contains(search, true) || it.snippet.contains(search, true) || it.address.contains(search, true) }
     val filtered = remember(searched, tick) { searched.sortedWith(compareByDescending<Conversation> { if (PinStore.isPinned(ctx, it.threadId)) 1 else 0 }.thenByDescending { it.date }) }
 
@@ -239,8 +239,8 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary
                 )
             )
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (listOf("All", "Personal", "Transactions", "Promos", "Unknown") + LabelStore.allLabels(ctx)).forEach { c ->
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                (listOf("All", "Unread", "Personal", "Transactions", "Promos", "Unknown") + LabelStore.allLabels(ctx)).forEach { c ->
                     Box(Modifier.clip(RoundedCornerShape(50)).background(if (cat == c) Tonal else SearchBg).clickable { cat = c }.padding(horizontal = 14.dp, vertical = 7.dp)) {
                         Text(c, fontSize = 13.sp, fontWeight = if (cat == c) FontWeight.SemiBold else FontWeight.Normal, color = if (cat == c) OnTonal else TextSecond)
                     }
