@@ -41,7 +41,27 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal val PanelHeight = 320.dp
+/** 320dp like Google Messages, but never more than ~42% of the screen (small phones, split screen). */
+internal val PanelHeight: androidx.compose.ui.unit.Dp
+    @Composable get() = minOf(320.dp, (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.42f).dp).coerceAtLeast(200.dp)
+
+/** Photo permission for the gallery and GIF panels. Android 14 "Select photos" (partial access) counts as allowed. */
+private fun photoPerms(): Array<String> = when {
+    Build.VERSION.SDK_INT >= 34 -> arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    Build.VERSION.SDK_INT >= 33 -> arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES)
+    else -> arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+}
+private fun hasPhotoAccess(ctx: Context) = photoPerms().any { androidx.core.content.ContextCompat.checkSelfPermission(ctx, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+
+/** Returns (granted, ask). Asks once automatically when the panel opens. */
+@Composable
+internal fun rememberPhotoAccess(): Pair<Boolean, () -> Unit> {
+    val ctx = LocalContext.current
+    var granted by remember { mutableStateOf(hasPhotoAccess(ctx)) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { granted = hasPhotoAccess(ctx) }
+    LaunchedEffect(Unit) { if (!granted) runCatching { launcher.launch(photoPerms()) } }
+    return granted to { runCatching { launcher.launch(photoPerms()) }; Unit }
+}
 
 /** Google Messages "+" panel: big rounded tiles in a sheet where the keyboard would be. */
 @Composable
@@ -147,14 +167,17 @@ fun ExpressionPanel(startTab: Int = 0, onEmoji: (String) -> Unit, onGif: (Uri) -
                 }
             }
             1 -> {
+                // GIFs come from the phone's photos, so ask for photo access first (it never asked before)
+                val (photoOk, askPhotos) = rememberPhotoAccess()
                 var gifs by remember { mutableStateOf<List<Pair<Uri, String>>?>(null) }
-                LaunchedEffect(Unit) { gifs = withContext(Dispatchers.IO) { loadPhoneGifs(ctx) } }
+                LaunchedEffect(photoOk) { gifs = withContext(Dispatchers.IO) { loadPhoneGifs(ctx) } }
                 val shown = gifs?.filter { q.isBlank() || it.second.contains(q.trim(), true) }
                 if (shown.isNullOrEmpty()) Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Outlined.Gif, null, tint = TextHint, modifier = Modifier.size(48.dp))
                         Spacer(Modifier.height(8.dp))
                         Text(if (gifs == null) "Loading…" else "No GIFs on this phone yet. GIFs you save, and GIFs from your keyboard, show up here.", color = TextHint, fontSize = 14.sp)
+                        if (!photoOk) TextButton({ askPhotos() }) { Text("Allow photo access", color = Brand) }
                     }
                 } else LazyVerticalGrid(GridCells.Fixed(2), Modifier.weight(1f).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     shown.forEach { (u, _) ->
@@ -178,10 +201,7 @@ fun ExpressionPanel(startTab: Int = 0, onEmoji: (String) -> Unit, onGif: (Uri) -
 @Composable
 fun GalleryPanel(onCamera: () -> Unit, onFolders: () -> Unit, onPicked: (List<Uri>) -> Unit) {
     val ctx = LocalContext.current
-    val perm = if (Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_IMAGES else android.Manifest.permission.READ_EXTERNAL_STORAGE
-    var granted by remember { mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(ctx, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
-    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted = it }
-    LaunchedEffect(Unit) { if (!granted) ask.launch(perm) }
+    val (granted, ask) = rememberPhotoAccess()
     var photos by remember { mutableStateOf(emptyList<Uri>()) }
     LaunchedEffect(granted) {
         if (granted) photos = withContext(Dispatchers.IO) {
@@ -223,7 +243,7 @@ fun GalleryPanel(onCamera: () -> Unit, onFolders: () -> Unit, onPicked: (List<Ur
                     }
                 }
             }
-            if (!granted) Text("Allow photo access to see your gallery here, or tap Folders.", color = TextSecond, fontSize = 14.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
+            if (!granted) Text("Tap here to allow photo access, or tap Folders.", color = Brand, fontSize = 14.sp, modifier = Modifier.align(Alignment.BottomCenter).clip(RoundedCornerShape(50)).background(SheetBg).clickable { ask() }.padding(16.dp))
         }
         if (picked.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${picked.size} selected", color = TextPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f))

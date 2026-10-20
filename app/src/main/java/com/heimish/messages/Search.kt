@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 private class SearchFilter(val key: String, val label: String, val icon: ImageVector)
@@ -43,6 +45,8 @@ private val SearchFilters = listOf(
     SearchFilter("places", "Places", Icons.Outlined.LocationOn), SearchFilter("links", "Links", Icons.Outlined.Link),
 )
 
+internal object SearchMemory { var q = ""; var filter: String? = null }
+
 private class FoundMsg(val conv: Conversation, val m: Message)
 
 internal fun highlight(text: String, q: String, color: Color): AnnotatedString = buildAnnotatedString {
@@ -52,8 +56,9 @@ internal fun highlight(text: String, q: String, color: Color): AnnotatedString =
         val j = text.indexOf(q, i, ignoreCase = true)
         if (j < 0) { append(text.substring(i)); break }
         append(text.substring(i, j))
-        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = color)) { append(text.substring(j, j + q.length)) }
-        i = j + q.length
+        val end = (j + q.length).coerceAtMost(text.length)
+        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = color)) { append(text.substring(j, end)) }
+        i = end
     }
 }
 
@@ -61,10 +66,15 @@ internal fun highlight(text: String, q: String, color: Color): AnnotatedString =
 @Composable
 fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    var q by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf<String?>(null) }
+    // Kept while a result is open, so Back from that chat returns to the same search
+    var q by remember { mutableStateOf(SearchMemory.q) }
+    var filter by remember { mutableStateOf(SearchMemory.filter) }
+    SideEffect { SearchMemory.q = q; SearchMemory.filter = filter }
     BackHandler { if (filter != null) filter = null else onBack() }
-    val convs by produceState(emptyList<Conversation>()) { value = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx).filter { !TrashStore.has(ctx, it.threadId) } } }
+    // Start from the list we already have (instant), then refresh in the background
+    val convs by produceState(ConvCache.list?.let { l -> val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t } } ?: emptyList()) {
+        runCatching { value = withContext(Dispatchers.IO) { val l = SmsRepository.loadConversations(ctx); val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t } } }
+    }
     val contacts by produceState(emptyList<Pair<String, String>>()) { value = withContext(Dispatchers.IO) { runCatching { SmsRepository.loadContactsList(ctx) }.getOrDefault(emptyList()) } }
     val needMsgs = filter in setOf("starred", "images", "videos", "places", "links")
     val recent by produceState(emptyList<FoundMsg>(), needMsgs, convs) {
@@ -72,7 +82,11 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
             convs.take(40).flatMap { c -> runCatching { SmsRepository.loadMessages(ctx, c.threadId, 250) }.getOrDefault(emptyList()).map { FoundMsg(c, it) } }
         }
     }
-    val hits by produceState(emptyList<MsgHit>(), q) { value = if (q.trim().length < 2) emptyList() else withContext(Dispatchers.IO) { SmsRepository.searchMessages(ctx, q.trim(), 60) } }
+    val hits by produceState(emptyList<MsgHit>(), q) {
+        if (q.trim().length < 2) { value = emptyList(); return@produceState }
+        delay(250) // wait until typing pauses instead of querying every letter
+        value = withContext(Dispatchers.IO) { runCatching { val t = TrashStore.all(ctx).keys; SmsRepository.searchMessages(ctx, q.trim(), 60).filter { it.threadId !in t } }.getOrDefault(emptyList()) }
+    }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     val qt = q.trim()
@@ -80,7 +94,7 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(pad)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).height(56.dp).clip(RoundedCornerShape(28.dp)).background(SearchBg).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ if (filter != null) filter = null else onBack() }) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) }
+                IconButton({ if (filter != null) filter = null else onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
                 Box(Modifier.weight(1f)) {
                     if (q.isEmpty()) Text("Search messages", color = TextSecond, fontSize = 17.sp)
                     BasicTextField(q, { q = it }, singleLine = true, textStyle = TextStyle(color = TextPrimary, fontSize = 17.sp, fontFamily = FontState.family),
@@ -111,13 +125,21 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                         }
                     }
                 }
-                return@Column
-            }
+            } else SearchResults(ctx, convs, contacts, recent, hits, filter, needMsgs, qt, onOpen)
+        }
+    }
+}
+
+/** Results list (split out: the old early "return" out of the Column could crash Compose when the search opened). */
+@Composable
+private fun SearchResults(ctx: android.content.Context, convs: List<Conversation>, contacts: List<Pair<String, String>>, recent: List<FoundMsg>, hits: List<MsgHit>,
+                          filter: String?, needMsgs: Boolean, qt: String, onOpen: (Conversation) -> Unit) {
             val convMatches = convs.filter { c ->
                 (qt.isEmpty() || c.displayName.contains(qt, true) || c.address.contains(qt)) && when (filter) {
                     "unread" -> c.unread
-                    "known" -> SmsRepository.getContactName(ctx, c.address) != null
-                    "unknown" -> !c.address.contains(";") && SmsRepository.getContactName(ctx, c.address) == null
+                    // displayName already holds the contact name; no contact lookups on every keystroke
+                    "known" -> c.address.contains(";") || c.displayName != c.address
+                    "unknown" -> !c.address.contains(";") && c.displayName == c.address
                     null -> qt.isNotEmpty()
                     else -> false
                 }
@@ -135,7 +157,7 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
             }.sortedByDescending { it.m.date } else emptyList()
             val contactMatches = if (filter == null && qt.isNotEmpty()) contacts.filter { it.first.contains(qt, true) || it.second.filter(Char::isDigit).contains(qt.filter(Char::isDigit).ifEmpty { "\u0000" }) }.take(20) else emptyList()
             LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                fun header(t: String) = item(key = "h_$t") { Text(t, color = TextSecond, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 8.dp)) }
+                fun header(t: String, k: String = t) = item(key = "h_$k") { Text(t, color = TextSecond, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 8.dp)) }
                 if (convMatches.isNotEmpty()) {
                     header("Conversations")
                     items(convMatches, key = { "c" + it.threadId }) { c ->
@@ -151,7 +173,7 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                     }
                 }
                 if (msgMatches.isNotEmpty()) {
-                    header("Messages")
+                    header("Messages", "found") // own key: two items with the same key crash a LazyColumn
                     items(msgMatches.take(200), key = { "f" + msgKey(it.m) }) { fm ->
                         ResultRow(fm.conv.displayName, fm.conv.address, AnnotatedString(fm.conv.displayName),
                             highlight(fm.m.body.ifBlank { if (fm.m.mediaMime?.startsWith("video") == true) "Video" else "Photo" }, qt, Brand), shortTime(fm.m.date), media = fm.m.imageUri) { onOpen(fm.conv) }
@@ -172,8 +194,6 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                     }
                 }
             }
-        }
-    }
 }
 
 @Composable
