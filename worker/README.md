@@ -12,12 +12,14 @@ contacts across all synced devices.
    ```
    wrangler r2 bucket create heimish-contacts
    ```
-4. Set the admin token (used as `Authorization: Bearer <token>`):
-   - For production, override the default in `wrangler.toml` via a secret:
-     ```
-     wrangler secret put ADMIN_TOKEN
-     ```
-   - The app sends this token from its Admin Panel. Keep the two in sync.
+4. Set the admin token (used as `Authorization: Bearer <token>`) as a secret —
+   it is never committed to this repo:
+   ```
+   wrangler secret put ADMIN_TOKEN
+   ```
+   The APK receives the token at build time via the `ADMIN_TOKEN` GitHub Actions
+   secret (see `.github/workflows/build.yml`); local builds use `local.properties`.
+   Keep all three in sync. Rotating the token requires a new APK release.
 5. Deploy:
    ```
    wrangler deploy
