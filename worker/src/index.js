@@ -14,7 +14,10 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const auth = request.headers.get('Authorization') || '';
-    const validToken = env.ADMIN_TOKEN || 'hm_admin_avrumy_2024';
+    if (!env.ADMIN_TOKEN) {
+      return json({ error: 'Server not configured' }, 500, CORS);
+    }
+    const validToken = env.ADMIN_TOKEN;
 
     if (auth !== 'Bearer ' + validToken) {
       return json({ error: 'Unauthorized' }, 401, CORS);
