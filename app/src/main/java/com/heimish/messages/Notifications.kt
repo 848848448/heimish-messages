@@ -112,7 +112,7 @@ object Notifications {
     }
 
     fun showTestNotification(ctx: Context) {
-        showMessage(ctx, "Heimish Messages", "This is a test notification \ud83d\udcf1", "test", 0)
+        showMessage(ctx, "Message", "This is a test notification \ud83d\udcf1", "test", 0)
     }
 }
 
