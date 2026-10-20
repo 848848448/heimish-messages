@@ -4,7 +4,7 @@ on:
     inputs:
       old_tag:
         description: older release tag to install first
-        default: v3.6-b178
+        default: v3.6-b181
   push:
     paths: ['.github/workflows/qa-update.yml']
 permissions:
@@ -47,12 +47,12 @@ jobs:
           cat > qa/upd.sh <<'QAEOF'
           #!/bin/bash
           P=com.heimish.messages
-          O=qa/out; mkdir -p $O
+          O=qa/out/$MODE; mkdir -p $O
           sh(){ adb shell "$@"; }
           shot(){ sleep 1.5; adb exec-out screencap -p > $O/$1.png; python3 qa/dump.py > $O/$1.txt 2>&1; }
           curl -sL -o old.apk "https://github.com/848848448/heimish-messages/releases/download/$OLD_TAG/app-debug.apk"
           ls -la old.apk > $O/old.txt
-          adb install -r old.apk >> $O/old.txt 2>&1
+          adb install -r $INSTFLAG old.apk >> $O/old.txt 2>&1
           sh dumpsys package $P | grep -E 'versionCode|versionName' > $O/ver_before.txt
           for p in READ_SMS SEND_SMS RECEIVE_SMS RECEIVE_MMS READ_CONTACTS POST_NOTIFICATIONS; do sh pm grant $P android.permission.$p; done
           sh cmd role add-role-holder --user 0 android.app.role.SMS $P
@@ -70,7 +70,6 @@ jobs:
           sh dumpsys package $P | grep -E 'versionCode|versionName' > $O/ver_after.txt
           sh am start -n $P/.MainActivity; sleep 4; shot u5_relaunched
           adb logcat -d | grep -iE "FATAL|Updater|PackageInstaller" | head -40 > $O/log.txt
-          (cd $O && zip -qr ../../qa-out.zip . )
           exit 0
           QAEOF
       - name: Enable KVM
@@ -80,14 +79,18 @@ jobs:
       - name: Emulator updater QA
         uses: reactivecircus/android-emulator-runner@v2
         env:
-          OLD_TAG: ${{ inputs.old_tag || 'v3.6-b178' }}
+          OLD_TAG: ${{ inputs.old_tag || 'v3.6-b181' }}
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: bash qa/upd.sh
+          script: |
+            MODE=plain INSTFLAG= bash qa/upd.sh
+            adb uninstall com.heimish.messages
+            MODE=installer INSTFLAG='-i com.heimish.messages' bash qa/upd.sh
+            (cd qa/out && zip -qr ../../qa-out.zip . )
       - name: Publish evidence
         if: always()
         uses: softprops/action-gh-release@v2
