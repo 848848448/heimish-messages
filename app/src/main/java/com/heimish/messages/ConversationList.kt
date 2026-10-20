@@ -90,7 +90,7 @@ object ConvCache { @Volatile var list: List<Conversation>? = null }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit, onStarred: () -> Unit, onScheduled: () -> Unit, onSpam: () -> Unit = {}, onWhatsNew: (UpdateInfo) -> Unit = {}) {
+fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onAdmin: () -> Unit, onArchived: () -> Unit, onStarred: () -> Unit, onScheduled: () -> Unit, onSpam: () -> Unit = {}, onWhatsNew: (UpdateInfo) -> Unit = {}, onTrash: () -> Unit = {}, onSearch: () -> Unit = {}) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(ConvCache.list ?: emptyList()) }
     var loaded by remember { mutableStateOf(ConvCache.list != null) }
@@ -107,7 +107,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     val providerTick = rememberProviderTick()
     LaunchedEffect(providerTick) {
         if (providerTick > 1) delay(150)
-        val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }
+        val fresh = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx).also { TrashStore.maintain(ctx, it) } }
         if (fresh != list) list = fresh
         ConvCache.list = fresh; loaded = true
         tick++
@@ -129,9 +129,10 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         scope.launch {
             if (kind == "delete") {
                 hidden = hidden + c.threadId
-                val r = snackbar.showSnackbar("Conversation deleted", "Undo", duration = SnackbarDuration.Short)
-                if (r == SnackbarResult.ActionPerformed) hidden = hidden - c.threadId
-                else { withContext(Dispatchers.IO) { SmsRepository.deleteThread(ctx, c.threadId) }; refresh(); hidden = hidden - c.threadId }
+                TrashStore.add(ctx, c.threadId); tick++
+                val r = snackbar.showSnackbar("Moved to trash", "Undo", duration = SnackbarDuration.Short)
+                if (r == SnackbarResult.ActionPerformed) TrashStore.remove(ctx, c.threadId)
+                hidden = hidden - c.threadId; tick++
             } else {
                 ArchiveStore.setArchived(ctx, c.threadId, true); tick++
                 val r = snackbar.showSnackbar("Conversation archived", "Undo", duration = SnackbarDuration.Short)
@@ -143,7 +144,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     val hits by produceState(emptyList<MsgHit>(), search) {
         value = if (search.trim().length >= 2) { delay(250); withContext(Dispatchers.IO) { SmsRepository.searchMessages(ctx, search.trim()) } } else emptyList()
     }
-    val visible = remember(list, tick, hidden, spamIds) { list.filter { !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) && it.threadId !in hidden && it.threadId !in spamIds } }
+    val visible = remember(list, tick, hidden, spamIds) { list.filter { !TrashStore.has(ctx, it.threadId) && !ArchiveStore.isArchived(ctx, it.threadId) && !BlockedStore.isBlocked(ctx, it.address) && it.threadId !in hidden && it.threadId !in spamIds } }
     var cat by remember { mutableStateOf("All") }
     var sel by remember { mutableStateOf(setOf<Long>()) }
     BackHandler(enabled = sel.isNotEmpty()) { sel = emptySet() }
@@ -199,24 +200,25 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, actionIconContentColor = TextSecond),
                 title = { Text("Messages", fontWeight = FontWeight.Normal, fontSize = 22.sp) },
                 actions = {
-                    IconButton({ showSearchBar = !showSearchBar; if (!showSearchBar) search = "" }) { Icon(Icons.Outlined.Search, "Search", tint = TextPrimary) }
+                    IconButton(onSearch) { Icon(Icons.Outlined.Search, "Search", tint = TextPrimary) }
                     Box {
                         Box(Modifier.padding(end = 10.dp, start = 2.dp).size(36.dp).clip(CircleShape).background(Tonal).clickable { showMenu = true }, contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.Person, "Account menu", tint = OnTonal, modifier = Modifier.size(22.dp))
                         }
-                        DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf), shape = RoundedCornerShape(16.dp)) {
-                            DropdownMenuItem({ Text("Starred messages", color = TextPrimary) }, { showMenu = false; onStarred() }, leadingIcon = { Icon(Icons.Default.Star, null, tint = TextSecond) })
-                            DropdownMenuItem({ Text("Archived", color = TextPrimary) }, { showMenu = false; onArchived() }, leadingIcon = { Icon(Icons.Default.Archive, null, tint = TextSecond) })
-                            DropdownMenuItem({ Text("Scheduled", color = TextPrimary) }, { showMenu = false; onScheduled() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
-                            DropdownMenuItem({ Text("Spam", color = TextPrimary) }, { showMenu = false; onSpam() }, leadingIcon = { Icon(Icons.Default.Report, null, tint = TextSecond) })
-                            DropdownMenuItem({ Text("Mark all as read", color = TextPrimary) }, {
-                                showMenu = false
-                                scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
-                                refresh()
-                            }, leadingIcon = { Icon(Icons.Default.DoneAll, null, tint = TextSecond) })
-                            DropdownMenuItem({ Text("Settings", color = TextPrimary) }, { showMenu = false; onSettings() }, leadingIcon = { Icon(Icons.Default.Settings, null, tint = TextSecond) })
-                            DropdownMenuItem({ Text("Admin panel", color = TextPrimary) }, { showMenu = false; onAdmin() }, leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null, tint = TextSecond) })
-                        }
+                        if (showMenu) AccountMenu(listOf(
+                            listOf(MenuEntry(Icons.Outlined.Archive, "Archived") { showMenu = false; onArchived() },
+                                MenuEntry(Icons.Outlined.Delete, "Trash") { showMenu = false; onTrash() },
+                                MenuEntry(Icons.Outlined.Block, "Spam & blocked") { showMenu = false; onSpam() }),
+                            listOf(MenuEntry(Icons.Outlined.StarOutline, "Starred") { showMenu = false; onStarred() },
+                                MenuEntry(Icons.Outlined.Schedule, "Scheduled") { showMenu = false; onScheduled() },
+                                MenuEntry(Icons.Outlined.MarkChatRead, "Mark all as read") {
+                                    showMenu = false
+                                    scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
+                                    refresh()
+                                }),
+                            listOf(MenuEntry(Icons.Outlined.Settings, "Messages settings") { showMenu = false; onSettings() },
+                                MenuEntry(Icons.Outlined.AdminPanelSettings, "Admin panel") { showMenu = false; onAdmin() })
+                        )) { showMenu = false }
                     }
                 }
             )
@@ -429,7 +431,7 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(list, key = { it.threadId }) { conv ->
                 Row(Modifier.fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(conv.displayName, conv.address, 48.dp, 18.sp)
+                    Avatar(conv.displayName, conv.address, 54.dp, 20.sp)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(conv.displayName, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -575,25 +577,25 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     }
     val typedNumber = to.trim().takeIf { t -> t.count { it.isDigit() } >= 3 && t.all { it.isDigit() || it in "+-() ." } }?.replace(Regex("[\\s()\\-.]"), "")
 
-    Scaffold(containerColor = Bg,
-        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
+    Scaffold(containerColor = Chrome,
+        topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
-            title = { Text("New conversation", fontWeight = FontWeight.SemiBold) }) }
+            title = { Text("New chat", fontWeight = FontWeight.Normal, fontSize = 22.sp) }) }
     ) { pad ->
         Column(Modifier.padding(pad)) {
             TextField(to, { to = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                placeholder = { Text("Type a name or number", color = TextHint) },
-                leadingIcon = { Text("To:", color = TextHint, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp)) },
+                placeholder = { Text("Type name or phone number", color = TextSecond) },
+                leadingIcon = { Text("To:", color = TextPrimary, modifier = Modifier.padding(start = 12.dp)) },
                 singleLine = true, shape = RoundedCornerShape(28.dp),
                 colors = TextFieldDefaults.colors(focusedContainerColor = SearchBg, unfocusedContainerColor = SearchBg, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, cursorColor = Brand),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Phone),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Text),
                 keyboardActions = KeyboardActions(onDone = {
                     if (to.isNotBlank() && !isGroup) openConv(contacts.find { it.second == to.trim() }?.first ?: to.trim(), typedNumber ?: to.trim())
                     else if (isGroup && typedNumber != null) { if (selected.none { it.second == typedNumber }) selected = selected + (typedNumber to typedNumber); to = "" }
                 }))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalButton(onClick = { isGroup = !isGroup }, shape = RoundedCornerShape(50),
-                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = if (isGroup) Tonal else SearchBg, contentColor = if (isGroup) OnTonal else TextPrimary)) {
+                FilledTonalButton(onClick = { isGroup = !isGroup }, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = Tonal, contentColor = OnTonal)) {
                     Icon(if (isGroup) Icons.Default.GroupRemove else Icons.Default.GroupAdd, null, Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (isGroup) "Cancel group" else "Create group")
@@ -615,7 +617,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                     }
                 }
             }
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (typedNumber != null && filtered.none { it.second == typedNumber }) item(key = "typed") {
                     Row(Modifier.fillMaxWidth().clickable {
                         if (isGroup) { if (selected.none { it.second == typedNumber }) selected = selected + (typedNumber to typedNumber); to = "" }
@@ -626,15 +628,18 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                         Text((if (isGroup) "Add " else "Send to ") + typedNumber, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Brand)
                     }
                 }
-                items(filtered, key = { it.second }) { (name, number) ->
-                    Row(Modifier.fillMaxWidth().clickable {
-                        if (isGroup) { if (selected.none { it.second == number }) selected = selected + (name to number); to = "" }
-                        else openConv(name, number)
-                    }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(name, number, 44.dp, 17.sp)
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) { Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(number, fontSize = 13.sp, color = TextHint, maxLines = 1) }
-                        if (isGroup && selected.any { it.second == number }) Icon(Icons.Default.CheckCircle, null, tint = Brand)
+                filtered.groupBy { (it.first.firstOrNull()?.uppercaseChar()?.takeIf { c -> c.isLetter() } ?: '#').toString() }.forEach { (letter, group) ->
+                    item(key = "hdr_$letter") { Text(letter, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 28.dp, top = 14.dp, bottom = 6.dp)) }
+                    items(group, key = { it.second }) { (name, number) ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp).clip(RoundedCornerShape(20.dp)).background(Surf).clickable {
+                            if (isGroup) { if (selected.none { it.second == number }) selected = selected + (name to number); to = "" }
+                            else openConv(name, number)
+                        }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(name, number, 52.dp, 20.sp)
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) { Text(name, fontSize = 17.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(number, fontSize = 14.sp, color = TextSecond, maxLines = 1) }
+                            if (isGroup && selected.any { it.second == number }) Icon(Icons.Default.CheckCircle, null, tint = Brand)
+                        }
                     }
                 }
             }

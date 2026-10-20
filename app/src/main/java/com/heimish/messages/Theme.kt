@@ -92,26 +92,29 @@ object ThemeState {
     /** Material You colors from the wallpaper (Android 12+), or null for the classic Google Messages blue. */
     var scheme by mutableStateOf<ColorScheme?>(null)
     var amoled by mutableStateOf(false)
+    /** Per-chat theme accent (Chat theme), set while that chat is open. */
+    var chat by mutableStateOf<ChatPalette?>(null)
 }
 internal val D get() = ThemeState.dark
 private val S get() = ThemeState.scheme
+private val CP get() = ThemeState.chat
 private val Black get() = D && ThemeState.amoled
 
-internal val Brand: Color        get() = S?.primary ?: if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
+internal val Brand: Color        get() = CP?.primary ?: S?.primary ?: if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
 internal val BrandDk: Color      get() = S?.let { if (D) it.inversePrimary else it.onPrimaryContainer } ?: if (D) Color(0xFF7CACF8) else Color(0xFF0842A0)
 internal val OnBrand: Color      get() = S?.onPrimary ?: if (D) Color(0xFF003258) else Color.White
-internal val Tonal: Color        get() = S?.primaryContainer ?: if (D) Color(0xFF004A77) else Color(0xFFD3E3FD)
-internal val OnTonal: Color      get() = S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF001D35)
+internal val Tonal: Color        get() = CP?.container ?: S?.primaryContainer ?: if (D) Color(0xFF004A77) else Color(0xFFD3E3FD)
+internal val OnTonal: Color      get() = CP?.onContainer ?: S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF001D35)
 internal val Bg: Color           get() = if (Black) Color.Black else S?.surface ?: if (D) Color(0xFF131314) else Color.White
 internal val Surf: Color         get() = if (Black) Color(0xFF101010) else S?.surfaceContainer ?: if (D) Color(0xFF1E1F20) else Color.White
 internal val SearchBg: Color     get() = if (Black) Color(0xFF1C1C1E) else S?.surfaceContainerHigh ?: if (D) Color(0xFF2F3033) else Color(0xFFF0F4F9)
 internal val SheetBg: Color      get() = if (Black) Color(0xFF101010) else S?.surfaceContainerLow ?: if (D) Color(0xFF1E1F20) else Color(0xFFF8FAFD)
 internal val BubbleIn: Color     get() = if (Black) Color(0xFF262628) else S?.surfaceContainerHighest ?: if (D) Color(0xFF444746) else Color(0xFFE9EEF6)
 // Google Messages (2025): your messages are a soft blue with dark text, theirs are grey
-internal val BubbleOut: Color    get() = S?.primaryContainer ?: if (D) Color(0xFF004A77) else Color(0xFFD3E3FD)
-internal val BubbleOutText: Color  get() = S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF041E49)
-internal val BubbleOutSub: Color   get() = (S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF041E49)).copy(.68f)
-internal val BubbleOutLink: Color  get() = S?.primary ?: if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
+internal val BubbleOut: Color    get() = CP?.container ?: S?.primaryContainer ?: if (D) Color(0xFF004A77) else Color(0xFFD3E3FD)
+internal val BubbleOutText: Color  get() = CP?.onContainer ?: S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF041E49)
+internal val BubbleOutSub: Color   get() = CP?.onContainer?.copy(.68f) ?: (S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF041E49)).copy(.68f)
+internal val BubbleOutLink: Color  get() = CP?.primary ?: S?.primary ?: if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
 /** The tinted frame around the main lists (Google Messages' Material 3 Expressive look). */
 internal val Chrome: Color       get() = if (Black) Color.Black else S?.surfaceContainer ?: if (D) Color(0xFF1E1F20) else Color(0xFFF0F4F9)
 internal val TextPrimary: Color  get() = S?.onSurface ?: if (D) Color(0xFFE3E3E3) else Color(0xFF1F1F1F)
@@ -122,6 +125,7 @@ internal val AttachSurf: Color   get() = if (Black) Color(0xFF1C1C1E) else S?.su
 internal val MenuSurf: Color     get() = if (Black) Color(0xFF1C1C1E) else S?.surfaceContainerHigh ?: if (D) Color(0xFF282A2C) else Color(0xFFF0F4F9)
 internal val FabColor: Color     get() = S?.primaryContainer ?: if (D) Color(0xFF004A77) else Color(0xFFC2E7FF)
 internal val OnFabColor: Color   get() = S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF001D35)
+internal val TileBg: Color       get() = if (Black) Color(0xFF1C1C1E) else S?.surfaceContainerHighest ?: if (D) Color(0xFF333537) else Color(0xFFE4E9F2)
 internal val Red: Color          get() = S?.error ?: if (D) Color(0xFFF2B8B5) else Color(0xFFB3261E)
 internal val Amber: Color        get() = Color(0xFFFFC107)
 

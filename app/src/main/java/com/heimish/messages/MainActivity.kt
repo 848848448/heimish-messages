@@ -134,6 +134,8 @@ sealed class Screen {
     data object Starred : Screen()
     data object Scheduled : Screen()
     data object Spam : Screen()
+    data object Trash : Screen()
+    data object Search : Screen()
     data class WhatsNew(val info: UpdateInfo?, val autoInstall: Boolean = false) : Screen()
     data class Extra(val key: String) : Screen()
 }
@@ -151,6 +153,8 @@ private fun encodeScreen(s: Screen): String = when (s) {
     Screen.Starred -> "starred"
     Screen.Scheduled -> "scheduled"
     Screen.Spam -> "spam"
+    Screen.Trash -> "trash"
+    Screen.Search -> "search"
     is Screen.WhatsNew -> "list"
     is Screen.Extra -> "extra$SEP${s.key}"
 }
@@ -166,6 +170,8 @@ private fun decodeScreen(v: String): Screen {
         "starred" -> Screen.Starred
         "scheduled" -> Screen.Scheduled
         "spam" -> Screen.Spam
+        "trash" -> Screen.Trash
+        "search" -> Screen.Search
         "extra" -> Screen.Extra(p.getOrElse(1) { "" })
         else -> Screen.List
     }
@@ -252,8 +258,10 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             onGranted = { hasPerms = true }
         )
         else -> when (val s = screen) {
-            Screen.List     -> ConvListScreen({ go(Screen.Chat(it)) }, { go(Screen.NewConv) }, { go(Screen.Settings) }, { go(Screen.Admin) }, { go(Screen.Archived) }, { go(Screen.Starred) }, { go(Screen.Scheduled) }, { go(Screen.Spam) }, { go(Screen.WhatsNew(it)) })
+            Screen.List     -> ConvListScreen({ go(Screen.Chat(it)) }, { go(Screen.NewConv) }, { go(Screen.Settings) }, { go(Screen.Admin) }, { go(Screen.Archived) }, { go(Screen.Starred) }, { go(Screen.Scheduled) }, { go(Screen.Spam) }, { go(Screen.WhatsNew(it)) }, { go(Screen.Trash) }, { go(Screen.Search) })
             is Screen.WhatsNew -> UpdateScreen(s.info, s.autoInstall) { back() }
+            Screen.Trash    -> TrashScreen { back() }
+            Screen.Search   -> SearchScreen({ stack = stack.dropLast(1) + Screen.Chat(it) }) { back() }
             Screen.Spam     -> SpamScreen({ go(Screen.Chat(it)) }) { back() }
             is Screen.Extra -> ExtraScreen(s.key) { back() }
             is Screen.Chat  -> key(s.conv.threadId) { ThreadScreen(s.conv) { back() } }
