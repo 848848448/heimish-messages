@@ -435,11 +435,11 @@ function grpSvg(sz){return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 
 
 // data
 const convs=[
-  {id:1,name:'אברהם פֿאַלאַטשעק',addr:'+13475551234',snip:'Hey, wie geits?',date:Date.now()-2*60000,unread:2},
-  {id:2,name:"ישעי' מערץ",addr:'+13475559876',snip:'וואס גייט פאר',date:Date.now()-16*60000,unread:0},
-  {id:3,name:'ליפֿא מאַרק',addr:'+18455378946',snip:'Working SMS',date:Date.now()-86400000,unread:0,photo:'https://i.pravatar.cc/80?img=12'},
+  {id:1,name:'אברהם פֿאַלאַטשעק',addr:'+13475550134',snip:'Hey, wie geits?',date:Date.now()-2*60000,unread:2},
+  {id:2,name:"ישעי' מערץ",addr:'+13475550198',snip:'וואס גייט פאר',date:Date.now()-16*60000,unread:0},
+  {id:3,name:'ליפֿא מאַרק',addr:'+13475550789',snip:'Working SMS',date:Date.now()-86400000,unread:0,photo:'https://i.pravatar.cc/80?img=12'},
   {id:4,name:'22000',addr:'22000',snip:'Your verification code is 847291',date:Date.now()-2*86400000,unread:0},
-  {id:5,name:'מענדל גרין',addr:'+13475557777',snip:'קומ שוין!',date:Date.now()-3*86400000,unread:2},
+  {id:5,name:'מענדל גרין',addr:'+13475550777',snip:'קומ שוין!',date:Date.now()-3*86400000,unread:2},
   {id:6,name:'H 4, H1, H2, V4H 6...',addr:'group',snip:'MMS Photo',date:Date.now()-4*86400000,unread:0,group:true},
 ];
 const allMsgs={
@@ -468,7 +468,7 @@ const allMsgs={
     {id:16,body:'קומ שוין!',date:Date.now()-3*86400000,in:true},
   ],
   6:[
-    {id:17,sys:'You created this group MMS with (347) 675-7590 and 18 others',date:Date.now()-4*86400000},
+    {id:17,sys:'You created this group MMS with (347) 555-0175 and 18 others',date:Date.now()-4*86400000},
     {id:18,body:'',date:Date.now()-4*86400000+1000,in:true,img:'https://picsum.photos/seed/grp1/300/180',warn:true},
   ],
 };
@@ -1072,8 +1072,8 @@ function showProfile(){
     +'<div style="flex:1;overflow-y:auto">'
     +'<div class="pmenu-hdr">'
     +'<div class="pmenu-av"><svg width="36" height="36" viewBox="0 0 24 24" fill="#fff"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>'
-    +'<div class="pmenu-name">avrumy</div>'
-    +'<div class="pmenu-email">avrumy5872877@gmail.com</div>'
+    +'<div class="pmenu-name">Messages User</div>'
+    +'<div class="pmenu-email"></div>'
     +'<button style="background:none;border:1px solid var(--div);border-radius:20px;padding:8px 20px;font-size:14px;color:var(--brand);cursor:pointer;font-family:inherit;margin-bottom:8px" onclick="editProfile()">Manage your Google Account</button>'
     +'</div>'
     +'<div class="set-s" style="margin-top:8px">'
@@ -1326,7 +1326,7 @@ function playAudio(btn){
 
 // ── PROFILE ACTIONS ───────────────────────────────────────────────────────────
 function editProfile(){
-  var name=setGet('myName','avrumy'), mail=setGet('myEmail','avrumy5872877@gmail.com');
+  var name=setGet('myName',''), mail=setGet('myEmail','');
   var h='<div style="padding:28px 20px;text-align:center">'
     +'<div style="width:88px;height:88px;border-radius:50%;background:var(--brand);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:34px;font-weight:700;color:#fff">'+ini(name)+'</div>'
     +'</div>'
@@ -1339,7 +1339,7 @@ function editProfile(){
     +'</div>';
   var p=subPage('Your profile',h);
   p.querySelector('#pf-save').addEventListener('click',function(){
-    setPut('myName',p.querySelector('#pf-name').value.trim()||'avrumy');
+    setPut('myName',p.querySelector('#pf-name').value.trim());
     setPut('myEmail',p.querySelector('#pf-mail').value.trim());
     T('Profile saved');p.remove();
     if(document.getElementById('pmenu').style.display==='flex')showProfile();
@@ -1856,9 +1856,19 @@ function setHelp(){
 
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 function showAdmin(){
-  // Check worker URL
-  var WORKER='https://heimish-contacts.avrumy5872877.workers.dev';
-  var ADMIN_TOKEN='hm_admin_avrumy_2024';
+  // Worker URL + admin token are never shipped in this file. The admin enters
+  // them once; they stay in this browser's localStorage only.
+  var WORKER=localStorage.getItem('hm_worker')||'';
+  var ADMIN_TOKEN=localStorage.getItem('hm_token')||'';
+  if(!WORKER||!ADMIN_TOKEN){
+    WORKER=(prompt('Contacts worker URL:')||'').trim();
+    ADMIN_TOKEN=(prompt('Admin token:')||'').trim();
+    if(WORKER&&ADMIN_TOKEN){localStorage.setItem('hm_worker',WORKER);localStorage.setItem('hm_token',ADMIN_TOKEN);}
+  }
+  if(!WORKER||!ADMIN_TOKEN){
+    subPage('Admin Panel','<div style="padding:24px;color:var(--meta)">Contact search is not configured on this device.</div>');
+    return;
+  }
 
   var installs=JSON.parse(localStorage.getItem('hm_i')||'[]');
   var me={id:(navigator.userAgent||'').slice(0,60),t:new Date().toLocaleString()};
@@ -2952,4 +2962,4 @@ doSend=function(){_realDoSend.apply(this,arguments);saveData();};
 setInterval(saveData,5000);
 </script>
 </body>
-</html>
+    </html>
