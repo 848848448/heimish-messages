@@ -8,28 +8,54 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
 object Notifications {
     private const val CHANNEL_ID = "heimish_sms"
+    private const val CHANNEL_QUIET = "heimish_sms_quiet"
     private const val REPLY_KEY = "key_reply"
 
-    fun init(ctx: Context) {
+    private fun channelFor(ctx: Context): String {
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        val sound = prefs.getBoolean("notif_sound", true)
+        val vibrate = prefs.getBoolean("notif_vibrate", true)
+        return if (sound || vibrate) CHANNEL_ID else CHANNEL_QUIET
+    }
+
+    private fun ensureChannel(ctx: Context, id: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val chan = NotificationChannel(CHANNEL_ID, "Messages",
-                NotificationManager.IMPORTANCE_HIGH).apply {
+            val noisy = id == CHANNEL_ID
+            val chan = NotificationChannel(
+                id, if (noisy) "Messages" else "Messages (silent)",
+                if (noisy) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
                 description = "New message notifications"
-                enableVibration(true)
+                enableVibration(noisy)
+                if (!noisy) setSound(null, null)
             }
             (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(chan)
         }
     }
 
+    fun init(ctx: Context) {
+        ensureChannel(ctx, CHANNEL_ID)
+        ensureChannel(ctx, CHANNEL_QUIET)
+    }
+
     fun showMessage(ctx: Context, sender: String, body: String, address: String, threadId: Long) {
-        init(ctx)
+        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("notif_allow", true)) return
+        if (prefs.getBoolean("muted_$threadId", false)) return
+
+        val showSender = prefs.getBoolean("notif_sender", true)
+        val showPreview = prefs.getBoolean("notif_preview", true)
+        val title = if (showSender) sender else "New message"
+        val text = if (showPreview) body else ""
+
+        val channelId = channelFor(ctx)
+        ensureChannel(ctx, channelId)
 
         val nid = (threadId % Int.MAX_VALUE).toInt()
 
@@ -68,20 +94,21 @@ object Notifications {
             android.R.drawable.ic_menu_close_clear_cancel, "Mark as read", readPi
         ).build()
 
-        val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(ctx, channelId)
             .setSmallIcon(android.R.drawable.sym_action_chat)
-            .setContentTitle(sender)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentTitle(title)
             .setContentIntent(openPi)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (channelId == CHANNEL_ID) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .addAction(replyAction)
             .addAction(readAction)
-            .build()
+        if (text.isNotEmpty()) {
+            builder.setContentText(text)
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        }
 
-        try { NotificationManagerCompat.from(ctx).notify(nid, notif) } catch (_: SecurityException) {}
+        try { NotificationManagerCompat.from(ctx).notify(nid, builder.build()) } catch (_: SecurityException) {}
     }
 
     fun showTestNotification(ctx: Context) {
@@ -97,12 +124,10 @@ class DirectReplyReceiver : BroadcastReceiver() {
         val address = intent.getStringExtra("address") ?: return
         val nid = intent.getIntExtra("nid", 0)
 
-        // Send the SMS
         Thread {
             SmsRepository.sendSms(ctx, address, reply)
         }.start()
 
-        // Update notification to show "Sent"
         val notif = NotificationCompat.Builder(ctx, "heimish_sms")
             .setSmallIcon(android.R.drawable.sym_action_chat)
             .setContentText("Reply sent")
