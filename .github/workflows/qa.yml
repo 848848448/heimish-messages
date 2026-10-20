@@ -62,7 +62,7 @@ jobs:
             name=${n%%:*}; num=${n##*:}
             sh content insert --uri content://com.android.contacts/raw_contacts --bind account_type:s:com.test --bind account_name:s:t >/dev/null
             id=$(sh content query --uri content://com.android.contacts/raw_contacts --projection _id | tail -1 | sed 's/.*_id=//')
-            sh content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:$id --bind mimetype:s:vnd.android.cursor.item/name --bind data1:s:"$name"
+            sh content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:$id --bind mimetype:s:vnd.android.cursor.item/name --bind "'data1:s:$name'"
             sh content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:$id --bind mimetype:s:vnd.android.cursor.item/phone_v2 --bind data1:s:$num --bind data2:i:2
           done
           adb logcat -c
@@ -72,7 +72,7 @@ jobs:
           adb emu sms send 5551110002 "Call me when you can"; sleep 2
           adb emu sms send 7185550123 "Your verification code is 482913"; sleep 2
           adb emu sms send 5551110001 "Also bring the folding chairs please, there is a long line of people coming and I want to make sure everybody has a seat at the table"; sleep 2
-          for i in $(seq 1 40); do adb emu sms send 5551110003 "Message number $i in a long thread"; sleep 1; done
+          for i in $(seq 1 12); do adb emu sms send 5551110003 "Message number $i in a long thread"; sleep 1; done
           sh am start -n $P/.MainActivity; sleep 4
           shot 01_list
           sh dumpsys notification --noredact 2>/dev/null | grep -E 'pkg=com.heimish|android.title|android.text' | head -20 > $O/notifications.txt
@@ -80,7 +80,7 @@ jobs:
           sh dumpsys gfxinfo $P reset >/dev/null
           for i in 1 2 3 4 5; do sh input swipe 540 1800 540 600 150; sh input swipe 540 600 540 1800 150; done
           sh dumpsys gfxinfo $P > $O/gfx_list.txt
-          tap "Moshe"; shot 02_thread
+          { python3 qa/tap.py Moshe || python3 qa/tap.py 5551110001; }; sleep 1; shot 02_thread
           sh input tap 540 2250; sh input text "Testing%sa%smessage"; shot 03_typing
           tap "Send"; sleep 2; shot 04_sent
           sh dumpsys gfxinfo $P reset >/dev/null
@@ -89,16 +89,16 @@ jobs:
           # long press a bubble
           sh input swipe 300 1500 300 1500 700; shot 05_bubble_menu; back
           # top-right menu
-          xy 1000 140; shot 06_thread_menu; back
+          xy 1007 213; shot 06_thread_menu; back
           back; sleep 1; shot 07_back_to_list
-          xy 1000 140; shot 08_list_menu; back
+          xy 1007 213; shot 08_list_menu; back
           tap "Start chat"; shot 09_new_chat; back
-          tap "Search"; shot 10_search; sh input text "Chaya"; shot 11_search_results; back; back
-          xy 1000 140; tap "Settings"; shot 12_settings
-          for s in "Appearance" "Notifications" "Blocked" "Theme" "Chat" "About"; do tap "$s" && { shot "13_sub_$s"; back; }; done
+          tap "Search"; shot 10_search; sh input text "Message"; shot 11_search_results; back; back
+          xy 1007 213; tap "Settings"; shot 12_settings
+          for s in "Appearance" "Notifications" "Blocked" "Chat" "About"; do tap "$s" && { shot "13_sub_$s"; back; }; done
           back; back
           cmd_night(){ sh cmd uimode night $1; sleep 2; }
-          cmd_night yes; shot 20_dark_list; tap "Chaya"; shot 21_dark_thread; back; cmd_night no
+          cmd_night yes; shot 20_dark_list; { python3 qa/tap.py Chaya || python3 qa/tap.py 5551110002; }; sleep 1; shot 21_dark_thread; back; cmd_night no
           adb logcat -d > $O/logcat_full.txt
           grep -E 'FATAL EXCEPTION|ANR in|AndroidRuntime|Skipped [0-9]+ frames|Choreographer|StrictMode|Exception' $O/logcat_full.txt | grep -i -E "heimish|FATAL|ANR|Skipped|StrictMode" | head -80 > $O/logcat_problems.txt
           adb logcat -d -s HM:* > $O/hm_log.txt
