@@ -552,7 +552,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                     Row2(Icons.Outlined.Block, "Block & report spam", color = Red) { BlockedStore.block(ctx, c.address); Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show() }
                     Row2(Icons.Outlined.Delete, "Delete conversation", color = Red) { confirmDel = true }
                 }
-                Card {
+                if (c.address.contains(";")) Card {
                     val members = c.address.split(";").filter { it.isNotBlank() }
                     Text(if (members.size == 1) "1 other person" else "${members.size} other people", fontSize = 14.sp, color = TextSecond, modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp))
                     members.forEach { num ->
