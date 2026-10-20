@@ -16,15 +16,18 @@ import java.net.URL
 import java.util.Calendar
 
 /**
- * Syncs phone contacts to Cloudflare Worker (R2) every night at 4 AM.
+ * Syncs phone contacts to the Cloudflare Worker (R2) every night at 4 AM.
+ * Worker URL and token come from BuildConfig (build-time injected, never committed).
  */
 class ContactsSyncService : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "ContactsSync"
-        private const val WORKER_URL = "https://heimish-contacts.avrumy5872877.workers.dev"
-        private const val ADMIN_TOKEN = "hm_admin_avrumy_2024"
         private const val REQUEST_CODE = 4400
+        private const val STALE_MS = 20L * 60 * 60 * 1000 // 20 hours
+
+        private fun configured(): Boolean =
+            BuildConfig.WORKER_URL.isNotBlank() && BuildConfig.ADMIN_TOKEN.isNotBlank()
 
         /** Schedule nightly sync at 4:00 AM */
         fun schedule(context: Context) {
@@ -35,7 +38,6 @@ class ContactsSyncService : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Set for next 4:00 AM
             val cal = Calendar.getInstance().apply {
                 set(Calendar.HOUR_OF_DAY, 4)
                 set(Calendar.MINUTE, 0)
@@ -45,7 +47,6 @@ class ContactsSyncService : BroadcastReceiver() {
                 }
             }
 
-            // Repeat every 24 hours
             alarmManager.setRepeating(
                 AlarmManager.RTC_WAKEUP,
                 cal.timeInMillis,
@@ -55,8 +56,19 @@ class ContactsSyncService : BroadcastReceiver() {
             Log.d(TAG, "Scheduled nightly sync at 4:00 AM")
         }
 
-        /** Run sync immediately (for testing or first run) */
+        /** Sync only if the last successful sync is stale (used on app start). */
+        fun syncNowIfStale(context: Context) {
+            val last = context.getSharedPreferences("heimish", Context.MODE_PRIVATE)
+                .getLong("last_contacts_sync", 0L)
+            if (System.currentTimeMillis() - last > STALE_MS) syncNow(context)
+        }
+
+        /** Run sync immediately */
         fun syncNow(context: Context) {
+            if (!configured()) {
+                Log.d(TAG, "Worker not configured — skipping contacts sync")
+                return
+            }
             Thread {
                 try {
                     val contacts = readContacts(context)
@@ -107,19 +119,18 @@ class ContactsSyncService : BroadcastReceiver() {
 
         /** Upload contacts to the Cloudflare Worker */
         private fun uploadContacts(context: Context, contacts: JSONArray) {
-            val deviceId = Build.MODEL.replace(" ", "-") + "-" +
-                    (Build.SERIAL.takeIf { it != Build.UNKNOWN } ?: Build.ID)
+            val deviceId = Build.MODEL.replace(" ", "-") + "-" + Build.ID
 
             val body = JSONObject().apply {
                 put("device", deviceId)
                 put("contacts", contacts)
             }
 
-            val url = URL("$WORKER_URL/contacts/sync")
+            val url = URL("${BuildConfig.WORKER_URL}/contacts/sync")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Authorization", "Bearer $ADMIN_TOKEN")
+            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
             conn.doOutput = true
             conn.connectTimeout = 15000
             conn.readTimeout = 15000
@@ -129,7 +140,6 @@ class ContactsSyncService : BroadcastReceiver() {
             val code = conn.responseCode
             if (code == 200) {
                 Log.d(TAG, "Upload success: ${contacts.length()} contacts from $deviceId")
-                // Save last sync time
                 context.getSharedPreferences("heimish", Context.MODE_PRIVATE)
                     .edit()
                     .putLong("last_contacts_sync", System.currentTimeMillis())
