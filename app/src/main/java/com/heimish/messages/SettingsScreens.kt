@@ -236,10 +236,10 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                         SettingSwitch("Wallpaper colors", "Material You colors from your wallpaper", dyn) { dyn = it; prefs.edit().putBoolean("dynamic_color", it).apply(); ThemeState.version++ }
                     }
                     item {
-                        var rub by remember { mutableStateOf(prefs.getString("font", "rubik") != "system") }
-                        SettingSwitch("Rubik font", "A clean modern font that looks great in Yiddish. Off = your phone's font", rub) {
-                            rub = it; prefs.edit().putString("font", if (it) "rubik" else "system").apply()
-                            FontState.family = if (it) Rubik else androidx.compose.ui.text.font.FontFamily.Default
+                        var gfont by remember { mutableStateOf(prefs.getString("font", "google") != "system") }
+                        SettingSwitch("Google Sans font", "Google's own font, like Google Messages, with matching Yiddish letters. Off = your phone's font", gfont) {
+                            gfont = it; prefs.edit().putString("font", if (it) "google" else "system").apply()
+                            FontState.family = if (it) GoogleSans else androidx.compose.ui.text.font.FontFamily.Default
                         }
                     }
                     item {

@@ -147,14 +147,21 @@ internal val GMColors: ColorScheme
         )
     }
 
-/** Rubik: clean, modern, and draws Yiddish / Hebrew letters beautifully. Settings > Theme can switch back to the system font. */
-internal val Rubik = androidx.compose.ui.text.font.FontFamily(
-    androidx.compose.ui.text.font.Font(R.font.rubik_regular, androidx.compose.ui.text.font.FontWeight.Normal),
-    androidx.compose.ui.text.font.Font(R.font.rubik_medium, androidx.compose.ui.text.font.FontWeight.Medium),
-    androidx.compose.ui.text.font.Font(R.font.rubik_bold, androidx.compose.ui.text.font.FontWeight.Bold),
+/**
+ * Google Sans Flex (Google's own UI font, as in Google Messages), static 400/500/600/700 cuts.
+ * Google Sans Flex has no Hebrew, so each bundled file also carries the Hebrew / Yiddish letters
+ * (incl. ײ ױ װ ײַ and nikud) from Noto Sans Hebrew at the same weight and scale, so Yiddish text is
+ * weight-matched with no system fallback. Both fonts are OFL (see assets/licenses/).
+ * Settings > Theme can switch back to the system font.
+ */
+internal val GoogleSans = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(R.font.google_sans_flex_regular, androidx.compose.ui.text.font.FontWeight.Normal),
+    androidx.compose.ui.text.font.Font(R.font.google_sans_flex_medium, androidx.compose.ui.text.font.FontWeight.Medium),
+    androidx.compose.ui.text.font.Font(R.font.google_sans_flex_semibold, androidx.compose.ui.text.font.FontWeight.SemiBold),
+    androidx.compose.ui.text.font.Font(R.font.google_sans_flex_bold, androidx.compose.ui.text.font.FontWeight.Bold),
 )
 
-object FontState { var family by mutableStateOf<androidx.compose.ui.text.font.FontFamily>(Rubik) }
+object FontState { var family by mutableStateOf<androidx.compose.ui.text.font.FontFamily>(GoogleSans) }
 
 internal fun appTypography(ff: androidx.compose.ui.text.font.FontFamily): Typography {
     val b = Typography()

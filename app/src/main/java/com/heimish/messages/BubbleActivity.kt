@@ -97,7 +97,7 @@ class BubbleActivity : ComponentActivity() {
             ThemeState.amoled = prefs.getBoolean("amoled", false)
             ThemeState.scheme = if (prefs.getBoolean("dynamic_color", true) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                 (if (dark) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)) else null
-            MaterialTheme(colorScheme = GMColors, typography = appTypography(if (prefs.getString("font", "rubik") == "system") androidx.compose.ui.text.font.FontFamily.Default else Rubik)) {
+            MaterialTheme(colorScheme = GMColors, typography = appTypography(if (prefs.getString("font", "google") == "system") androidx.compose.ui.text.font.FontFamily.Default else GoogleSans)) {
                 Surface(Modifier.fillMaxSize(), color = Bg) {
                     ThreadScreen(Conversation(tid, addr, name, "", System.currentTimeMillis(), false)) { finish() }
                 }
