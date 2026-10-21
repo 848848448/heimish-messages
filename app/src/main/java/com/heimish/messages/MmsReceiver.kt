@@ -28,12 +28,16 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class MmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val pdu = intent.getByteArrayExtra("data") ?: intent.getByteArrayExtra("pdu") ?: return
+        val app = context.applicationContext
+        val pdu = intent.getByteArrayExtra("data") ?: intent.getByteArrayExtra("pdu")
         val subId = intent.getIntExtra("android.telephony.extra.SUBSCRIPTION_INDEX", intent.getIntExtra("subscription", -1))
+        MmsLog.log(app, "WAP_PUSH received: action=${intent.action} mime=${intent.type} subId=$subId pdu=${pdu?.size ?: "NONE"} extras=${MmsLog.extras(intent)}")
+        if (pdu == null) { MmsLog.log(app, "ERROR WAP push without data — dropped"); return }
+        MmsLog.log(app, "push pdu hex: ${MmsLog.hex(pdu)}")
         val pending = goAsync()
         Thread {
-            try { MmsIncoming.onWapPush(context.applicationContext, pdu, subId) }
-            catch (e: Throwable) { Log.e("MmsReceiver", "push: ${e.message}", e) }
+            try { MmsIncoming.onWapPush(app, pdu, subId) }
+            catch (e: Throwable) { Log.e("MmsReceiver", "push: ${e.message}", e); MmsLog.err(app, "push handling crashed", e) }
             finally { pending.finish() }
         }.start()
     }
@@ -52,10 +56,11 @@ class MmsDownloadedReceiver : BroadcastReceiver() {
         Thread {
             try {
                 when (intent.action) {
-                    MmsIncoming.ACTION_RETRY -> MmsIncoming.retryPending(app, force = true)
+                    MmsIncoming.ACTION_RETRY -> { MmsLog.log(app, "retry alarm fired"); MmsIncoming.retryPending(app, force = true) }
+                    MmsIncoming.ACTION_TIMEOUT -> MmsIncoming.onTimeout(app, intent)
                     else -> MmsIncoming.onDownloaded(app, intent, code)
                 }
-            } catch (e: Throwable) { Log.e("MmsDownloaded", "${e.message}", e) }
+            } catch (e: Throwable) { Log.e("MmsDownloaded", "${e.message}", e); MmsLog.err(app, "download receiver crashed (${intent.action})", e) }
             finally { pending.finish() }
         }.start()
     }
@@ -65,6 +70,9 @@ object MmsIncoming {
     private const val TAG = "MmsIncoming"
     const val ACTION_DOWNLOADED = "com.heimish.messages.MMS_DOWNLOADED"
     const val ACTION_RETRY = "com.heimish.messages.MMS_RETRY"
+    const val ACTION_TIMEOUT = "com.heimish.messages.MMS_DL_TIMEOUT"
+    /** No answer from the phone's MMS service this long after a download request = treat it as failed and retry. */
+    private const val ANSWER_TIMEOUT_MS = 4 * 60_000L
     private const val QUEUE_PREFS = "heimish_mms_queue"
     private const val MAX_ATTEMPTS = 8
     private const val KEEP_MS = 7 * 24 * 3600_000L
@@ -74,13 +82,16 @@ object MmsIncoming {
     // ── Step 1: WAP push ─────────────────────────────────────────────────────────
 
     fun onWapPush(ctx: Context, pdu: ByteArray, subId: Int) {
-        val n = runCatching { MmsPdu.parse(pdu) }.onFailure { Log.w(TAG, "notification parse: ${it.message}") }.getOrNull()
+        val n = runCatching { MmsPdu.parse(pdu) }.onFailure { Log.w(TAG, "notification parse: ${it.message}"); MmsLog.err(ctx, "notification parse failed", it) }.getOrNull()
+        if (n != null) MmsLog.log(ctx, "parsed push: m_type=${n.messageType} (0x${Integer.toHexString(n.messageType)}) tid=${n.transactionId} from=${n.from} " +
+            "loc=${n.contentLocation} size=${n.messageSize} expiry=${n.expiry}${if (n.expiryAbsolute) " abs" else " rel"} class=${n.messageClass} v=0x${Integer.toHexString(n.version)}")
         if (n != null && n.messageType != MmsPdu.TYPE_NOTIFICATION_IND) {
             Log.d(TAG, "WAP push type ${n.messageType} (delivery/read report) — nothing to download")
+            MmsLog.log(ctx, "not a notification (delivery/read report) — nothing to download")
             return
         }
-        val loc = n?.contentLocation?.trim()?.takeIf { it.startsWith("http", true) } ?: legacyContentLocation(pdu) ?: run {
-            Log.w(TAG, "MMS notification without a download address"); return
+        val loc = n?.contentLocation?.trim()?.takeIf { it.startsWith("http", true) } ?: legacyContentLocation(pdu)?.also { MmsLog.log(ctx, "address from raw bytes: $it") } ?: run {
+            Log.w(TAG, "MMS notification without a download address"); MmsLog.log(ctx, "ERROR notification without a download address — dropped"); return
         }
         val expiresAt = when {
             n == null || n.expiry <= 0 -> 0L
@@ -90,10 +101,10 @@ object MmsIncoming {
         val entry: JSONObject
         synchronized(lock) {
             val q = load(ctx)
-            if (q.done.contains(loc)) { Log.d(TAG, "duplicate push for an MMS already saved"); return }
+            if (q.done.contains(loc)) { Log.d(TAG, "duplicate push for an MMS already saved"); MmsLog.log(ctx, "duplicate push for an MMS already saved — ignored"); return }
             val existing = q.items[loc]
             if (existing != null && System.currentTimeMillis() - existing.optLong("last") < 3 * 60_000L) {
-                Log.d(TAG, "duplicate push, download already running"); return
+                Log.d(TAG, "duplicate push, download already running"); MmsLog.log(ctx, "duplicate push, download already running — ignored"); return
             }
             entry = existing ?: JSONObject().apply {
                 put("loc", loc); put("tid", n?.transactionId ?: ""); put("from", n?.from ?: "")
@@ -103,7 +114,34 @@ object MmsIncoming {
             q.items[loc] = entry
             save(ctx, q)
         }
+        // Show it in the chat right away as "downloading…" (like AOSP Messaging stores the notification first), so a
+        // message is never invisible while the download runs or fails; replaced by the real message once downloaded.
+        if (entry.optLong("row", -1L) <= 0) {
+            val row = runCatching { savePlaceholder(ctx, entry) }.onFailure { MmsLog.err(ctx, "placeholder insert failed", it) }.getOrNull()
+            MmsLog.log(ctx, "placeholder row: ${row ?: "none"}")
+            if (row != null) synchronized(lock) { val q = load(ctx); q.items[loc]?.put("row", row); entry.put("row", row); save(ctx, q) }
+        }
         startDownload(ctx, entry)
+    }
+
+    /** Watchdog: the phone's MMS service never answered the download request. */
+    fun onTimeout(ctx: Context, intent: Intent) {
+        val loc = intent.getStringExtra("loc") ?: return
+        val id = intent.getIntExtra("dl", -1)
+        val stillWaiting = synchronized(lock) {
+            val q = load(ctx); val e = q.items[loc]
+            if (e != null && e.optInt("pend", 0) == id) { e.put("pend", 0); save(ctx, q); true } else false
+        }
+        if (!stillWaiting) return
+        MmsLog.log(ctx, "ERROR no answer from the phone's MMS service ${ANSWER_TIMEOUT_MS / 60_000} min after download #$id — counting as failed")
+        onFailed(ctx, loc)
+    }
+
+    fun queueSummary(ctx: Context): String = synchronized(lock) {
+        val q = load(ctx)
+        "queue: ${q.items.size} waiting, ${q.done.size} done" + q.items.values.joinToString("") { e ->
+            "\n  ${e.optString("loc")} from=${e.optString("from")} sub=${e.optInt("sub")} attempts=${e.optInt("attempts")} row=${e.optLong("row")}"
+        }
     }
 
     private fun startDownload(ctx: Context, e: JSONObject) {
@@ -116,30 +154,63 @@ object MmsIncoming {
             q.items[loc] = cur; save(ctx, q)
         }
         val id = seq.incrementAndGet()
+        synchronized(lock) { val q = load(ctx); q.items[loc]?.put("pend", id); save(ctx, q) }
         val file = File(ctx.cacheDir, "mms_dl_${System.currentTimeMillis()}_$id.dat")
         try {
             file.delete(); file.createNewFile()
             val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
-            for (pkg in listOf("com.android.phone", "com.android.mms.service")) {
-                runCatching { ctx.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+            val grants = ArrayList<String>()
+            for (pkg in mmsServicePackages(ctx)) {
+                runCatching { ctx.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION); grants.add(pkg) }
+                    .onFailure { grants.add("$pkg:FAILED(${it.message})") }
             }
             // Explicit receiver + unique request code + unique data, so parallel downloads never overwrite each other.
             val done = Intent(ctx, MmsDownloadedReceiver::class.java)
                 .setAction(ACTION_DOWNLOADED)
                 .setData(Uri.parse("heimish-mms://download/$id"))
                 .putExtra("file", file.absolutePath).putExtra("loc", loc).putExtra("sub", subId)
+                .putExtra("dl", id)
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
             val pi = PendingIntent.getBroadcast(ctx, 40_000 + id % 50_000, done, flags)
             val cfg = Bundle()
             val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
             cfg.putBoolean(SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, prefs.getBoolean("group_mms", true))
             Log.d(TAG, "downloading MMS (sub $subId)")
-            SmsRepository.smsManager(ctx, subId).downloadMultimediaMessage(ctx, loc, uri, cfg, pi)
+            val mgr = SmsRepository.smsManager(ctx, subId)
+            val mgrSub = SmsRepository.effectiveSubId(ctx, subId) // -1 = the phone's default SIM
+            MmsLog.log(ctx, "download #$id requested: attempt=${e.optInt("attempts") + 1} url=$loc pushSub=$subId managerSub=$mgrSub uri=$uri grants=$grants pi=mutable:${Build.VERSION.SDK_INT >= 31}")
+            armTimeout(ctx, loc, id)
+            mgr.downloadMultimediaMessage(ctx, loc, uri, cfg, pi)
+            MmsLog.log(ctx, "download #$id handed to the system (waiting for its answer)")
         } catch (t: Throwable) {
             Log.e(TAG, "download request failed: ${t.message}", t)
+            MmsLog.err(ctx, "download #$id request failed", t)
             file.delete()
+            synchronized(lock) { val q = load(ctx); q.items[loc]?.put("pend", 0); save(ctx, q) }
             onFailed(ctx, loc)
         }
+    }
+
+    /** The phone process and the MMS service package(s) that write the downloaded file into our content Uri. */
+    private fun mmsServicePackages(ctx: Context): List<String> {
+        val out = linkedSetOf("com.android.phone", "com.android.mms.service")
+        // Some OEMs ship the MMS service under another package name: find whoever implements it.
+        runCatching {
+            ctx.packageManager.queryIntentServices(Intent("android.telephony.MmsService"), 0)
+                .forEach { out.add(it.serviceInfo.packageName) }
+        }
+        return out.toList()
+    }
+
+    private fun armTimeout(ctx: Context, loc: String, id: Int) {
+        runCatching {
+            val am = ctx.getSystemService(AlarmManager::class.java) ?: return
+            val pi = PendingIntent.getBroadcast(ctx, 30_000 + id % 9_000,
+                Intent(ctx, MmsDownloadedReceiver::class.java).setAction(ACTION_TIMEOUT)
+                    .setData(Uri.parse("heimish-mms://timeout/$id")).putExtra("loc", loc).putExtra("dl", id),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + ANSWER_TIMEOUT_MS, pi)
+        }.onFailure { MmsLog.err(ctx, "watchdog alarm", it) }
     }
 
     // ── Step 2: downloaded ───────────────────────────────────────────────────────
@@ -149,20 +220,32 @@ object MmsIncoming {
         val loc = intent.getStringExtra("loc") ?: return
         val subId = intent.getIntExtra("sub", -1)
         val file = path?.let { File(it) }
+        val dl = intent.getIntExtra("dl", -1)
         try {
+            synchronized(lock) { val q = load(ctx); q.items[loc]?.let { if (it.optInt("pend", 0) == dl) { it.put("pend", 0); save(ctx, q) } } }
+            val fileLen = file?.let { if (it.exists()) it.length() else -1L } ?: -2L
+            MmsLog.log(ctx, "download #$dl answered: result=${MmsLog.resultName(resultCode)} http=${intent.getIntExtra("android.telephony.extra.MMS_HTTP_STATUS", 0)} " +
+                "file=${if (fileLen == -1L) "missing" else "$fileLen bytes"} extras=${MmsLog.extras(intent)}")
             var bytes = file?.takeIf { it.exists() && it.length() > 0 }?.readBytes()
             if (bytes == null || bytes.isEmpty()) bytes = intent.getByteArrayExtra("android.telephony.extra.MMS_DATA")
             if (resultCode != Activity.RESULT_OK || bytes == null || bytes.isEmpty()) {
                 Log.w(TAG, "download failed: result $resultCode, ${bytes?.size ?: 0} bytes, http ${intent.getIntExtra("android.telephony.extra.MMS_HTTP_STATUS", 0)}")
+                MmsLog.log(ctx, "ERROR download #$dl failed (${MmsLog.resultName(resultCode)}, ${bytes?.size ?: 0} bytes)")
                 onFailed(ctx, loc); return
             }
-            val msg = runCatching { MmsPdu.parse(bytes) }.onFailure { Log.e(TAG, "retrieve parse: ${it.message}", it) }.getOrNull()
+            val msg = runCatching { MmsPdu.parse(bytes) }.onFailure { Log.e(TAG, "retrieve parse: ${it.message}", it); MmsLog.err(ctx, "retrieve parse failed", it) }.getOrNull()
+            MmsLog.log(ctx, if (msg == null) "retrieved head hex: ${MmsLog.hex(bytes, 200)}" else
+                "parsed retrieve: m_type=0x${Integer.toHexString(msg.messageType)} status=${msg.retrieveStatus} from=${msg.from} to=${msg.to} cc=${msg.cc} " +
+                    "ct=${msg.contentType} mid=${msg.messageId} parts=${msg.parts.joinToString { it.contentType + ":" + it.data.size }}")
             if (msg == null || msg.messageType != MmsPdu.TYPE_RETRIEVE_CONF || (msg.retrieveStatus != 0 && msg.retrieveStatus != 0x80)) {
                 Log.w(TAG, "not a usable M-Retrieve.conf: type ${msg?.messageType} status ${msg?.retrieveStatus}")
+                if (msg != null) MmsLog.log(ctx, "ERROR not a usable M-Retrieve.conf; head hex: ${MmsLog.hex(bytes, 200)}")
                 onFailed(ctx, loc); return
             }
             val entry = synchronized(lock) { load(ctx).items[loc] }
-            val saved = persist(ctx, msg, subId, loc) ?: run { onFailed(ctx, loc); return }
+            val saved = runCatching { persist(ctx, msg, subId, loc) }.onFailure { MmsLog.err(ctx, "saving crashed", it) }.getOrNull()
+                ?: run { MmsLog.log(ctx, "ERROR could not save the message"); onFailed(ctx, loc); return }
+            MmsLog.log(ctx, "saved: mms id=${saved.first} new=${saved.second}")
             // Saved: forget the queue entry, remove its "not downloaded" placeholder, remember it against duplicate pushes
             synchronized(lock) {
                 val q = load(ctx); q.items.remove(loc); q.done.add(loc)
@@ -173,22 +256,28 @@ object MmsIncoming {
                 runCatching { ctx.contentResolver.delete(Uri.parse("content://mms/$row"), null, null) }
             }
             if (saved.second) {
-                runCatching { notifyIncoming(ctx, saved.first) }.onFailure { Log.e(TAG, "notify: ${it.message}", it) }
-                msg.transactionId?.takeIf { it.isNotBlank() }?.let { tid -> runCatching { sendNotifyResp(ctx, tid, subId) } }
+                runCatching { notifyIncoming(ctx, saved.first) }.onFailure { Log.e(TAG, "notify: ${it.message}", it); MmsLog.err(ctx, "notification crashed", it) }
+                msg.transactionId?.takeIf { it.isNotBlank() }?.let { tid ->
+                    runCatching { sendNotifyResp(ctx, tid, subId) }.onSuccess { MmsLog.log(ctx, "retrieved-ack sent to carrier (tid $tid)") }
+                        .onFailure { MmsLog.err(ctx, "retrieved-ack", it) }
+                }
             }
+        } catch (t: Throwable) {
+            MmsLog.err(ctx, "download #$dl handling crashed", t); throw t
         } finally {
             file?.delete()
         }
     }
 
     private fun onFailed(ctx: Context, loc: String) {
-        val e = synchronized(lock) { load(ctx).items[loc] } ?: return
+        val e = synchronized(lock) { load(ctx).items[loc] } ?: run { MmsLog.log(ctx, "failure for an MMS no longer queued"); return }
         val attempts = e.optInt("attempts")
         val expired = e.optLong("exp") in 1 until System.currentTimeMillis()
-        // After the second failed try, show the message as "not downloaded yet" in the sender's chat (so it is not
-        // silently missing) and keep retrying in the background.
-        if (attempts >= 2 && e.optLong("row", -1L) <= 0) {
-            val row = runCatching { savePlaceholder(ctx, e) }.onFailure { Log.e(TAG, "placeholder: ${it.message}") }.getOrNull()
+        MmsLog.log(ctx, "attempt $attempts failed; expired=$expired; " + if (!expired && attempts < MAX_ATTEMPTS) "retrying later" else "giving up (open the app to try again)")
+        // Make sure the message shows in the sender's chat as "downloading…" (normally done at push time) and keep
+        // retrying in the background.
+        if (e.optLong("row", -1L) <= 0) {
+            val row = runCatching { savePlaceholder(ctx, e) }.onFailure { Log.e(TAG, "placeholder: ${it.message}"); MmsLog.err(ctx, "placeholder", it) }.getOrNull()
             if (row != null) synchronized(lock) {
                 val q = load(ctx); q.items[loc]?.put("row", row); save(ctx, q)
             }
@@ -215,7 +304,7 @@ object MmsIncoming {
         val now = System.currentTimeMillis()
         if (!force && now - prefs.getLong("last_sweep", 0L) < 2 * 60_000L) return
         prefs.edit().putLong("last_sweep", now).apply()
-        runCatching { adoptStuckRows(ctx) }.onFailure { Log.w(TAG, "scan: ${it.message}") }
+        runCatching { adoptStuckRows(ctx) }.onFailure { Log.w(TAG, "scan: ${it.message}"); MmsLog.err(ctx, "scan for stuck rows", it) }
         val todo = ArrayList<JSONObject>()
         synchronized(lock) {
             val q = load(ctx)
@@ -231,6 +320,7 @@ object MmsIncoming {
             }
             save(ctx, q)
         }
+        if (todo.isNotEmpty() || force) MmsLog.log(ctx, "retry sweep (force=$force): ${todo.size} to download")
         for (e in todo) { startDownload(ctx, e); Thread.sleep(300) }
     }
 
@@ -277,7 +367,8 @@ object MmsIncoming {
         val members = MmsThreadAddresses.forIncoming(m.from, m.to, m.cc, selfNumbers(ctx, subId), prefs.getBoolean("group_mms", true))
             .ifEmpty { listOf(m.from ?: "Unknown") }
         val threadId = runCatching { Telephony.Threads.getOrCreateThreadId(ctx, members.toSet()) }
-            .onFailure { Log.e(TAG, "thread id: ${it.message}") }.getOrNull() ?: return null
+            .onFailure { Log.e(TAG, "thread id: ${it.message}"); MmsLog.err(ctx, "thread id for $members", it) }.getOrNull() ?: return null
+        MmsLog.log(ctx, "thread $threadId for members $members")
         val now = System.currentTimeMillis() / 1000
         val v = ContentValues().apply {
             put("thread_id", threadId)
@@ -297,7 +388,9 @@ object MmsIncoming {
             val sid = SmsRepository.effectiveSubId(ctx, subId)
             if (sid >= 0) put("sub_id", sid)
         }
-        val uri = cr.insert(Uri.parse("content://mms/inbox"), v) ?: return null
+        val uri = cr.insert(Uri.parse("content://mms/inbox"), v)
+        MmsLog.log(ctx, "inbox insert -> $uri")
+        if (uri == null) return null
         val id = uri.lastPathSegment?.toLongOrNull() ?: return null
         try {
             fun addr(a: String, type: Int) = cr.insert(Uri.parse("content://mms/$id/addr"), ContentValues().apply {
@@ -322,12 +415,15 @@ object MmsIncoming {
                     else if (p.charset > 0) put("chset", p.charset)
                 }
                 val partUri = runCatching { cr.insert(Uri.parse("content://mms/$id/part"), cv) }
-                    .onFailure { Log.e(TAG, "part ${p.contentType}: ${it.message}") }.getOrNull() ?: continue
-                if (!p.isText) runCatching { cr.openOutputStream(partUri)?.use { it.write(p.data) } }
-                    .onFailure { Log.e(TAG, "part data ${p.contentType}: ${it.message}") }
+                    .onFailure { Log.e(TAG, "part ${p.contentType}: ${it.message}"); MmsLog.err(ctx, "part insert ${p.contentType}", it) }.getOrNull()
+                MmsLog.log(ctx, "part ${p.contentType} (${p.data.size} bytes) -> ${partUri ?: "NOT inserted"}")
+                if (partUri == null) continue
+                if (!p.isText) runCatching { cr.openOutputStream(partUri)?.use { it.write(p.data) } ?: MmsLog.log(ctx, "ERROR no output stream for $partUri") }
+                    .onFailure { Log.e(TAG, "part data ${p.contentType}: ${it.message}"); MmsLog.err(ctx, "part data ${p.contentType}", it) }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "addr/parts: ${t.message}", t) // keep the message itself — better than losing it
+            MmsLog.err(ctx, "addr/parts", t)
         }
         SmsRepository.forgetMms(id)
         runCatching { cr.notifyChange(Uri.parse("content://mms-sms/"), null) }
@@ -384,11 +480,12 @@ object MmsIncoming {
         val cr = ctx.contentResolver
         var threadId = -1L
         cr.query(Uri.parse("content://mms/$mmsId"), arrayOf("thread_id", "read"), null, null, null)?.use { c ->
-            if (!c.moveToFirst() || c.getInt(1) == 1) return
+            if (!c.moveToFirst() || c.getInt(1) == 1) { MmsLog.log(ctx, "notify: row $mmsId missing or already read — no notification"); return }
             threadId = c.getLong(0)
         }
         val addr = cr.query(Uri.parse("content://mms/$mmsId/addr"), arrayOf("address"), "type = 137", null, null)
-            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }?.takeIf { it.isNotBlank() && it != "insert-address-token" } ?: return
+            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }?.takeIf { it.isNotBlank() && it != "insert-address-token" }
+            ?: run { MmsLog.log(ctx, "notify: no sender address on $mmsId — no notification"); return }
         var text = ""; var media: String? = null
         cr.query(Uri.parse("content://mms/$mmsId/part"), arrayOf("ct", "text"), null, null, null)?.use { c ->
             while (c.moveToNext()) {
@@ -399,9 +496,9 @@ object MmsIncoming {
             }
         }
         val markRead = { runCatching { cr.update(Uri.parse("content://mms/$mmsId"), ContentValues().apply { put("read", 1); put("seen", 1) }, null, null) } }
-        if (BlockedStore.isBlocked(ctx, addr)) { markRead(); return }
+        if (BlockedStore.isBlocked(ctx, addr)) { MmsLog.log(ctx, "notify: sender $addr is blocked — silent"); markRead(); return }
         if (SpamFilter.isSpam(ctx, addr, text) || (SmsRepository.getContactName(ctx, addr) == null && KeywordStore.matches(ctx, text))) {
-            markRead(); SpamStore.add(ctx, threadId); return
+            MmsLog.log(ctx, "notify: spam filter matched $addr — moved to spam"); markRead(); SpamStore.add(ctx, threadId); return
         }
         if (threadId > 0) runCatching { TrashStore.remove(ctx, threadId) } // a new message brings a trashed chat back
         runCatching { MessageWidget.refresh(ctx) }
@@ -416,6 +513,18 @@ object MmsIncoming {
             }
         }
         Notifications.showMessage(ctx, name, body, addr, threadId)
+        MmsLog.log(ctx, "notification shown for thread $threadId ($body)")
+    }
+
+    /** Admin "Retry now": every queued MMS gets a fresh set of attempts, downloaded now. */
+    fun retryNow(ctx: Context) {
+        synchronized(lock) {
+            val q = load(ctx)
+            q.items.values.forEach { it.put("attempts", 0); it.put("last", 0L); it.put("pend", 0) }
+            save(ctx, q)
+        }
+        MmsLog.log(ctx, "manual retry")
+        retryPending(ctx, force = true)
     }
 
     /** Tells the carrier the message was retrieved (what Google Messages does), so it is not pushed again. */

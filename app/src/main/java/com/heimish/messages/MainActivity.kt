@@ -113,6 +113,7 @@ class MainActivity : ComponentActivity() {
         askNumbersPermissionOnce()
         UpdateCheckReceiver.schedule(this)
         Thread {
+            runCatching { MmsLog.startup(applicationContext) }
             OtpCleaner.clean(applicationContext)
             CacheJanitor.runIfDue(applicationContext)
             TrashStore.maintainIfDue(applicationContext)
