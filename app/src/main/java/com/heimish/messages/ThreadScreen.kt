@@ -49,6 +49,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -121,8 +123,22 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     DisposableEffect(Unit) { onDispose { if (ThemeState.chat == chatPalNow) ThemeState.chat = null } }
     var moreOpen by remember { mutableStateOf(false) }
     // Opens at the newest message; when coming back to this chat (it is saved per back-stack entry) the old spot is restored.
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (msgs.isEmpty()) 0 else Int.MAX_VALUE)
-    var positioned by rememberSaveable { mutableStateOf(msgs.isNotEmpty()) }
+    // The list is reversed (index 0 = newest, at the bottom), so a fresh chat starts at the bottom on its very first frame.
+    // Coming back to this chat (it is saved per back-stack entry) restores the old spot.
+    val listState = rememberLazyListState()
+    // Unread boundary, read BEFORE the chat is marked read (-1 = not read yet, 0 = nothing unread, else the first unread's date)
+    var unreadFrom by rememberSaveable { mutableLongStateOf(-1L) }
+    var dividerKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var boundaryResolved by rememberSaveable { mutableStateOf(false) }
+    var openPlaced by rememberSaveable { mutableStateOf(false) }
+    var fullLoaded by remember { mutableStateOf(false) }
+    var newBelow by rememberSaveable { mutableIntStateOf(0) }
+    // Shown at once when the chat is known to have nothing unread (it already sits at the bottom); otherwise after placing
+    var positioned by rememberSaveable { mutableStateOf(msgs.isNotEmpty() && !conversation.unread) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    var focusDecided by rememberSaveable { mutableStateOf(false) }
+    val composeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val haptic = LocalHapticFeedback.current
@@ -178,16 +194,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         onDispose { if (ActiveThread.id == conversation.threadId) ActiveThread.id = -1L }
     }
 
-    fun atBottom(): Boolean {
-        val info = listState.layoutInfo
-        val last = info.visibleItemsInfo.lastOrNull() ?: return true
-        return last.index >= info.totalItemsCount - 2
-    }
+    fun atBottom(): Boolean = listState.firstVisibleItemIndex <= 1
     suspend fun scrollToNewest(animated: Boolean) {
-        // wait until the list knows about the new rows, then go to the end
-        runCatching { kotlinx.coroutines.withTimeoutOrNull(1000) { snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 } } }
-        val last = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-        runCatching { if (animated) listState.animateScrollToItem(last, 100000) else listState.scrollToItem(last, 100000) }
+        runCatching { if (animated) listState.animateScrollToItem(0) else listState.scrollToItem(0) }
     }
     fun reload() {
         // One read at a time: the resume tick and the first composition used to start two full reads at once
@@ -201,30 +210,54 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     // Show the newest screenful right away, then read the rest
                     val quick = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, 40) }
                         .filter { it.body.isNotBlank() || it.imageUri != null }
-                    if (quick.isNotEmpty() && msgs.isEmpty()) { msgs = quick; lastKey = msgKey(quick.last()); scrollToNewest(false); positioned = true }
+                    if (quick.isNotEmpty() && msgs.isEmpty()) { msgs = quick; lastKey = msgKey(quick.last()) }
                 }
                 val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, msgLimit) }
                 hasOlder = raw.size >= msgLimit
                 val filteredMsgs = raw.filter { it.body.isNotBlank() || it.imageUri != null }
                 val newLast = filteredMsgs.lastOrNull()?.let { msgKey(it) }
-                val newArrived = newLast != lastKey
+                val prevLast = lastKey
+                val newArrived = newLast != prevLast
                 val mineSent = filteredMsgs.lastOrNull()?.incoming == false
                 if (filteredMsgs != msgs) msgs = filteredMsgs
                 ThreadCache.put(conversation.threadId, filteredMsgs)
                 lastKey = newLast
+                fullLoaded = true
                 if (loadingOlder) { loadingOlder = false; lastCount = filteredMsgs.size }
                 else if (firstOpen) {
+                    // where the chat opens is decided once, by the placing step (unread line or bottom), not here
                     lastCount = filteredMsgs.size
-                    if (filteredMsgs.isNotEmpty() && wasAtBottom) scrollToNewest(false)
                 } else if (newArrived) {
                     lastCount = filteredMsgs.size
                     // Follow new messages only when already at the bottom (or it's your own send); never yank someone reading older texts
-                    if (filteredMsgs.isNotEmpty() && (wasAtBottom || mineSent)) { delay(40); scrollToNewest(true) }
+                    if (filteredMsgs.isNotEmpty() && (wasAtBottom || mineSent)) { newBelow = 0; delay(40); scrollToNewest(true) }
+                    else {
+                        val at = filteredMsgs.indexOfLast { msgKey(it) == prevLast }
+                        val added = if (at >= 0) filteredMsgs.subList(at + 1, filteredMsgs.size) else filteredMsgs.takeLast(1)
+                        newBelow += added.count { it.incoming }.coerceAtLeast(if (added.isEmpty()) 0 else 1)
+                    }
                 }
-                positioned = true
             } while (loadAgain)
         }
     }
+    // The unread line's message: decided once per opening, as soon as the loaded messages reach back to the first unread one
+    LaunchedEffect(msgs, unreadFrom, fullLoaded) {
+        if (boundaryResolved || unreadFrom < 0L) return@LaunchedEffect
+        if (unreadFrom == 0L) { boundaryResolved = true; return@LaunchedEffect }
+        val first = msgs.firstOrNull { it.incoming && it.date >= unreadFrom }
+        val covers = msgs.isNotEmpty() && (msgs.first().date < unreadFrom || fullLoaded)
+        if (first != null && covers) { dividerKey = msgKey(first); boundaryResolved = true }
+        else if (fullLoaded) boundaryResolved = true
+    }
+    // No keyboard when a chat opens; it comes up only when the text field is tapped. Exceptions: a brand-new conversation
+    // with no messages yet, or a chat opened to reply (from a notification).
+    LaunchedEffect(Unit) { if (!focusDecided) { focusManager.clearFocus(true); keyboard?.hide() } }
+    LaunchedEffect(fullLoaded) {
+        if (!fullLoaded || focusDecided) return@LaunchedEffect
+        focusDecided = true
+        if (msgs.isEmpty() || ReplyFocus.take(conversation.threadId)) { delay(150); runCatching { composeFocus.requestFocus() }; keyboard?.show() }
+    }
+    DisposableEffect(Unit) { onDispose { keyboard?.hide() } }
 
     fun doSend() {
         if (sendingNow) return  // a double tap used to send the same message twice
@@ -349,7 +382,6 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val fullPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         if (uris.isNotEmpty()) { setPicked((pickedNow + uris).distinct().take(10)); showGallery = false }
     }
-    val composeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { uri -> pendingMediaUri = uri; pendingMediaType = "video"; showAttach = false } }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
@@ -436,6 +468,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val threadTick = rememberProviderTick()
     LaunchedEffect(threadTick) {
         if (threadTick > 1) delay(120)
+        // Where the unread texts start is read before the chat is marked read, so marking it read can't move the line
+        if (unreadFrom < 0L) unreadFrom = withContext(Dispatchers.IO) { SmsRepository.firstUnreadDate(ctx, conversation.threadId) }
         reload()
         withContext(Dispatchers.IO) { SmsRepository.markThreadRead(ctx, conversation.threadId) }
     }
@@ -687,25 +721,100 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             val me = norm(address)
             ScheduledStore.getAll(ctx).filter { norm(it.address) == me }.sortedBy { it.sendAt }
         }
+        // Rows bottom-up (the list is reversed). The "Unread messages" line sits above the first message that was unread when
+        // the chat was opened; it stays while the chat is open and is gone the next time it opens.
+        val chatRows = remember(grouped, dividerKey, showSearch) {
+            val out = ArrayList<ChatRow>(displayMsgs.size + grouped.size + 1)
+            grouped.forEach { (day, dm) ->
+                out.add(ChatRow.Day(day))
+                dm.forEachIndexed { idx, m ->
+                    if (!showSearch && dividerKey != null && msgKey(m) == dividerKey) out.add(ChatRow.Unread)
+                    out.add(ChatRow.Msg(m, idx, dm))
+                }
+            }
+            out.reverse(); out
+        }
+        val showSmart = msgs.isNotEmpty() && msgs.last().incoming
+        val headerRows = (if (showSmart) 1 else 0) + (if (!showSearch) mine.size else 0)
+        val dividerIndex = remember(chatRows, headerRows) { chatRows.indexOf(ChatRow.Unread).let { if (it < 0) -1 else headerRows + it } }
+        // Where the chat opens, worked out before anything is shown (the list is invisible until then, so nothing visibly scrolls):
+        // unread texts -> the first unread one near the top with the line above it (or simply the bottom if they all fit);
+        // nothing unread -> the bottom, which is where a reversed list already starts.
+        LaunchedEffect(boundaryResolved, chatRows, fullLoaded) {
+            if (openPlaced || !boundaryResolved) return@LaunchedEffect
+            if (chatRows.isEmpty()) { if (fullLoaded) { openPlaced = true; positioned = true }; return@LaunchedEffect }
+            runCatching {
+                listState.scrollToItem(0)
+                val d = dividerIndex
+                if (d > 0) {
+                    withTimeoutOrNull(600) { snapshotFlow { listState.layoutInfo }.first { it.totalItemsCount > d && it.visibleItemsInfo.isNotEmpty() } }
+                    val li = listState.layoutInfo
+                    val fits = li.visibleItemsInfo.any { it.index == d } && (li.visibleItemsInfo.lastOrNull()?.index ?: 0) > d
+                    if (!fits) {
+                        listState.scrollToItem(d, 0)  // the line at the bottom edge…
+                        withTimeoutOrNull(600) { snapshotFlow { listState.layoutInfo }.first { l -> l.visibleItemsInfo.any { it.index == d } } }
+                        val l2 = listState.layoutInfo
+                        val dv = l2.visibleItemsInfo.firstOrNull { it.index == d }
+                        val vp = l2.viewportEndOffset - l2.viewportStartOffset
+                        val margin = with(density) { 56.dp.toPx() }
+                        // …then up to near the top, so the first new text is the first thing read
+                        if (dv != null && vp > 0) listState.scrollBy(-(vp - dv.size - margin).coerceAtLeast(0f))
+                    }
+                }
+            }
+            openPlaced = true
+            positioned = true
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp).graphicsLayer { alpha = if (positioned) 1f else 0f },
+            // Newest message at the bottom, laid out from the bottom up: the chat opens already at the newest message on the
+            // first frame (no scroll down), and when the keyboard opens or a photo loads the bottom stays put.
+            reverseLayout = true,
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
-            if (hasOlder && !showSearch) item(key = "load_older", contentType = "older") {
-                Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-                    TextButton({ loadingOlder = true; msgLimit += 800; reload() }) { Text("Load older messages", color = Brand) }
+            if (msgs.isNotEmpty() && msgs.last().incoming) {
+                item(key = "smart_replies", contentType = "smart") {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SmartReplies.suggest(msgs.last().body).forEach { reply ->
+                            Surface(
+                                onClick = { sendText(reply) },
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, DivLt)
+                            ) {
+                                Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = Brand, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
                 }
             }
-            if (pins.isNotEmpty()) item(key = "pinned_banner", contentType = "pins") {
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Ms.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                    Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // Scheduled messages for this chat, shown in place like Google Messages
+            if (!showSearch && mine.isNotEmpty()) {
+                items(mine.asReversed(), key = { "sched_" + it.id }, contentType = { "sched" }) { sm ->
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.End) {
+                        Box(Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(20.dp)).border(1.5.dp, Brand.copy(alpha = .6f), RoundedCornerShape(20.dp))
+                            .clickable { schedMsg = sm }.padding(horizontal = 14.dp, vertical = 9.dp)) {
+                            Text(sm.body, color = TextPrimary, fontSize = 15.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, end = 6.dp)) {
+                            Icon(Ms.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
+                            Text("Scheduled · " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(sm.sendAt)), fontSize = 11.sp, color = TextHint)
+                        }
+                    }
                 }
             }
-            grouped.forEach { (day, dayMsgs) ->
-                item(key = "day_$day", contentType = "day") { DayHeader(day) }
-                itemsIndexed(dayMsgs, key = { _, m -> msgKey(m) }, contentType = { _, m -> if (m.imageUri != null) "media" else if (m.incoming) "in" else "out" }) { i, m ->
+            items(chatRows, key = { it.key }, contentType = { it.type }) { row ->
+                when (row) {
+                    is ChatRow.Day -> DayHeader(row.label)
+                    is ChatRow.Unread -> UnreadDivider()
+                    is ChatRow.Msg -> {
+                    val m = row.m
+                    val i = row.i
+                    val dayMsgs = row.day
                     val sameAsPrev = i > 0 && dayMsgs[i - 1].incoming == m.incoming
                     val mk = msgKey(m)
                     // Send / receive animation: a message that arrives while the chat is open rises in from its side, once
@@ -730,51 +839,44 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             joinedBelow = i < dayMsgs.lastIndex && dayMsgs[i + 1].incoming == m.incoming && dayMsgs[i + 1].date - m.date <= 300_000 && (!m.incoming || dayMsgs[i + 1].address == m.address),
                             onTap = if (selecting) ({ selected = if (mk in selected) selected - mk else selected + mk }) else if (m.failed && !m.isMms) ({ scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } } }) else null) }
                     }
-                }
-            }
-            // Scheduled messages for this chat, shown in place like Google Messages
-            if (!showSearch && mine.isNotEmpty()) {
-                items(mine, key = { "sched_" + it.id }, contentType = { "sched" }) { sm ->
-                    Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.End) {
-                        Box(Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(20.dp)).border(1.5.dp, Brand.copy(alpha = .6f), RoundedCornerShape(20.dp))
-                            .clickable { schedMsg = sm }.padding(horizontal = 14.dp, vertical = 9.dp)) {
-                            Text(sm.body, color = TextPrimary, fontSize = 15.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, end = 6.dp)) {
-                            Icon(Ms.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
-                            Text("Scheduled · " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(sm.sendAt)), fontSize = 11.sp, color = TextHint)
-                        }
                     }
                 }
             }
-            if (msgs.isNotEmpty() && msgs.last().incoming) {
-                item {
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SmartReplies.suggest(msgs.last().body).forEach { reply ->
-                            Surface(
-                                onClick = { sendText(reply) },
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, DivLt)
-                            ) {
-                                Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = Brand, fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
+            if (pins.isNotEmpty()) item(key = "pinned_banner", contentType = "pins") {
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Ms.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                    Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (hasOlder && !showSearch) item(key = "load_older", contentType = "older") {
+                Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                    TextButton({ loadingOlder = true; msgLimit += 800; reload() }) { Text("Load older messages", color = Brand) }
                 }
             }
         }
-        // Jump to the newest message when scrolled up (Google Messages' round arrow button)
-        val farFromBottom by remember { derivedStateOf { val li = listState.layoutInfo; li.totalItemsCount > 0 && li.totalItemsCount - 1 - (li.visibleItemsInfo.lastOrNull()?.index ?: 0) > 4 } }
-        AnimatedVisibility(farFromBottom, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 14.dp),
+        // Jump to the newest message when scrolled up (Google Messages' round arrow button); "↓ N new" when texts arrived meanwhile
+        val farFromBottom by remember { derivedStateOf { listState.firstVisibleItemIndex > 4 } }
+        val nearBottom by remember { derivedStateOf { listState.firstVisibleItemIndex <= 1 } }
+        LaunchedEffect(nearBottom) { if (nearBottom) newBelow = 0 }
+        AnimatedVisibility(positioned && (farFromBottom || newBelow > 0), Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 14.dp),
             enter = scaleIn(initialScale = 0.6f) + fadeIn(), exit = scaleOut(targetScale = 0.6f) + fadeOut()) {
-            SmallFloatingActionButton(onClick = { scope.launch { runCatching { listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0), 100000) } } },
-                shape = CircleShape, containerColor = MenuSurf, contentColor = TextPrimary,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp, pressedElevation = 4.dp)) {
-                Icon(Ms.KeyboardArrowDown, "Jump to newest", modifier = Modifier.size(24.dp))
+            val jump: () -> Unit = {
+                newBelow = 0
+                scope.launch { runCatching { if (listState.firstVisibleItemIndex > 30) listState.scrollToItem(12); listState.animateScrollToItem(0) } }
+            }
+            if (newBelow > 0) {
+                Surface(onClick = jump, shape = RoundedCornerShape(20.dp), color = Brand, contentColor = Color.White, shadowElevation = 2.dp) {
+                    Row(Modifier.padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Ms.KeyboardArrowDown, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(4.dp))
+                        Text(if (newBelow == 1) "1 new" else "$newBelow new", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            } else {
+                SmallFloatingActionButton(onClick = jump,
+                    shape = CircleShape, containerColor = MenuSurf, contentColor = TextPrimary,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp, pressedElevation = 4.dp)) {
+                    Icon(Ms.KeyboardArrowDown, "Jump to newest", modifier = Modifier.size(24.dp))
+                }
             }
         }
         }
@@ -834,4 +936,5 @@ internal val PanelEnter: EnterTransition =
 internal val PanelExit: ExitTransition =
     shrinkVertically(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing), shrinkTowards = Alignment.Top) +
         fadeOut(androidx.compose.animation.core.tween(120))
+
 
