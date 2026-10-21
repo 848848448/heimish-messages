@@ -297,7 +297,9 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                         fun toggleSel(x: Conversation) { sel = if (x.threadId in sel) sel - x.threadId else sel + x.threadId }
                         val selBg by animateColorAsState(if (conv.threadId in sel) Tonal else Color.Transparent, label = "selBg")
                         Box(Modifier.animateItem().background(selBg)) {
-                        SwipeableConvRow(conv, PinStore.isPinned(ctx, conv.threadId), { if (sel.isNotEmpty()) toggleSel(it) else onOpen(it) }, onRefresh = { refresh(); tick++ }, onLongPress = { if (sel.isNotEmpty()) toggleSel(it) else ctxConv = it }, onAction = { k, cc -> act(k, cc) })
+                        CompositionLocalProvider(LocalAvatarTap provides sel.isEmpty()) {
+                            SwipeableConvRow(conv, PinStore.isPinned(ctx, conv.threadId), { if (sel.isNotEmpty()) toggleSel(it) else onOpen(it) }, onRefresh = { refresh(); tick++ }, onLongPress = { if (sel.isNotEmpty()) toggleSel(it) else ctxConv = it }, onAction = { k, cc -> act(k, cc) })
+                        }
                         }
                     }
                     if (hits.isNotEmpty()) {
