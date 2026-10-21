@@ -16,10 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -118,7 +114,7 @@ fun ChatThemeScreen(c: Conversation, onClose: (applied: Boolean) -> Unit) {
         BackHandler { cancel() }
         Column(Modifier.fillMaxSize().background(Chrome).systemBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ cancel() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
+                IconButton({ cancel() }) { Icon(Ms.ArrowBack, "Back", tint = TextPrimary) }
                 Column(Modifier.weight(1f)) {
                     Text("Chat theme", color = TextPrimary, fontSize = 20.sp)
                     Text("Only you will see these changes", color = TextSecond, fontSize = 13.sp)
@@ -138,7 +134,7 @@ fun ChatThemeScreen(c: Conversation, onClose: (applied: Boolean) -> Unit) {
                 }
             }
             TextButton({ ChatThemeStore.reset(ctx, c.threadId); onClose(true) }, Modifier.align(Alignment.CenterHorizontally)) {
-                Icon(Icons.Outlined.Refresh, null, tint = TextPrimary, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Reset to default", color = TextPrimary)
+                Icon(Ms.Refresh, null, tint = TextPrimary, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Reset to default", color = TextPrimary)
             }
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Surf).padding(16.dp)) {
                 Text("Colors", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
@@ -160,7 +156,7 @@ fun ChatThemeScreen(c: Conversation, onClose: (applied: Boolean) -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Wallpapers", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                     FilledTonalButton({ pickPhoto.launch("image/*") }, shape = RoundedCornerShape(50)) {
-                        Icon(Icons.Outlined.AddPhotoAlternate, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Choose a photo")
+                        Icon(Ms.AddPhotoAlternate, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Choose a photo")
                     }
                 }
                 Spacer(Modifier.height(10.dp))

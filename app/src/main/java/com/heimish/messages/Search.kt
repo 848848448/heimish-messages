@@ -9,10 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,17 +28,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private class SearchFilter(val key: String, val label: String, val icon: ImageVector)
+// Material Symbols: outlined on the tiles, filled on the active filter chip
+private class SearchFilter(val key: String, val label: String, @DrawableRes val icon: Int, @DrawableRes val iconOn: Int)
 private val SearchFilters = listOf(
-    SearchFilter("unread", "Unread", Icons.Outlined.MarkChatUnread), SearchFilter("known", "Known", Icons.Outlined.Person),
-    SearchFilter("unknown", "Unknown", Icons.Outlined.HelpOutline), SearchFilter("starred", "Starred", Icons.Outlined.StarOutline),
-    SearchFilter("images", "Images", Icons.Outlined.Image), SearchFilter("videos", "Videos", Icons.Outlined.Videocam),
-    SearchFilter("places", "Places", Icons.Outlined.LocationOn), SearchFilter("links", "Links", Icons.Outlined.Link),
+    SearchFilter("unread", "Unread", R.drawable.ms_mark_chat_unread, R.drawable.ms_mark_chat_unread_fill),
+    SearchFilter("known", "Known", R.drawable.ms_person, R.drawable.ms_person_fill),
+    SearchFilter("unknown", "Unknown", R.drawable.ms_help, R.drawable.ms_help_fill),
+    SearchFilter("starred", "Starred", R.drawable.ms_star, R.drawable.ms_star_fill),
+    SearchFilter("images", "Images", R.drawable.ms_image, R.drawable.ms_image_fill),
+    SearchFilter("videos", "Videos", R.drawable.ms_videocam, R.drawable.ms_videocam_fill),
+    SearchFilter("places", "Places", R.drawable.ms_location_on, R.drawable.ms_location_on_fill),
+    SearchFilter("links", "Links", R.drawable.ms_link, R.drawable.ms_link_fill),
 )
 
 internal object SearchMemory { var q = ""; var filter: String? = null }
@@ -94,20 +97,20 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(pad)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).height(56.dp).clip(RoundedCornerShape(28.dp)).background(SearchBg).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ if (filter != null) filter = null else onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
+                IconButton({ if (filter != null) filter = null else onBack() }) { Icon(Ms.ArrowBack, "Back", tint = TextPrimary) }
                 Box(Modifier.weight(1f)) {
                     if (q.isEmpty()) Text("Search messages", color = TextSecond, fontSize = 17.sp)
                     BasicTextField(q, { q = it }, singleLine = true, textStyle = TextStyle(color = TextPrimary, fontSize = 17.sp, fontFamily = FontState.family),
                         cursorBrush = SolidColor(Brand), modifier = Modifier.fillMaxWidth().focusRequester(focus))
                 }
-                if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Icons.Default.Close, "Clear", tint = TextSecond) }
+                if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Ms.Close, "Clear", tint = TextSecond) }
             }
             if (filter != null) Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 val f = SearchFilters.first { it.key == filter }
                 Row(Modifier.height(34.dp).clip(RoundedCornerShape(10.dp)).background(Tonal).clickable { filter = null }.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(f.icon, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+                    Icon(ImageVector.vectorResource(f.iconOn), null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
                     Text(f.label, color = OnTonal, fontSize = 14.sp, fontWeight = FontWeight.Medium); Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Default.Close, "Remove filter", tint = OnTonal, modifier = Modifier.size(16.dp))
+                    Icon(Ms.Close, "Remove filter", tint = OnTonal, modifier = Modifier.size(16.dp))
                 }
             }
             if (filter == null && qt.isEmpty()) {
@@ -118,7 +121,7 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                             row.forEach { f ->
                                 Row(Modifier.weight(1f).height(64.dp).clip(RoundedCornerShape(20.dp)).background(Surf).clickable { filter = f.key }.padding(horizontal = 18.dp),
                                     verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(f.icon, null, tint = Brand, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(14.dp))
+                                    Icon(ImageVector.vectorResource(f.icon), null, tint = Brand, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(14.dp))
                                     Text(f.label, color = TextPrimary, fontSize = 16.sp)
                                 }
                             }
@@ -191,7 +194,7 @@ private fun SearchResults(ctx: android.content.Context, convs: List<Conversation
                 if (convMatches.isEmpty() && msgMatches.isEmpty() && contactMatches.isEmpty() && (filter != null || hits.isEmpty())) item {
                     if (needMsgs && recent.isEmpty()) Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(32.dp), color = Brand, strokeWidth = 3.dp)
-                    } else EmptyState(Icons.Outlined.SearchOff, "No results", "Try another word, or a different filter", Modifier.padding(top = 48.dp))
+                    } else EmptyState(Ms.SearchOff, "No results", "Try another word, or a different filter", Modifier.padding(top = 48.dp))
                 }
             }
 }
