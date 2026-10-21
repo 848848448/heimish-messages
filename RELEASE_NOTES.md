@@ -1,15 +1,13 @@
 New
-- In a chat, the photo button (and Gallery in the + menu) now opens your photos and videos right inside the chat, like Google Messages: Camera first, then your newest photos and videos
-- Tap photos or videos to pick them (numbered 1, 2, 3…, up to 10). They go straight into the message box, so whatever you type is the caption; tap Send in the gallery or the normal send button
-- Videos show their length; long-press a photo to look at it full screen first
-- Drag the gallery up to make it taller, drag it down to close it
-- "Gallery" button opens Android's full photo picker (albums, search)
-- If the app isn't allowed to see your photos, the gallery says so and shows an "Allow access" button (or "Open settings" if it was turned off). On Android 14 "only some photos" shows a "Manage" button to pick more
-- Photo viewer: Forward (send the photo to another chat), Share and Save buttons at the top, like Google Messages
-- Double-tap a photo to zoom in, double-tap again to zoom out
+- Photos: swipe left or right to go to the other photos in the chat (works in Yiddish/right-to-left too). The top shows "3 / 12"
+- Photos open from "Videos, links, & more" swipe through all the chat's photos the same way
+- The app is now built optimized (like a store app), so everything starts, scrolls and opens much faster
 
 Fixed
-- Getting out of a photo is now clear: a back arrow at the top that always shows (on a dark strip, even on white photos), the phone's Back button, or swipe the photo down and it fades away
-- When the bars are hidden (tap the photo), a small back arrow stays in the corner, so you're never stuck
-- The first few times a photo opens, a hint says "Tap the arrow or swipe down to close"
-- The photo viewer's top bar no longer slides under the clock / status bar
+- Swipe a photo down to close it, now smooth like Google Photos: the photo follows your finger, shrinks and the background fades. Let go early and it springs back; a quick flick closes it
+- Swiping, pinch-zoom and double-tap no longer fight each other. While zoomed in, moving the photo never jumps to the next one, and Back zooms out first
+- Going back now lands exactly where you were, not at the top: chat list, Archived, Starred, Spam, Settings and every settings page, the media tabs, and the chat itself
+- Opening a chat (especially a group) is much faster: the newest messages show right away and the rest load behind them. Group chats used to read every picture message one by one first
+- A chat you opened before opens instantly
+- Smoother scrolling in chats and the chat list: dates, links and names are no longer worked out again on every frame
+- A new message no longer pulls you down to the bottom while you're reading older messages (your own sends still go to the bottom)

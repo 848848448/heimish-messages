@@ -228,7 +228,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
     // ── Sub-pages and dialogs ──
     media?.let { t -> MediaDialog(msgs, t) { media = null } }
     if (notifPage) ConvNotificationsPage(c, title) { notifPage = false; tick++ }
-    viewing?.let { m -> PhotoViewer(m.imageUri!!, onClose = { viewing = null }, title = if (m.incoming) title else "You", date = m.date) }
+    viewing?.let { m -> ChatPhotoViewer(msgs, msgKey(m), c.address.contains(";"), title, onClose = { viewing = null }, onReacted = {}) }
     member?.let { num -> MemberSheet(num, members, onDone = { member = null; tick++ }, onLeaveScreen = onClose) }
     when (dialog) {
         "snooze", "mute" -> {

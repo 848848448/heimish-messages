@@ -178,7 +178,7 @@ fun LockScreen(onUnlock: () -> Unit) {
 fun SpamScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
-    var list by remember { mutableStateOf(emptyList<Conversation>()) }
+    var list by remember { mutableStateOf(ConvCache.list?.let { l -> val ids = SpamStore.all(ctx); l.filter { it.threadId in ids || BlockedStore.isBlocked(ctx, it.address) } } ?: emptyList()) }
     LaunchedEffect(tick) {
         val ids = SpamStore.all(ctx)
         // Blocked chats show here too (they were hidden everywhere with no way to unblock them)

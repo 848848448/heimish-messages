@@ -87,13 +87,37 @@ import kotlin.math.roundToInt
 
 
 // ━━━━━━━━━━━━━━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+private val dayFmtYear = object : java.lang.ThreadLocal<SimpleDateFormat>() { override fun initialValue() = SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+private val dayFmtThisYear = object : java.lang.ThreadLocal<SimpleDateFormat>() { override fun initialValue() = SimpleDateFormat("EEE, MMM d", Locale.getDefault()) }
+/** Messages grouped by day with a label per day. One calendar walk per message and one format per day (was two formatters per message). */
 fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
     if (isEmpty()) return emptyList()
-    val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-    val today = fmt.format(Date()); val yest = fmt.format(Date(System.currentTimeMillis() - 86_400_000))
-    val g = LinkedHashMap<String, MutableList<Message>>()
-    forEach { m -> val l = when (val d = fmt.format(Date(m.date))) { today -> "Today"; yest -> "Yesterday"; else -> if (Calendar.getInstance().apply { timeInMillis = m.date }.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR)) SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date(m.date)) else d }; g.getOrPut(l) { mutableListOf() }.add(m) }
-    return g.map { it.key to it.value }
+    val cal = Calendar.getInstance()
+    val today = dayStart(System.currentTimeMillis()); val yest = today - 86_400_000L
+    val thisYear = cal.get(Calendar.YEAR)
+    val out = ArrayList<Pair<String, List<Message>>>()
+    var curDay = Long.MIN_VALUE; var cur: ArrayList<Message>? = null
+    val labels = HashMap<Long, String>()
+    val byLabel = LinkedHashMap<String, ArrayList<Message>>()
+    for (m in this) {
+        cal.timeInMillis = m.date
+        cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+        val d = cal.timeInMillis
+        if (d != curDay || cur == null) {
+            curDay = d
+            val label = labels.getOrPut(d) {
+                when {
+                    d == today -> "Today"; d == yest -> "Yesterday"
+                    cal.get(Calendar.YEAR) == thisYear -> dayFmtThisYear.get()!!.format(Date(d))
+                    else -> dayFmtYear.get()!!.format(Date(d))
+                }
+            }
+            cur = byLabel.getOrPut(label) { ArrayList() }
+        }
+        cur.add(m)
+    }
+    byLabel.forEach { (k, v) -> out.add(k to v) }
+    return out
 }
 
 @Composable fun DayHeader(label: String) {
@@ -146,18 +170,26 @@ fun EmptyState(icon: ImageVector, title: String, hint: String? = null, modifier:
 fun initial(name: String): String = (name.firstOrNull { it.isLetter() }?.uppercaseChar() ?: '#').toString()
 /** True when a display name has a letter in it (a saved contact), false for a bare phone number. */
 fun hasLetter(name: String): Boolean = name.any { it.isLetter() }
-fun msgTime(ms: Long): String { if (ms <= 0) return ""; return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms)) }
+private class Fmt(private val pattern: String) : java.lang.ThreadLocal<SimpleDateFormat>() { override fun initialValue() = SimpleDateFormat(pattern, Locale.getDefault()) }
+private val fmtTime = Fmt("h:mm a"); private val fmtDay = Fmt("EEE"); private val fmtMonthDay = Fmt("MMM d"); private val fmtFull = Fmt("M/d/yy")
+/** Formatting happens on every row while scrolling: reuse formatters instead of building a SimpleDateFormat each time. */
+fun msgTime(ms: Long): String { if (ms <= 0) return ""; return fmtTime.get()!!.format(Date(ms)) }
+private fun dayStart(ms: Long): Long = Calendar.getInstance().apply { timeInMillis = ms; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
+private val shortTimeCache = android.util.LruCache<Long, Pair<Long, String>>(512)
 fun shortTime(ms: Long): String {
     if (ms <= 0) return ""
-    val now = Calendar.getInstance(); val t = Calendar.getInstance().apply { timeInMillis = ms }
-    val dayDiff = ((now.apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis) - Calendar.getInstance().apply { timeInMillis = ms; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis) / 86_400_000L
-    return when {
-        dayDiff <= 0 -> SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms))
+    val today = dayStart(System.currentTimeMillis())
+    shortTimeCache.get(ms)?.let { (d, s) -> if (d == today) return s }
+    val dayDiff = (today - dayStart(ms)) / 86_400_000L
+    val s = when {
+        dayDiff <= 0 -> fmtTime.get()!!.format(Date(ms))
         dayDiff == 1L -> "Yesterday"
-        dayDiff < 7 -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(ms))
-        t.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR) -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(ms))
-        else -> SimpleDateFormat("M/d/yy", Locale.getDefault()).format(Date(ms))
+        dayDiff < 7 -> fmtDay.get()!!.format(Date(ms))
+        Calendar.getInstance().apply { timeInMillis = ms }.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR) -> fmtMonthDay.get()!!.format(Date(ms))
+        else -> fmtFull.get()!!.format(Date(ms))
     }
+    shortTimeCache.put(ms, today to s)
+    return s
 }
 
 
@@ -228,4 +260,17 @@ internal fun PreviewLine(
     }
     Text(text, modifier, color = color, fontSize = fontSize, fontWeight = fontWeight, maxLines = 1, overflow = TextOverflow.Ellipsis,
         inlineContent = inline, style = listTextStyle())
+}
+
+
+/** A contact's name for display, looked up off the main thread (cached names show at once). Falls back to the number. */
+@Composable
+fun rememberContactName(address: String?): String {
+    if (address.isNullOrBlank()) return address ?: ""
+    val ctx = LocalContext.current
+    val cached = remember(address) { SmsRepository.peekContactName(address) }
+    val v by produceState(initialValue = cached?.first ?: address, address) {
+        if (cached == null) value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { SmsRepository.getContactName(ctx, address) } ?: address
+    }
+    return v
 }

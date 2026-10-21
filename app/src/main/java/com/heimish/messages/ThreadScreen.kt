@@ -47,6 +47,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -97,7 +99,8 @@ import kotlin.math.roundToInt
 fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-    var msgs by remember { mutableStateOf(emptyList<Message>()) }
+    // Last messages seen for this chat show at once (opening a chat again is instant); a fresh read follows
+    var msgs by remember { mutableStateOf(ThreadCache.get(conversation.threadId) ?: emptyList()) }
     var draft by remember { mutableStateOf(DraftStore.get(ctx, conversation.threadId)) }
     val draftNow by rememberUpdatedState(draft)
     DisposableEffect(Unit) { onDispose { DraftStore.set(ctx, conversation.threadId, draftNow) } }
@@ -117,7 +120,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     // Only clear the chat colors if they are still ours (opening another chat must not lose its colors)
     DisposableEffect(Unit) { onDispose { if (ThemeState.chat == chatPalNow) ThemeState.chat = null } }
     var moreOpen by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    // Opens at the newest message; when coming back to this chat (it is saved per back-stack entry) the old spot is restored.
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (msgs.isEmpty()) 0 else Int.MAX_VALUE)
+    var positioned by rememberSaveable { mutableStateOf(msgs.isNotEmpty()) }
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val haptic = LocalHapticFeedback.current
@@ -150,7 +155,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val rec = remember { VoiceRecState(ctx) }
     LaunchedEffect(Unit) { VoicePlayer.loadSpeed(ctx) }
     var reactTick by remember { mutableIntStateOf(0) }
-    var lastCount by remember { mutableIntStateOf(-1) }
+    var lastCount by rememberSaveable { mutableIntStateOf(-1) }
+    var lastKey by remember { mutableStateOf(msgs.lastOrNull()?.let { msgKey(it) }) }
+    var loadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var loadAgain by remember { mutableStateOf(false) }
     var sendingNow by remember { mutableStateOf(false) }
     var msgLimit by remember { mutableIntStateOf(800) }
     var hasOlder by remember { mutableStateOf(false) }
@@ -170,18 +178,51 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         onDispose { if (ActiveThread.id == conversation.threadId) ActiveThread.id = -1L }
     }
 
+    fun atBottom(): Boolean {
+        val info = listState.layoutInfo
+        val last = info.visibleItemsInfo.lastOrNull() ?: return true
+        return last.index >= info.totalItemsCount - 2
+    }
+    suspend fun scrollToNewest(animated: Boolean) {
+        // wait until the list knows about the new rows, then go to the end
+        runCatching { kotlinx.coroutines.withTimeoutOrNull(1000) { snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 } } }
+        val last = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+        runCatching { if (animated) listState.animateScrollToItem(last, 100000) else listState.scrollToItem(last, 100000) }
+    }
     fun reload() {
-        scope.launch {
-            val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, msgLimit) }
-            hasOlder = raw.size >= msgLimit
-            val filteredMsgs = raw.filter { it.body.isNotBlank() || it.imageUri != null }
-            val grew = filteredMsgs.size != msgs.size
-            msgs = filteredMsgs
-            if (loadingOlder) { loadingOlder = false; lastCount = filteredMsgs.size }
-            else if (grew || lastCount == -1) {
-                lastCount = filteredMsgs.size
-                if (filteredMsgs.isNotEmpty()) { delay(80); listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0), 100000) }
-            }
+        // One read at a time: the resume tick and the first composition used to start two full reads at once
+        if (loadJob?.isActive == true) { loadAgain = true; return }
+        loadJob = scope.launch {
+            do {
+                loadAgain = false
+                val firstOpen = lastCount == -1
+                val wasAtBottom = firstOpen || atBottom()
+                if (firstOpen && msgs.isEmpty()) {
+                    // Show the newest screenful right away, then read the rest
+                    val quick = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, 40) }
+                        .filter { it.body.isNotBlank() || it.imageUri != null }
+                    if (quick.isNotEmpty() && msgs.isEmpty()) { msgs = quick; lastKey = msgKey(quick.last()); scrollToNewest(false); positioned = true }
+                }
+                val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, msgLimit) }
+                hasOlder = raw.size >= msgLimit
+                val filteredMsgs = raw.filter { it.body.isNotBlank() || it.imageUri != null }
+                val newLast = filteredMsgs.lastOrNull()?.let { msgKey(it) }
+                val newArrived = newLast != lastKey
+                val mineSent = filteredMsgs.lastOrNull()?.incoming == false
+                if (filteredMsgs != msgs) msgs = filteredMsgs
+                ThreadCache.put(conversation.threadId, filteredMsgs)
+                lastKey = newLast
+                if (loadingOlder) { loadingOlder = false; lastCount = filteredMsgs.size }
+                else if (firstOpen) {
+                    lastCount = filteredMsgs.size
+                    if (filteredMsgs.isNotEmpty() && wasAtBottom) scrollToNewest(false)
+                } else if (newArrived) {
+                    lastCount = filteredMsgs.size
+                    // Follow new messages only when already at the bottom (or it's your own send); never yank someone reading older texts
+                    if (filteredMsgs.isNotEmpty() && (wasAtBottom || mineSent)) { delay(40); scrollToNewest(true) }
+                }
+                positioned = true
+            } while (loadAgain)
         }
     }
 
@@ -245,7 +286,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     fun doSchedule(at: Long) {
         val body = draft.trim()
         ScheduledSendReceiver.schedule(ctx, address, body, at)
-        draft = ""
+        draft = ""; reactTick++
         Toast.makeText(ctx, "Scheduled for " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(at)), Toast.LENGTH_LONG).show()
     }
     fun pickCustomTime() {
@@ -261,7 +302,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show()
                     } else {
                         ScheduledSendReceiver.schedule(ctx, address, body, t.timeInMillis)
-                        draft = ""
+                        draft = ""; reactTick++
                         Toast.makeText(ctx, "Scheduled for " + SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(t.time), Toast.LENGTH_LONG).show()
                     }
                 }
@@ -401,6 +442,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     DisposableEffect(Unit) { onDispose { rec.finish(false); VoicePlayer.stop() } }
     BackHandler(enabled = rec.mode == RecMode.LOCKED) { rec.finish(false) }
 
+    // Photo viewer over every photo in this chat, opened at the tapped one (swipe for the others)
+    var viewerAt by remember { mutableStateOf<String?>(null) }
+    val photoOpener: (Message) -> Unit = remember { { m: Message -> viewerAt = msgKey(m) } }
+    viewerAt?.let { k -> ChatPhotoViewer(msgs, k, isGroupChat, conversation.displayName, onClose = { viewerAt = null }, onReacted = { reactTick++ }) }
     detailsMsg?.let { dm -> MessageDetailsDialog(dm, conversation.displayName, address) { detailsMsg = null } }
     schedMsg?.let { sm ->
         AlertDialog(onDismissRequest = { schedMsg = null }, title = { Text("Scheduled message") },
@@ -631,28 +676,36 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         Box(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(ListBg)
             .background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0)))) {
         ChatWallpaper(conversation.threadId, chatWall, themeVer, Modifier.matchParentSize())
+        // Everything the list shows is worked out once per change, not on every recomposition of the list
+        val displayMsgs = remember(msgs, showSearch, searchQuery, searchFilter) {
+            if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
+        }
+        val grouped = remember(displayMsgs) { displayMsgs.groupByDate() }
+        val pins = remember(msgs, showSearch, reactTick) { if (showSearch) emptyList() else msgs.filter { MsgPinStore.has(ctx, msgKey(it)) } }
+        val mine = remember(address, reactTick, msgs) {
+            val norm = { a: String -> SmsRepository.splitRecipients(a).map { it.filter { c -> c.isDigit() }.takeLast(10) }.sorted().joinToString(";") }
+            val me = norm(address)
+            ScheduledStore.getAll(ctx).filter { norm(it.address) == me }.sortedBy { it.sendAt }
+        }
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp).graphicsLayer { alpha = if (positioned) 1f else 0f },
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
-            val displayMsgs = if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
-            val grouped = displayMsgs.groupByDate()
-            val pins = if (showSearch) emptyList() else msgs.filter { MsgPinStore.has(ctx, msgKey(it)) }
-            if (hasOlder && !showSearch) item(key = "load_older") {
+            if (hasOlder && !showSearch) item(key = "load_older", contentType = "older") {
                 Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                     TextButton({ loadingOlder = true; msgLimit += 800; reload() }) { Text("Load older messages", color = Brand) }
                 }
             }
-            if (pins.isNotEmpty()) item(key = "pinned_banner") {
+            if (pins.isNotEmpty()) item(key = "pinned_banner", contentType = "pins") {
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Ms.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                     Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
             grouped.forEach { (day, dayMsgs) ->
-                item(key = "day_$day") { DayHeader(day) }
-                itemsIndexed(dayMsgs, key = { _, m -> msgKey(m) }) { i, m ->
+                item(key = "day_$day", contentType = "day") { DayHeader(day) }
+                itemsIndexed(dayMsgs, key = { _, m -> msgKey(m) }, contentType = { _, m -> if (m.imageUri != null) "media" else if (m.incoming) "in" else "out" }) { i, m ->
                     val sameAsPrev = i > 0 && dayMsgs[i - 1].incoming == m.incoming
                     val mk = msgKey(m)
                     // Send / receive animation: a message that arrives while the chat is open rises in from its side, once
@@ -668,22 +721,20 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         if (i > 0) Spacer(Modifier.height(if (sameAsPrev) 2.dp else 10.dp))
                         // Group chats: who wrote it, above the first bubble of each run (like Google Messages)
                         if (isGroupChat && m.incoming && !m.address.isNullOrBlank() && (i == 0 || dayMsgs[i - 1].address != m.address || !dayMsgs[i - 1].incoming)) {
-                            val who = remember(m.address) { SmsRepository.getContactName(ctx, m.address!!) ?: m.address!! }
+                            val who = rememberContactName(m.address)
                             Text(who, fontSize = 12.sp, color = avatarColor(m.address!!), fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 2.dp))
                         }
-                        SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); if (selecting) selected = if (mk in selected) selected - mk else selected + mk else ctxMsg = m },
+                        CompositionLocalProvider(LocalPhotoOpener provides photoOpener) { SwipeToReplyBubble(m, reactTick, onReply = { replyTo = m }, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); if (selecting) selected = if (mk in selected) selected - mk else selected + mk else ctxMsg = m },
                             showMeta = i == dayMsgs.lastIndex || dayMsgs[i + 1].incoming != m.incoming || dayMsgs[i + 1].date - m.date > 300_000,
                             joinedAbove = i > 0 && dayMsgs[i - 1].incoming == m.incoming && m.date - dayMsgs[i - 1].date <= 300_000 && (!m.incoming || dayMsgs[i - 1].address == m.address),
                             joinedBelow = i < dayMsgs.lastIndex && dayMsgs[i + 1].incoming == m.incoming && dayMsgs[i + 1].date - m.date <= 300_000 && (!m.incoming || dayMsgs[i + 1].address == m.address),
-                            onTap = if (selecting) ({ selected = if (mk in selected) selected - mk else selected + mk }) else if (m.failed && !m.isMms) ({ scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } } }) else null)
+                            onTap = if (selecting) ({ selected = if (mk in selected) selected - mk else selected + mk }) else if (m.failed && !m.isMms) ({ scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } } }) else null) }
                     }
                 }
             }
             // Scheduled messages for this chat, shown in place like Google Messages
-            val norm = { a: String -> SmsRepository.splitRecipients(a).map { it.filter { c -> c.isDigit() }.takeLast(10) }.sorted().joinToString(";") }
-            val mine = ScheduledStore.getAll(ctx).filter { norm(it.address) == norm(address) }.sortedBy { it.sendAt }
             if (!showSearch && mine.isNotEmpty()) {
-                items(mine, key = { "sched_" + it.id }) { sm ->
+                items(mine, key = { "sched_" + it.id }, contentType = { "sched" }) { sm ->
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.End) {
                         Box(Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(20.dp)).border(1.5.dp, Brand.copy(alpha = .6f), RoundedCornerShape(20.dp))
                             .clickable { schedMsg = sm }.padding(horizontal = 14.dp, vertical = 9.dp)) {
@@ -783,3 +834,4 @@ internal val PanelEnter: EnterTransition =
 internal val PanelExit: ExitTransition =
     shrinkVertically(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing), shrinkTowards = Alignment.Top) +
         fadeOut(androidx.compose.animation.core.tween(120))
+

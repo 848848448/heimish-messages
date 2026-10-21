@@ -432,7 +432,8 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
 @Composable
 fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    var list by remember { mutableStateOf(emptyList<Conversation>()) }
+    // Start from the chat list already in memory so the screen (and its saved scroll spot) is there at once
+    var list by remember { mutableStateOf(ConvCache.list?.let { l -> val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t && ArchiveStore.isArchived(ctx, it.threadId) } } ?: emptyList()) }
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(tick) { list = withContext(Dispatchers.IO) { val l = SmsRepository.loadConversations(ctx); val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t && ArchiveStore.isArchived(ctx, it.threadId) } } }
 
@@ -465,9 +466,9 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 @Composable
 fun StarredScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
-    var starred by remember { mutableStateOf(emptyList<Pair<Conversation, Message>>()) }
+    var starred by remember { mutableStateOf(StarredMemory.list) }
     LaunchedEffect(Unit) {
-        starred = withContext(Dispatchers.IO) {
+        StarredMemory.list = withContext(Dispatchers.IO) {
             // Only open the chats that really have starred messages (it used to read every chat, which hung)
             val keys = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getStringSet("starred_messages", emptySet())?.toSet() ?: emptySet()
             val out = mutableListOf<Pair<Conversation, Message>>()
@@ -486,6 +487,7 @@ fun StarredScreen(onBack: () -> Unit) {
             }
             out.sortedByDescending { it.second.date }
         }
+        starred = StarredMemory.list
     }
 
     Scaffold(containerColor = Bg,
@@ -496,7 +498,7 @@ fun StarredScreen(onBack: () -> Unit) {
         if (starred.isEmpty()) {
             EmptyState(Ms.Star, "No starred messages", "Long-press a message and tap Star", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
-            items(starred) { (conv, m) ->
+            items(starred, key = { (_, m) -> msgKey(m) }) { (conv, m) ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(conv.displayName, conv.address, 44.dp, 16.sp)
                     Spacer(Modifier.width(12.dp))
@@ -657,3 +659,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     }
 }
 
+
+
+/** Last starred list, so the screen comes back with its rows (and its scroll spot) right away. */
+object StarredMemory { var list: List<Pair<Conversation, Message>> = emptyList() }

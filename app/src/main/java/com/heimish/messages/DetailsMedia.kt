@@ -146,9 +146,9 @@ fun MediaDialog(msgs: List<Message>, startTab: Int = 0, onClose: () -> Unit) {
     LaunchedEffect(msgs) { items = withContext(Dispatchers.IO) { MediaRepo.attachments(ctx, msgs) } }
     val links = remember(msgs) { MediaRepo.links(msgs) }
     val all = items ?: emptyList()
-    val photos = all.filter { it.mime.startsWith("image/") }
-    val videos = all.filter { it.mime.startsWith("video/") }
-    val files = all.filter { !it.mime.startsWith("image/") && !it.mime.startsWith("video/") }
+    val photos = remember(all) { all.filter { it.mime.startsWith("image/") } }
+    val videos = remember(all) { all.filter { it.mime.startsWith("video/") } }
+    val files = remember(all) { all.filter { !it.mime.startsWith("image/") && !it.mime.startsWith("video/") } }
     val tabs = buildList {
         add(Triple("Photos", Ms.Image, photos.size)); add(Triple("Videos", Ms.Videocam, videos.size)); add(Triple("Links", Ms.Link, links.size))
         if (files.isNotEmpty()) add(Triple("Files", Ms.Description, files.size))
@@ -157,6 +157,11 @@ fun MediaDialog(msgs: List<Message>, startTab: Int = 0, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var viewing by remember { mutableStateOf<MediaItem?>(null) }
     var linkMenu by remember { mutableStateOf<LinkItem?>(null) }
+    // Each tab keeps its own scroll spot while you swipe between tabs or open a photo
+    val photoGrid = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val videoGrid = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val linkListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val fileListState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = Chrome) {
@@ -176,17 +181,21 @@ fun MediaDialog(msgs: List<Message>, startTab: Int = 0, onClose: () -> Unit) {
                     if (items == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Brand)
                     else HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
                         when (tabs[page].first) {
-                            "Photos" -> if (photos.isEmpty()) EmptyMedia(Ms.Image, "No photos in this conversation yet") else MediaGrid(photos) { viewing = it }
-                            "Videos" -> if (videos.isEmpty()) EmptyMedia(Ms.Videocam, "No videos in this conversation yet") else MediaGrid(videos) { MediaRepo.open(ctx, it) }
-                            "Links" -> if (links.isEmpty()) EmptyMedia(Ms.Link, "No links in this conversation yet") else LinkList(links, onLong = { linkMenu = it })
-                            else -> FileList(files)
+                            "Photos" -> if (photos.isEmpty()) EmptyMedia(Ms.Image, "No photos in this conversation yet") else MediaGrid(photos, photoGrid) { viewing = it }
+                            "Videos" -> if (videos.isEmpty()) EmptyMedia(Ms.Videocam, "No videos in this conversation yet") else MediaGrid(videos, videoGrid) { MediaRepo.open(ctx, it) }
+                            "Links" -> if (links.isEmpty()) EmptyMedia(Ms.Link, "No links in this conversation yet") else LinkList(links, linkListState, onLong = { linkMenu = it })
+                            else -> FileList(files, fileListState)
                         }
                     }
                 }
             }
         }
     }
-    viewing?.let { v -> PhotoViewer(v.uri, onClose = { viewing = null }, title = if (v.incoming) (v.sender?.let { SmsRepository.getContactName(ctx, it) ?: it } ?: "") else "You", date = v.date) }
+    viewing?.let { v ->
+        // Swipe through all the chat's photos from here too
+        val vItems = remember(photos) { photos.map { p -> ViewerItem(p.uri, if (p.incoming) (p.sender?.let { s -> SmsRepository.peekContactName(s)?.first ?: s } ?: "") else "You", p.date, incoming = p.incoming, address = p.sender) } }
+        PhotoViewer(vItems, photos.indexOf(v).coerceAtLeast(0), onClose = { viewing = null })
+    }
     linkMenu?.let { l ->
         AlertDialog(onDismissRequest = { linkMenu = null }, containerColor = Surf,
             title = { Text(MediaRepo.domain(l.url), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -223,11 +232,11 @@ private fun EmptyMedia(icon: ImageVector, text: String) {
 /** Photos / videos in a grid, grouped by month like Google Messages. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MediaGrid(list: List<MediaItem>, onTap: (MediaItem) -> Unit) {
+private fun MediaGrid(list: List<MediaItem>, state: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(), onTap: (MediaItem) -> Unit) {
     val ctx = LocalContext.current
     val groups = remember(list) { list.groupBy { monthLabel(it.date) } }
     var menu by remember { mutableStateOf<MediaItem?>(null) }
-    LazyVerticalGrid(GridCells.Adaptive(108.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyVerticalGrid(GridCells.Adaptive(108.dp), Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         groups.forEach { (month, ms) ->
             item(key = "h_$month", span = { GridItemSpan(maxLineSpan) }) {
                 Text(month, color = TextSecond, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 6.dp))
@@ -266,9 +275,9 @@ private fun MediaActions(m: MediaItem, onDone: () -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LinkList(links: List<LinkItem>, onLong: (LinkItem) -> Unit) {
+private fun LinkList(links: List<LinkItem>, state: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(), onLong: (LinkItem) -> Unit) {
     val ctx = LocalContext.current
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(vertical = 8.dp)) {
         items(links.size, key = { links[it].url }) { i ->
             val l = links[i]
             Row(Modifier.fillMaxWidth().combinedClickable(onLongClick = { onLong(l) }) { openLink(ctx, l.url) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -289,10 +298,10 @@ private fun LinkList(links: List<LinkItem>, onLong: (LinkItem) -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FileList(files: List<MediaItem>) {
+private fun FileList(files: List<MediaItem>, state: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState()) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf<MediaItem?>(null) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(vertical = 8.dp)) {
         items(files.size, key = { files[it].uri.toString() }) { i ->
             val f = files[i]
             Row(Modifier.fillMaxWidth().combinedClickable(onLongClick = { menu = f }) { MediaRepo.open(ctx, f) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
