@@ -62,7 +62,6 @@ object AdminAuth {
     private var memSession: String? = null   // used if the keystore is unavailable on this phone
     private var taps = 0
     private var lastTap = 0L
-    private var toast: Toast? = null
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -72,22 +71,22 @@ object AdminAuth {
         revealed = prefs(ctx).getBoolean("revealed", false)
     }
 
-    /** Version line tapped: Android-style countdown, the 7th tap reveals Admin. */
+    /** Set by AppRoot: opens the Admin screen. */
+    var openScreen: (() -> Unit)? = null
+
+    /** Version line tapped. Completely silent: no toast, no counter, no visual feedback. The 7th quick tap reveals the
+     *  menu entry and opens Admin directly. */
     fun onVersionTap(ctx: Context) {
         init(ctx)
         val now = System.currentTimeMillis()
         if (now - lastTap > 3000) taps = 0
         lastTap = now
         taps++
-        val left = TAPS_NEEDED - taps
-        val msg = when {
-            revealed && taps >= 3 -> { taps = 0; "Admin is already on — find it in the ⋮ menu" }
-            left <= 0 -> { taps = 0; setRevealed(ctx, true); "Admin is now on — find it in the ⋮ menu" }
-            left <= 4 -> if (left == 1) "You are 1 step away from Admin" else "You are $left steps away from Admin"
-            else -> null
-        } ?: return
-        toast?.cancel()
-        toast = Toast.makeText(ctx.applicationContext, msg, Toast.LENGTH_SHORT).also { it.show() }
+        if (taps >= TAPS_NEEDED) {
+            taps = 0
+            if (!revealed) setRevealed(ctx, true)
+            openScreen?.invoke()
+        }
     }
 
     private fun setRevealed(ctx: Context, on: Boolean) {
