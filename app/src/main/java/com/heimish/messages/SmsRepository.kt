@@ -241,7 +241,8 @@ object SmsRepository {
             val members = threadRecipients(ctx, c.threadId)
             if (members.size > 1) {
                 val addr = members.joinToString(";")
-                c.copy(address = addr, displayName = members.joinToString(", ") { cachedContactName(ctx, it) ?: it })
+                GroupInfo.iconUri(ctx, c.threadId)?.let { PhotoCache.map[addr] = it }
+                c.copy(address = addr, displayName = GroupInfo.name(ctx, c.threadId) ?: members.joinToString(", ") { cachedContactName(ctx, it) ?: it })
             } else c
         }
         return fixed.sortedByDescending { it.date }
@@ -336,7 +337,7 @@ object SmsRepository {
         for (recipient in recipients) {
             var rowUri: Uri? = null
             val ok = runCatching {
-                val sms = smsManager(ctx, subId)
+                val sms = smsManager(ctx, if (subId >= 0) subId else ConvSim.get(ctx, address))
                 val values = ContentValues().apply {
                     put(Telephony.Sms.ADDRESS, recipient)
                     put(Telephony.Sms.BODY, body)
@@ -425,9 +426,9 @@ object SmsRepository {
         return mmsUri
     }
 
-    private fun dispatchMms(ctx: Context, pdu: ByteArray, rowUri: Uri?) {
+    private fun dispatchMms(ctx: Context, pdu: ByteArray, rowUri: Uri?, subId: Int = -1) {
         cleanupOldPdus(ctx)
-        val sms = smsManager(ctx)
+        val sms = smsManager(ctx, subId)
         val pduFile = java.io.File(ctx.cacheDir, "mms_send_${System.currentTimeMillis()}_${(0..9999).random()}.dat")
         pduFile.writeBytes(pdu)
         val pduUri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", pduFile)
@@ -459,7 +460,7 @@ object SmsRepository {
             } else rawBytes
             val recipients = splitRecipients(address)
             val row = insertOutgoingMms(ctx, threadId, recipients, mimeType to bytes, caption)
-            dispatchMms(ctx, buildSendReqPdu(address, bytes, mimeType, caption), row)
+            dispatchMms(ctx, buildSendReqPdu(address, bytes, mimeType, caption), row, ConvSim.get(ctx, address))
             true
         }.getOrElse { e -> Log.e("SmsRepo", "sendMms: ${e.message}"); false }
     }
@@ -468,7 +469,7 @@ object SmsRepository {
         return runCatching {
             val threadId = getOrCreateThreadId(ctx, address)
             val row = insertOutgoingMms(ctx, threadId, splitRecipients(address), null, body)
-            dispatchMms(ctx, buildSendReqPdu(address, ByteArray(0), "text/plain", body, true), row)
+            dispatchMms(ctx, buildSendReqPdu(address, ByteArray(0), "text/plain", body, true), row, ConvSim.get(ctx, address))
             true
         }.getOrElse { e -> Log.e("SmsRepo", "sendGroupText: ${e.message}"); false }
     }
