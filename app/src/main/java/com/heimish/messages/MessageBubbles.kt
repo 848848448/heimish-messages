@@ -48,6 +48,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.blur
@@ -88,24 +90,48 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // ── Swipe to reply wrapper ───────────────────────────────────────────────────
+/** Swipe a bubble away from its edge (right for theirs, left for yours; mirrored in Yiddish/RTL) to reply. It springs back. */
 @Composable
 fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongClick: () -> Unit, showMeta: Boolean = true, joinedAbove: Boolean = false, joinedBelow: Boolean = false, onTap: (() -> Unit)? = null) {
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    val threshold = 100f
-    Box(Modifier.fillMaxWidth().pointerInput(m.id) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val haptic = LocalHapticFeedback.current
+    val threshold = with(density) { 64.dp.toPx() }
+    val maxPull = with(density) { 96.dp.toPx() }
+    // +1 = the bubble moves right, -1 = left. Theirs sit at the start edge, so they move toward the end.
+    val dir = if (m.incoming != rtl) 1f else -1f
+    val offsetX = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val reply by rememberUpdatedState(onReply)
+    var armed by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth().pointerInput(m.id, dir) {
         detectHorizontalDragGestures(
-            onDragEnd = { if (abs(offsetX) > threshold) onReply(); offsetX = 0f },
-            onHorizontalDrag = { _, dx ->
-                offsetX = if (m.incoming) (offsetX + dx).coerceIn(0f, 200f) else (offsetX + dx).coerceIn(-200f, 0f)
+            onDragEnd = {
+                if (abs(offsetX.value) >= threshold) reply()
+                armed = false
+                scope.launch { offsetX.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f)) }
+            },
+            onDragCancel = { armed = false; scope.launch { offsetX.animateTo(0f) } },
+            onHorizontalDrag = { ch, dx ->
+                val raw = offsetX.value + dx * (if (abs(offsetX.value) > threshold) 0.35f else 1f)  // resists past the point
+                val v = if (dir > 0) raw.coerceIn(0f, maxPull) else raw.coerceIn(-maxPull, 0f)
+                if (v != 0f) ch.consume()
+                scope.launch { offsetX.snapTo(v) }
+                val over = abs(v) >= threshold
+                if (over && !armed) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                armed = over
             }
         )
     }) {
-        if (abs(offsetX) > 20f) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd) {
-                Icon(Ms.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
+        val p = (abs(offsetX.value) / threshold).coerceIn(0f, 1f)
+        if (p > 0.05f) {
+            Box(Modifier.matchParentSize().padding(horizontal = 6.dp), contentAlignment = if (dir > 0) Alignment.CenterStart.let { if (rtl) Alignment.CenterEnd else it } else Alignment.CenterEnd.let { if (rtl) Alignment.CenterStart else it }) {
+                Box(Modifier.size(32.dp).graphicsLayer { scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p; alpha = p }.clip(CircleShape).background(if (p >= 1f) Brand else SearchBg), contentAlignment = Alignment.Center) {
+                    Icon(Ms.Reply, null, tint = if (p >= 1f) OnBrand else Brand, modifier = Modifier.size(18.dp))
+                }
             }
         }
-        Box(Modifier.absoluteOffset { IntOffset(offsetX.roundToInt(), 0) }) { // follows the finger in Hebrew/RTL too
+        Box(Modifier.absoluteOffset { IntOffset(offsetX.value.roundToInt(), 0) }) { // follows the finger in Hebrew/RTL too
             MessageBubble(m, reactTick, onLongClick, showMeta, joinedAbove, joinedBelow, onTap)
         }
     }
@@ -179,6 +205,14 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     var vTick by remember { mutableIntStateOf(0) }
     val reaction = remember(reactTick, vTick) { ReactionStore.get(ctx, msgKey(m)) }
     val starred = remember(reactTick) { StarStore.isStarred(ctx, msgKey(m)) }
+    val ex = LocalChatExtras.current
+    val mk = msgKey(m)
+    val q = ex.query
+    val isHit = q.isNotBlank() && m.body.contains(q, true)
+    val otpCode = remember(m.body) { if (isIn && prefs.getBoolean("otp_chip", true)) Otp.find(m.body) else null }
+    // A message you jumped to (reply quote, reminder, Starred) flashes once
+    val flash = remember(mk) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(ex.flashKey == mk) { if (ex.flashKey == mk) { flash.snapTo(1f); delay(500); flash.animateTo(0f, androidx.compose.animation.core.tween(900)) } }
     val failed = m.failed
     val sending = m.sending
     var warnUrl by remember { mutableStateOf<String?>(null) }
@@ -201,7 +235,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
         bottomEnd = if (!isIn && joinedBelow) tight else cr,
         bottomStart = if (isIn && joinedBelow) tight else cr
     )
-    Box(Modifier.fillMaxWidth()) {
+    Box(Modifier.fillMaxWidth().drawBehind { if (flash.value > 0f) drawRect(Brand.copy(alpha = .22f * flash.value)) }) {
         Row(
             Modifier.fillMaxWidth()
                 .combinedClickable(onClick = { onTap?.invoke() }, onLongClick = onLongClick, indication = null, interactionSource = remember { MutableInteractionSource() }),
@@ -211,6 +245,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
             Column(horizontalAlignment = if (isIn) Alignment.Start else Alignment.End) {
             Box(Modifier.widthIn(max = 300.dp).clip(shape).background(outColor)) {
                 Column {
+                    ReplyQuoteBlock(m, isIn, outText, if (isIn) Brand else outText)
                     if (m.imageUri != null) {
                         val mime = m.mediaMime ?: "image/"
                         when {
@@ -226,7 +261,9 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                     if (m.body.isNotBlank()) {
                         val urls = remember(m.body) { URL_REGEX.findAll(m.body).toList() }
                         if (urls.isEmpty()) {
-                            Text(m.body, color = outText, fontSize = textSize, lineHeight = (textSize.value + 6).sp,
+                            if (isHit) Text(remember(m.body, q, ex.currentHit == mk) { highlightHits(androidx.compose.ui.text.AnnotatedString(m.body), q, ex.currentHit == mk) }, color = outText, fontSize = textSize, lineHeight = (textSize.value + 6).sp,
+                                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp))
+                            else Text(m.body, color = outText, fontSize = textSize, lineHeight = (textSize.value + 6).sp,
                                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp))
                         } else {
                             val annotated = remember(m.body, outText, linkColor) { buildAnnotatedString {
@@ -240,9 +277,10 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                                 }
                                 if (last < m.body.length) withStyle(SpanStyle(color = outText)) { append(m.body.substring(last)) }
                             } }
-                            ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontFamily = FontState.family, fontSize = textSize, lineHeight = (textSize.value + 6).sp),
+                            val shownText = if (isHit) remember(annotated, q, ex.currentHit == mk) { highlightHits(annotated, q, ex.currentHit == mk) } else annotated
+                            ClickableText(shownText, style = androidx.compose.ui.text.TextStyle(fontFamily = FontState.family, fontSize = textSize, lineHeight = (textSize.value + 6).sp),
                                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp),
-                                onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { a -> val v = a.item
+                                onClick = { off -> shownText.getStringAnnotations("URL", off, off).firstOrNull()?.let { a -> val v = a.item
                                 if (v.startsWith("http", true) && isIn && LinkSafety.shouldWarn(ctx, m, v)) { warnUrl = v; return@let }
                                 runCatching { ctx.startActivity(if (v.startsWith("http", true)) Intent(Intent.ACTION_VIEW, Uri.parse(v)) else if (v.contains("@")) Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + v)) else Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + v.filter { c -> c.isDigit() || c == '+' }))) } } })
                             if (previewMode != "none" && urls.any { it.value.startsWith("http", true) }) {
@@ -262,6 +300,8 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                     }
                 }
             }
+                ReactionChips(mk, reaction, isIn)
+                if (otpCode != null) CopyCodeChip(otpCode, Modifier.padding(top = 4.dp, bottom = 2.dp))
                 if (showMeta || failed || sending || starred) {
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -291,15 +331,6 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                 }
             }
             if (isIn) Spacer(Modifier.width(56.dp))
-        }
-        if (reaction != null) {
-            Box(
-                Modifier.align(if (isIn) Alignment.BottomStart else Alignment.BottomEnd)
-                    .padding(start = if (isIn) 6.dp else 0.dp, end = if (isIn) 0.dp else 6.dp)
-                    .offset(y = 6.dp)
-                    .clip(CircleShape).background(Surf).border(1.dp, DivLt, CircleShape)
-                    .padding(horizontal = 5.dp, vertical = 3.dp)
-            ) { Text(reaction, fontSize = 13.sp) }
         }
     }
 }
