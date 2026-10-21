@@ -381,62 +381,6 @@ object DraftStore {
     fun set(ctx: Context, threadId: Long, text: String) { p(ctx).edit().apply { if (text.isBlank()) remove("draft_$threadId") else putString("draft_$threadId", text) }.apply() }
 }
 
-@Composable
-fun PhotoViewer(uri: Uri, onClose: () -> Unit, title: String = "", date: Long = 0L, reactKey: String? = null, onReacted: () -> Unit = {}, onDelete: (() -> Unit)? = null) {
-    val ctx = LocalContext.current
-    var scale by remember { mutableStateOf(1f) }
-    var off by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
-    var chrome by remember { mutableStateOf(true) }
-    var reaction by remember { mutableStateOf(reactKey?.let { ReactionStore.get(ctx, it) }) }
-    val white = androidx.compose.ui.graphics.Color.White
-    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF1B1D22))) {
-            // Google Messages: a soft blurred copy of the photo behind it
-            if (android.os.Build.VERSION.SDK_INT >= 31) coil.compose.AsyncImage(uri, null, Modifier.fillMaxSize().blur(60.dp), contentScale = androidx.compose.ui.layout.ContentScale.Crop, alpha = .45f)
-            coil.compose.AsyncImage(uri, "photo", Modifier.fillMaxWidth().padding(horizontal = 16.dp).align(Alignment.Center)
-                .androidxPointer({ z, p -> scale = (scale * z).coerceIn(1f, 6f); off = if (scale <= 1f) androidx.compose.ui.geometry.Offset.Zero else off + p })
-                .graphicsLayer(scaleX = scale, scaleY = scale, translationX = off.x, translationY = off.y)
-                .clip(RoundedCornerShape(if (scale > 1f) 0.dp else 24.dp))
-                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { chrome = !chrome },
-                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth)
-            if (chrome) Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp).align(Alignment.TopCenter), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClose) { Icon(Ms.Close, "Close", tint = white) }
-                Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                    if (title.isNotEmpty()) Text(title, color = white, fontSize = 17.sp, maxLines = 1)
-                    if (date > 0) Text(java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.getDefault()).format(java.util.Date(date)), color = white.copy(.75f), fontSize = 13.sp)
-                }
-                IconButton({
-                    runCatching {
-                        val v = ContentValues().apply { put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "Message_" + System.currentTimeMillis() + ".jpg"); put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg"); if (android.os.Build.VERSION.SDK_INT >= 29) put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Message") }
-                        val out = ctx.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v)!!
-                        ctx.contentResolver.openInputStream(uri)!!.use { i -> ctx.contentResolver.openOutputStream(out)!!.use { o -> i.copyTo(o) } }
-                        Toast.makeText(ctx, "Saved to Pictures", Toast.LENGTH_SHORT).show()
-                    }.onFailure { Toast.makeText(ctx, "Could not save", Toast.LENGTH_SHORT).show() }
-                }) { Icon(Ms.Download, "Save", tint = white) }
-                if (onDelete != null) IconButton({ onDelete(); onClose() }) { Icon(Ms.Delete, "Delete", tint = white) }
-                IconButton({
-                    runCatching {
-                        val f = java.io.File(ctx.cacheDir, "share_" + System.currentTimeMillis() + ".jpg")
-                        ctx.contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
-                        val u = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f)
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("image/*").putExtra(Intent.EXTRA_STREAM, u).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share"))
-                    }.onFailure { Toast.makeText(ctx, "Could not share", Toast.LENGTH_SHORT).show() }
-                }) { Icon(Ms.Share, "Share", tint = white) }
-            }
-            if (chrome && reactKey != null) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 14.dp).align(Alignment.BottomCenter),
-                horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                QuickReactions.forEach { e ->
-                    Box(Modifier.size(46.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (reaction == e) white.copy(.25f) else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable { val nv = if (reaction == e) null else e; ReactionStore.set(ctx, reactKey, nv); reaction = nv; onReacted() }, contentAlignment = Alignment.Center) { Text(e, fontSize = 26.sp) }
-                }
-            }
-        }
-    }
-}
-
-fun Modifier.androidxPointer(onGesture: (Float, androidx.compose.ui.geometry.Offset) -> Unit): Modifier =
-    this.pointerInput(Unit) { detectTransformGestures { _, pan, zoom, _ -> onGesture(zoom, pan) } }
-
 object Dnd {
     fun active(ctx: Context): Boolean {
         val p = prefs(ctx)
