@@ -142,7 +142,9 @@ fun isDefaultSmsApp(ctx: Context) = Telephony.Sms.getDefaultSmsPackage(ctx) == c
 // ━━━━━━━━━━━━━━━━ NAVIGATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 sealed class Screen {
     data object List : Screen()
-    data class Chat(val conv: Conversation) : Screen()
+    /** [fwd]: opened from Forward with the forwarded content waiting in the compose bar; Send or Back returns to the chat you forwarded from. */
+    data class Chat(val conv: Conversation, val fwd: Boolean = false) : Screen()
+    data object Forward : Screen()
     data object NewConv : Screen()
     data object Settings : Screen()
     data class SettingSub(val key: String) : Screen()
@@ -163,6 +165,7 @@ private fun encodeScreen(s: Screen): String = when (s) {
     Screen.List -> "list"
     is Screen.Chat -> listOf("chat", s.conv.threadId.toString(), s.conv.address, s.conv.displayName).joinToString(SEP)
     Screen.NewConv -> "new"
+    Screen.Forward -> "fwd"
     Screen.Settings -> "settings"
     is Screen.SettingSub -> "sub$SEP${s.key}"
     Screen.Admin -> "admin"
@@ -180,6 +183,7 @@ private fun decodeScreen(v: String): Screen {
     return when (p[0]) {
         "chat" -> if (p.size >= 4) Screen.Chat(Conversation(p[1].toLongOrNull() ?: 0L, p[2], p[3], "", System.currentTimeMillis(), false)) else Screen.List
         "new" -> Screen.NewConv
+        "fwd" -> Screen.Forward
         "settings" -> Screen.Settings
         "sub" -> Screen.SettingSub(p.getOrElse(1) { "" })
         "admin" -> Screen.Admin
@@ -232,6 +236,15 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     fun go(s: Screen) { stack = if (s is Screen.Chat && screen is Screen.Chat) stack.dropLast(1) + s else stack + s }
     fun back() { stack = if (stack.size > 1) stack.dropLast(1) else listOf(Screen.List) }
     fun home() { stack = listOf(Screen.List) }
+    // Forward (long-press, selection bar, photo viewer) opens the picker on top of the chat you are in, so that chat
+    // and its scroll spot stay in the back stack and you come back to it.
+    SideEffect { ForwardState.open = { if (stack.last() !is Screen.Forward) stack = stack + Screen.Forward } }
+    DisposableEffect(Unit) { onDispose { ForwardState.open = null } }
+    /** After a forward is sent (or backed out of): drop the picker / the chat it went to, back to the chat it came from. */
+    fun backToForwardSource() {
+        val i = stack.indexOfLast { it is Screen.Forward || (it is Screen.Chat && it.fwd) }
+        stack = if (i > 0) stack.take(i) else if (stack.size > 1) stack.dropLast(1) else listOf(Screen.List)
+    }
 
     LaunchedEffect(Unit) {
         val seen = prefs.getInt("seen_build", 0)
@@ -287,8 +300,24 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             Screen.Search   -> SearchScreen({ go(Screen.Chat(it)) }) { SearchMemory.q = ""; SearchMemory.filter = null; back() }
             Screen.Spam     -> SpamScreen({ go(Screen.Chat(it)) }) { back() }
             is Screen.Extra -> ExtraScreen(s.key) { back() }
-            is Screen.Chat  -> key(s.conv.threadId) { ThreadScreen(s.conv) { back() } }
-            Screen.NewConv  -> NewConvScreen({ stack = stack.dropLast(1) + Screen.Chat(it) }) { ShareState.clear(); back() }
+            is Screen.Chat  -> key(s.conv.threadId, s.fwd) { ThreadScreen(s.conv, forwardTarget = s.fwd, onForwardSent = { backToForwardSource() }) { if (s.fwd) backToForwardSource() else back() } }
+            Screen.Forward  -> ForwardScreen(
+                onPick = { c ->
+                    val p = ForwardState.payload
+                    if (p != null) ForwardState.payload = p.copy(target = c.threadId)
+                    // Picked the chat you are forwarding from: the content waits in its compose bar, no second copy of the chat
+                    stack = if (p != null && c.threadId == p.fromThread) stack.dropLast(1) else stack.dropLast(1) + Screen.Chat(c, fwd = true)
+                },
+                onNew = { go(Screen.NewConv) },
+                onDone = { backToForwardSource() },
+                onBack = { ForwardState.clear(); backToForwardSource() })
+            Screen.NewConv  -> NewConvScreen({ c ->
+                val fromForward = stack.getOrNull(stack.size - 2) is Screen.Forward && ForwardState.payload != null
+                if (fromForward) {
+                    ForwardState.payload = ForwardState.payload?.copy(target = c.threadId)
+                    stack = stack.dropLast(2) + Screen.Chat(c, fwd = true)
+                } else stack = stack.dropLast(1) + Screen.Chat(c)
+            }) { ShareState.clear(); back() }
             Screen.Settings -> SettingsScreen({ go(if (it.startsWith("x_")) Screen.Extra(it.removePrefix("x_")) else Screen.SettingSub(it)) }) { back() }
             is Screen.SettingSub -> SettingSubScreen(s.key, { themeChoice = it }) { back() }
             Screen.Admin    -> AdminScreen({ go(Screen.Chat(it)) }) { back() }
@@ -300,7 +329,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
 }
 
 /** One key per back-stack screen: its scroll positions (and other saveable state) live under this key while it is in the stack. */
-private fun screenKey(s: Screen): String = if (s is Screen.WhatsNew) "whatsnew" else encodeScreen(s)
+private fun screenKey(s: Screen): String = if (s is Screen.WhatsNew) "whatsnew" else if (s is Screen.Chat && s.fwd) encodeScreen(s) + SEP + "fwd" else encodeScreen(s)
 
 /**
  * Material "shared axis X" screen transition: a short slide plus fade, forward when a screen is pushed and
@@ -323,7 +352,7 @@ private fun ScreenTransition(screen: Screen, depth: Int, content: @Composable (S
                 fadeOut(androidx.compose.animation.core.tween(90))
             (enter togetherWith exit).using(SizeTransform(clip = false))
         },
-        contentKey = { s -> if (s is Screen.Chat) "chat_" + s.conv.threadId else s.toString() },
+        contentKey = { s -> if (s is Screen.Chat) "chat_" + s.conv.threadId + (if (s.fwd) "_f" else "") else s.toString() },
         label = "screen"
     ) { s ->
         val active = transition.targetState == EnterExitState.Visible
