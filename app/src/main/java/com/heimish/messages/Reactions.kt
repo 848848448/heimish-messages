@@ -83,7 +83,7 @@ object Reactions {
         return if (verb != null) "$verb $what" else "Reacted $emoji to $what"
     }
 
-    fun sendAsText(ctx: Context): Boolean = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getBoolean("reaction_sms", true)
+    fun sendAsText(ctx: Context): Boolean = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getBoolean("reaction_sms", false)
 
     /** Sends the fallback text for a reaction you placed or removed (runs on a background thread). */
     fun sendFallback(ctx: Context, address: String, target: Message, emoji: String, removed: Boolean) {

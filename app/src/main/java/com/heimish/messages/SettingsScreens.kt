@@ -297,7 +297,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                 }
                 "chatfeatures" -> {
                     item { SettingsHeader("Reactions") }
-                    item { ToggleRow("Send reactions as text to people without this app (\"Liked “…”\", like Google Messages and iPhone)", "reaction_sms", prefs) }
+                    item { ToggleRow("Send reactions as text to people without this app (\"Liked “…”\", like Google Messages and iPhone)", "reaction_sms", prefs, default = false) }
                     item { ToggleRow("Show reactions from iPhones and Google Messages on the message instead of a separate text", "reaction_parse", prefs) }
                     item { SettingsHeader("Suggestions") }
                     item { ToggleRow("Smart replies: suggested answers under the last message", "smart_replies", prefs) }
