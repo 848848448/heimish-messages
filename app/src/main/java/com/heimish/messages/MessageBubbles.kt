@@ -1,5 +1,6 @@
 package com.heimish.messages
 
+import androidx.compose.material.icons.automirrored.filled.Reply
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -106,7 +107,7 @@ fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongCl
     }) {
         if (abs(offsetX) > 20f) {
             Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd) {
-                Icon(Icons.Default.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
+                Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
             }
         }
         Box(Modifier.absoluteOffset { IntOffset(offsetX.roundToInt(), 0) }) { // follows the finger in Hebrew/RTL too

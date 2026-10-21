@@ -82,7 +82,7 @@ object Notifications {
         val size = 128
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = avatarColor(address.ifBlank { name }).toArgb() }
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = avatarSolid(address.ifBlank { name }).toArgb() }
         c.drawCircle(size / 2f, size / 2f, size / 2f, p)
         p.color = android.graphics.Color.WHITE; p.textSize = 60f; p.textAlign = Paint.Align.CENTER; p.isFakeBoldText = true
         val letter = if (name.firstOrNull()?.isLetter() == true) initial(name) else "#"
