@@ -123,6 +123,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             } }
             item { SettingsHeader("Messages") }
             item { SettGroup {
+                SettRow(Ms.AddReaction, "Chat features", "Reactions, smart replies, copy codes, scheduled send", Color(0xFFD01884)) { onSub("chatfeatures") }
                 SettRow(Ms.Reply, "Quick replies", "Edit your canned replies", Color(0xFF188038)) { onSub("x_quick") }
                 SettRow(Ms.Link, "Automatic previews", "Web link previews", Color(0xFF1A73E8)) { onSub("previews") }
                 SettRow(Ms.SwipeRight, "Swipe actions", "What swiping a chat does", Color(0xFF9334E6)) { onSub("swipe") }
@@ -137,7 +138,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             } }
             item { SettingsHeader("Data") }
             item { SettGroup {
-                SettRow(Ms.Backup, "Backup & restore", "Save or restore your texts", Color(0xFF1A73E8)) { onSub("x_backup") }
+                SettRow(Ms.Backup, "Backup & restore", "All messages with photos, to a file or a folder", Color(0xFF1A73E8)) { onSub("x_backup") }
                 SettRow(Ms.Info, "About & updates", "Version, check for updates", Color(0xFF5F6368)) { onSub("about") }
             } }
         }
@@ -163,7 +164,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     val title = when (key) { "notifications" -> "Notifications"; "bubbles" -> "Bubble color"; "theme" -> "Theme"; "textsize" -> "Message text size"
-        "previews" -> "Automatic previews"; "safety" -> "Spam & blocking"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; else -> "Settings" }
+        "previews" -> "Automatic previews"; "safety" -> "Spam & blocking"; "swipe" -> "Swipe actions"; "advanced" -> "Advanced"; "about" -> "About"; "chatfeatures" -> "Chat features"; else -> "Settings" }
     var blockedTick by remember { mutableIntStateOf(0) }
     val blocked = remember(blockedTick) { BlockedStore.getAll(ctx).toList() }
     var themeNow by remember { mutableStateOf(prefs.getString("theme", "system") ?: "system") }
@@ -289,6 +290,22 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                         var right by remember { mutableStateOf(prefs.getString("swipe_right", "read") ?: "read") }
                         Column { listOf("read" to "Mark as read / unread", "archive" to "Archive", "delete" to "Delete", "none" to "Nothing").forEach { (k, l) ->
                             RadioRow(l, right == k) { right = k; prefs.edit().putString("swipe_right", k).apply() } } }
+                    }
+                }
+                "chatfeatures" -> {
+                    item { SettingsHeader("Reactions") }
+                    item { ToggleRow("Send reactions as text to people without this app (\"Liked “…”\", like Google Messages and iPhone)", "reaction_sms", prefs) }
+                    item { ToggleRow("Show reactions from iPhones and Google Messages on the message instead of a separate text", "reaction_parse", prefs) }
+                    item { SettingsHeader("Suggestions") }
+                    item { ToggleRow("Smart replies: suggested answers under the last message", "smart_replies", prefs) }
+                    item { ToggleRow("\"Copy code\" button on one-time codes", "otp_chip", prefs) }
+                    item { SettingsHeader("Scheduled send & reminders") }
+                    item {
+                        val exact = remember { ExactAlarm.canExact(ctx) }
+                        Text(if (exact) "Press and hold Send in a chat to pick a time. Scheduled messages and reminders go off exactly on time, even after a restart."
+                            else "Exact alarms are off for this app, so scheduled messages and reminders may be a few minutes late.",
+                            Modifier.padding(vertical = 8.dp), fontSize = 14.sp, color = TextSecond)
+                        if (!exact) ExactAlarm.settingsIntent(ctx)?.let { i -> OutlinedButton({ runCatching { ctx.startActivity(i) } }) { Text("Allow exact alarms") } }
                     }
                 }
                 "advanced" -> {
