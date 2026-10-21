@@ -87,39 +87,6 @@ object OtpCleaner {
     }
 }
 
-// ── Backup / restore (JSON) ──────────────────────────────────────────────────
-object Backup {
-    fun export(ctx: Context, uri: Uri): Int {
-        val arr = JSONArray()
-        ctx.contentResolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE, Telephony.Sms.READ),
-            null, null, Telephony.Sms.DATE + " ASC")?.use { c ->
-            while (c.moveToNext()) arr.put(JSONObject().put("a", c.getString(0) ?: "").put("b", c.getString(1) ?: "").put("d", c.getLong(2)).put("t", c.getInt(3)).put("r", c.getInt(4)))
-        }
-        ctx.contentResolver.openOutputStream(uri)?.use { it.write(JSONObject().put("app", "message").put("version", 2).put("sms", arr).put("settings", settingsToJson(ctx)).toString().toByteArray()) }
-        return arr.length()
-    }
-    fun restore(ctx: Context, uri: Uri): Int {
-        val text = ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return 0
-        val root = JSONObject(text)
-        runCatching { root.optJSONObject("settings")?.let { settingsFromJson(ctx, it) } }
-        val arr = root.getJSONArray("sms")
-        var n = 0
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val addr = o.getString("a"); val d = o.getLong("d"); val b = o.getString("b")
-            val exists = ctx.contentResolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms._ID),
-                Telephony.Sms.ADDRESS + "=? AND " + Telephony.Sms.DATE + "=? AND " + Telephony.Sms.BODY + "=?", arrayOf(addr, d.toString(), b), null)?.use { it.count > 0 } ?: false
-            if (exists) continue
-            val v = ContentValues().apply {
-                put(Telephony.Sms.ADDRESS, addr); put(Telephony.Sms.BODY, b); put(Telephony.Sms.DATE, d)
-                put(Telephony.Sms.TYPE, o.getInt("t")); put(Telephony.Sms.READ, o.optInt("r", 1))
-            }
-            if (ctx.contentResolver.insert(Telephony.Sms.CONTENT_URI, v) != null) n++
-        }
-        return n
-    }
-}
-
 // ── Widget ───────────────────────────────────────────────────────────────────
 class MessageWidget : AppWidgetProvider() {
     override fun onUpdate(ctx: Context, mgr: AppWidgetManager, ids: IntArray) {
@@ -214,11 +181,11 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
     var lockOn by remember { mutableStateOf(p.getBoolean("app_lock", false)) }
     var otpOn by remember { mutableStateOf(p.getBoolean("auto_delete_otp", false)) }
     var status by remember { mutableStateOf("") }
-    val exportL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) scope.launch { status = "Exporting…"; val n = withContext(Dispatchers.IO) { runCatching { Backup.export(ctx, uri) }.getOrElse { -1 } }; status = if (n >= 0) "Saved $n messages" else "Export failed" }
-    }
-    val importL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch { status = "Restoring…"; val n = withContext(Dispatchers.IO) { runCatching { Backup.restore(ctx, uri) }.getOrElse { -1 } }; status = if (n >= 0) "Restored $n new messages" else "Restore failed. Is this a Message backup?" }
+    val exportL = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> if (uri != null) Backup.runExport(ctx, uri) }
+    val importL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) Backup.runRestore(ctx, uri) }
+    var autoTick by remember { mutableIntStateOf(0) }
+    val folderL = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) { AutoBackup.setFolder(ctx, uri); p.edit().putBoolean("auto_backup_on", true).apply(); AutoBackup.schedule(ctx); autoTick++ }
     }
     @Composable fun SwitchRow(label: String, sub: String, on: Boolean, onChange: (Boolean) -> Unit) {
         Row(Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -300,11 +267,43 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
                     Text("Open a chat to see the change.", Modifier.padding(18.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
                 }
                 "backup" -> {
-                    Text("Save all your text messages to a file, or restore them from one. Restoring skips messages that already exist.", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button({ exportL.launch("message-backup.json") }, Modifier.padding(horizontal = 18.dp)) { Text("Back up messages") }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton({ importL.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }, Modifier.padding(horizontal = 18.dp)) { Text("Restore from file") }
-                    if (status.isNotEmpty()) Text(status, Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    val running = Backup.State.running
+                    val st = Backup.State.status
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Text("Save all your messages, texts and picture messages with their photos, videos and voice notes, to one file. Restore puts back everything that isn't on the phone already.", Modifier.padding(18.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button({ exportL.launch(Backup.fileName()) }, Modifier.padding(horizontal = 18.dp), enabled = !running) { Text("Back up now to a file") }
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton({ importL.launch(arrayOf("application/zip", "application/json", "application/octet-stream", "*/*")) }, Modifier.padding(horizontal = 18.dp), enabled = !running) { Text("Restore from a backup") }
+                        if (running) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp))
+                        if (st.isNotEmpty()) Text(st, Modifier.padding(horizontal = 18.dp, vertical = 8.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        key(autoTick) {
+                            var autoOn by remember { mutableStateOf(AutoBackup.enabled(ctx)) }
+                            var days by remember { mutableIntStateOf(AutoBackup.everyDays(ctx)) }
+                            SwitchRow("Automatic backup", if (AutoBackup.folder(ctx) == null) "Pick a folder to back up into" else "Into: " + AutoBackup.folderName(ctx), autoOn) { on ->
+                                if (on && AutoBackup.folder(ctx) == null) folderL.launch(null)
+                                else { autoOn = on; p.edit().putBoolean("auto_backup_on", on).apply(); AutoBackup.schedule(ctx) }
+                            }
+                            if (autoOn) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("How often", Modifier.weight(1f), fontSize = 16.sp)
+                                    listOf(1 to "Daily", 7 to "Weekly").forEach { (d, l) ->
+                                        FilterChip(days == d, { days = d; p.edit().putInt("auto_backup_days", d).apply(); AutoBackup.schedule(ctx) }, { Text(l) }, Modifier.padding(start = 8.dp))
+                                    }
+                                }
+                                Text("Keeps the newest ${AutoBackup.keep(ctx)} backups in the folder and deletes older ones. Runs when the battery isn't low.", Modifier.padding(horizontal = 18.dp, vertical = 8.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                val last = AutoBackup.lastAt(ctx)
+                                if (last > 0) Text("Last backup: " + java.text.SimpleDateFormat("EEE MMM d, h:mm a", java.util.Locale.getDefault()).format(java.util.Date(last)) + " · " + AutoBackup.lastResult(ctx), Modifier.padding(horizontal = 18.dp, vertical = 4.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(Modifier.padding(horizontal = 10.dp)) {
+                                    TextButton({ folderL.launch(null) }) { Text("Change folder") }
+                                    TextButton({ if (!Backup.State.running) { Backup.State.running = true; Backup.State.status = "Backing up into the folder…"
+                                        val main = android.os.Handler(android.os.Looper.getMainLooper())
+                                        Thread { val r = AutoBackup.runNow(ctx.applicationContext); main.post { Backup.State.status = r; Backup.State.running = false; autoTick++ } }.start() } }, enabled = !running) { Text("Back up to folder now") }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(24.dp))
+                    }
                 }
             }
         }
@@ -411,19 +410,6 @@ fun exportChat(ctx: Context, c: Conversation, msgs: List<Message>) {
     }.onFailure { Toast.makeText(ctx, "Could not export", Toast.LENGTH_SHORT).show() }
 }
 
-
-class RemindReceiver : android.content.BroadcastReceiver() {
-    override fun onReceive(ctx: Context, i: Intent) {
-        Notifications.showSimple(ctx, "Reminder: " + (i.getStringExtra("name") ?: "chat"), "You asked to be reminded about this chat", 7000 + (i.getLongExtra("tid", 0L) % 1000).toInt())
-    }
-    companion object {
-        fun set(ctx: Context, c: Conversation, at: Long) {
-            val i = Intent(ctx, RemindReceiver::class.java).putExtra("name", c.displayName).putExtra("tid", c.threadId)
-            val pi = PendingIntent.getBroadcast(ctx, (9000 + c.threadId % 100000).toInt(), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            (ctx.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager).setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi)
-        }
-    }
-}
 
 fun isLinkMsg(m: Message) = m.body.contains("http://", true) || m.body.contains("https://", true) || m.body.contains("www.", true)
 
