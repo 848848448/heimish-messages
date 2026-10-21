@@ -1855,19 +1855,59 @@ function setHelp(){
 }
 
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
+// The contacts worker's address is public; the admin password is not in this file (the worker checks it).
+var HM_WORKER_DEFAULT='https://heimish-contacts.abdeveloping.workers.dev';
+function adminWorker(){return (localStorage.getItem('hm_worker')||HM_WORKER_DEFAULT).replace(/\/+$/,'');}
+function adminSession(){
+  var t=localStorage.getItem('hm_session')||'',e=+(localStorage.getItem('hm_session_exp')||0);
+  if(!t||e<Date.now()){adminLock();return '';}
+  return t;
+}
+function adminLock(){localStorage.removeItem('hm_session');localStorage.removeItem('hm_session_exp');}
+function showAdminLogin(note){
+  var h='<div style="padding:32px 22px;max-width:420px;margin:0 auto;text-align:center">'
+    +'<div style="width:64px;height:64px;border-radius:50%;background:var(--brand-lt);display:flex;align-items:center;justify-content:center;margin:0 auto 14px">'
+    +'<svg width="30" height="30" viewBox="0 0 24 24" fill="var(--brand)"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z"/></svg></div>'
+    +'<div style="font-size:20px;font-weight:600;color:var(--text)">Admin is locked</div>'
+    +'<div style="font-size:14px;color:var(--meta);margin:4px 0 20px">Enter the admin password</div>'
+    +'<form id="adm-login" autocomplete="on"><input type="text" name="username" value="admin" autocomplete="username" style="display:none">'
+    +'<input id="adm-pw" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;box-sizing:border-box;padding:14px 18px;border-radius:28px;border:none;background:var(--bg);color:var(--text);font-size:16px;font-family:inherit;outline:none">'
+    +'<div id="adm-msg" style="font-size:13px;color:var(--red);min-height:18px;margin:10px 0">'+(note?esc(note):'')+'</div>'
+    +'<button id="adm-go" type="submit" style="width:100%;background:var(--brand);color:#fff;border:none;border-radius:24px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">Unlock</button></form>'
+    +'</div>';
+  var p=subPage('Admin Panel',h);
+  var pw=p.querySelector('#adm-pw'),msg=p.querySelector('#adm-msg'),go=p.querySelector('#adm-go');
+  setTimeout(function(){pw.focus();},50);
+  p.querySelector('#adm-login').addEventListener('submit',function(ev){
+    ev.preventDefault();
+    var v=pw.value;if(!v)return;
+    go.disabled=true;go.textContent='Checking…';msg.style.color='var(--red)';msg.textContent='';
+    fetch(adminWorker()+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:v})})
+      .then(function(r){return r.json().catch(function(){return {};}).then(function(j){return {s:r.status,j:j};});})
+      .then(function(x){
+        go.disabled=false;go.textContent='Unlock';
+        if(x.s===200&&x.j.token){
+          localStorage.setItem('hm_session',x.j.token);localStorage.setItem('hm_session_exp',String(x.j.exp||Date.now()+30*864e5));
+          p.remove();showAdmin();return;
+        }
+        pw.value='';
+        if(x.s===503){msg.style.color='var(--meta)';msg.innerHTML='The admin password isn\'t set yet. Set it in GitHub: repo → Settings → Secrets and variables → Actions → New repository secret <b>ADMIN_PASSWORD</b>. It goes live within about 10 minutes.';return;}
+        if(x.s===401){msg.textContent='Wrong password'+(x.j.triesLeft&&x.j.triesLeft<=3?' · '+x.j.triesLeft+' tries left':'');return;}
+        if(x.s===429){msg.textContent=x.j.error||'Too many wrong passwords. Try again later.';return;}
+        msg.textContent='Sign-in failed (HTTP '+x.s+')'+(x.j.error?': '+x.j.error:'');
+      })
+      .catch(function(){go.disabled=false;go.textContent='Unlock';msg.textContent='Can\'t reach the contacts server';});
+  });
+}
 function showAdmin(){
-  // Worker URL + admin token are never shipped in this file. The admin enters
-  // them once; they stay in this browser's localStorage only.
-  var WORKER=localStorage.getItem('hm_worker')||'';
-  var ADMIN_TOKEN=localStorage.getItem('hm_token')||'';
-  if(!WORKER||!ADMIN_TOKEN){
-    WORKER=(prompt('Contacts worker URL:')||'').trim();
-    ADMIN_TOKEN=(prompt('Admin token:')||'').trim();
-    if(WORKER&&ADMIN_TOKEN){localStorage.setItem('hm_worker',WORKER);localStorage.setItem('hm_token',ADMIN_TOKEN);}
-  }
-  if(!WORKER||!ADMIN_TOKEN){
-    subPage('Admin Panel','<div style="padding:24px;color:var(--meta)">Contact search is not configured on this device.</div>');
-    return;
+  localStorage.removeItem('hm_token'); // the old token login is gone: reads need the password session now
+  var WORKER=adminWorker();
+  var SESSION=adminSession();
+  if(!SESSION){showAdminLogin();return;}
+  var AUTH={headers:{Authorization:'Bearer '+SESSION}};
+  function authFail(r){
+    if(r.status===401||r.status===403){adminLock();if(document.body.contains(p)){p.remove();showAdminLogin('Your admin session ended. Enter the password again.');}return true;}
+    return false;
   }
 
   var installs=JSON.parse(localStorage.getItem('hm_i')||'[]');
@@ -1906,6 +1946,7 @@ function showAdmin(){
     +'<button id="adm-clear" style="flex:1;min-width:130px;background:var(--red-lt);color:var(--red);border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Clear device log</button>'
     +'<button id="adm-reset" style="flex:1;min-width:130px;background:var(--red-lt);color:var(--red);border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Reset settings</button>'
     +'<button id="adm-export" style="flex:1;min-width:130px;background:var(--brand-lt);color:var(--brand);border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Export data</button>'
+    +'<button id="adm-lock" style="flex:1;min-width:130px;background:var(--bg);color:var(--text);border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit">Lock admin</button>'
     +'</div></div>';
   var p=subPage('Admin Panel',h);
   // Wire contact search
@@ -1916,8 +1957,8 @@ function showAdmin(){
     if(!q){p.querySelector('#adm-results').innerHTML='';p.querySelector('#adm-status').textContent='';return;}
     searchTimeout=setTimeout(function(){
       p.querySelector('#adm-status').textContent='Searching...';
-      fetch(WORKER+'/contacts?q='+encodeURIComponent(q),{headers:{Authorization:'Bearer '+ADMIN_TOKEN}})
-        .then(function(r){return r.json();})
+      fetch(WORKER+'/contacts?q='+encodeURIComponent(q),AUTH)
+        .then(function(r){if(authFail(r))throw null;return r.json();})
         .then(function(d){
           var res=p.querySelector('#adm-results');
           if(!d.contacts||!d.contacts.length){res.innerHTML='<div style="padding:12px;color:var(--meta-lt)">No results</div>';p.querySelector('#adm-status').textContent='0 of '+d.total+' contacts';return;}
@@ -1929,13 +1970,13 @@ function showAdmin(){
           }).join('');
           p.querySelector('#adm-status').textContent=d.results+' of '+d.total+' contacts';
         })
-        .catch(function(e){p.querySelector('#adm-status').textContent='Error: '+e.message;});
+        .catch(function(e){if(e)p.querySelector('#adm-status').textContent='Error: '+e.message;});
     },300);
   });
 
   // Load total on open
-  fetch(WORKER+'/devices',{headers:{Authorization:'Bearer '+ADMIN_TOKEN}})
-    .then(function(r){return r.json();})
+  fetch(WORKER+'/devices',AUTH)
+    .then(function(r){if(authFail(r))throw null;return r.json();})
     .then(function(d){
       if(d.devices&&d.devices.length){
         var total=d.devices.reduce(function(a,x){return a+x.contacts;},0);
@@ -1944,8 +1985,9 @@ function showAdmin(){
         p.querySelector('#adm-status').textContent='No devices synced yet';
       }
     })
-    .catch(function(){p.querySelector('#adm-status').textContent='Worker not reachable';});
+    .catch(function(e){if(e!==null)p.querySelector('#adm-status').textContent='Worker not reachable';});
 
+  p.querySelector('#adm-lock').addEventListener('click',function(){adminLock();T('Admin locked');p.remove();});
   p.querySelector('#adm-clear').addEventListener('click',function(){localStorage.removeItem('hm_i');T('Device log cleared');p.remove();});
   p.querySelector('#adm-reset').addEventListener('click',function(){
     if(!confirm('Reset all settings to default?'))return;
