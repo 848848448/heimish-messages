@@ -410,7 +410,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val pColor = if (draft.isNotBlank()) Red else if (c.unread) TextPrimary else TextSecond
                     if (draft.isNotBlank()) PreviewLine(draft, pColor, 14.sp, FontWeight.Normal, Modifier.weight(1f), prefix = "Draft: ")
-                    else PreviewLine(c.snippet, pColor, 14.sp, if (c.unread) FontWeight.Medium else FontWeight.Normal, Modifier.weight(1f),
+                    else PreviewLine(Reactions.pretty(c.snippet), pColor, 14.sp, if (c.unread) FontWeight.Medium else FontWeight.Normal, Modifier.weight(1f),
                         prefix = if (c.outgoing) "You: " else "", label = LabelStore.get(ctx, c.threadId),
                         iconTint = if (c.unread) TextPrimary else TextSecond)
                     // Unread badge, like Google Messages: a count pill, or a dot for one message
@@ -464,7 +464,7 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 // ━━━━━━━━━━━━━━━━ STARRED MESSAGES SCREEN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StarredScreen(onBack: () -> Unit) {
+fun StarredScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var starred by remember { mutableStateOf(StarredMemory.list) }
     LaunchedEffect(Unit) {
@@ -499,7 +499,7 @@ fun StarredScreen(onBack: () -> Unit) {
             EmptyState(Ms.Star, "No starred messages", "Long-press a message and tap Star", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(starred, key = { (_, m) -> msgKey(m) }) { (conv, m) ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable { ChatJump.request(conv.threadId, msgKey(m)); onOpen(conv) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(conv.displayName, conv.address, 44.dp, 16.sp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -537,7 +537,7 @@ fun ScheduledScreen(onBack: () -> Unit) {
             title = { Text("Scheduled messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (items2.isEmpty()) {
-            EmptyState(Ms.Schedule, "Nothing scheduled", "In a chat: menu → Schedule send", Modifier.padding(pad))
+            EmptyState(Ms.Schedule, "Nothing scheduled", "In a chat: type a message, then press and hold Send", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(items2, key = { it.id }) { sm ->
                 Row(Modifier.animateItem().fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SearchBg).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -547,22 +547,44 @@ fun ScheduledScreen(onBack: () -> Unit) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(SmsRepository.getContactName(ctx, sm.address) ?: sm.address, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(sm.body, fontSize = 13.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (sm.mediaPath != null) Text(if (sm.mime?.startsWith("video") == true) "\uD83C\uDFA5 Video" else "\uD83D\uDCF7 Photo", fontSize = 13.sp, color = TextSecond)
+                        if (sm.body.isNotBlank()) Text(sm.body, fontSize = 13.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(2.dp))
                         Text(fmt.format(Date(sm.sendAt)), fontSize = 12.sp, color = Brand, fontWeight = FontWeight.Medium)
                     }
-                    TextButton(onClick = {
-                        val et = android.widget.EditText(ctx); et.setText(sm.body)
-                        android.app.AlertDialog.Builder(ctx).setTitle("Edit scheduled message").setView(et).setPositiveButton("Save") { _, _ ->
-                            val nb = et.text.toString()
-                            if (nb.isNotBlank()) { ScheduledSendReceiver.cancel(ctx, sm.id); ScheduledSendReceiver.schedule(ctx, sm.address, nb, sm.sendAt); tick++ }
-                        }.setNegativeButton("Cancel", null).show()
-                    }) { Text("Edit", color = Brand) }
-                    TextButton(onClick = { ScheduledSendReceiver.cancel(ctx, sm.id); tick++ }) { Text("Cancel", color = Red) }
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton({ menu = true }) { Icon(Ms.MoreVert, "More", tint = TextSecond) }
+                        DropdownMenu(menu, { menu = false }, containerColor = Surf) {
+                            DropdownMenuItem({ Text("Send now", color = TextPrimary) }, { menu = false
+                                Thread { ScheduledSendReceiver.fire(ctx.applicationContext, sm.id) }.start(); tick++ }, leadingIcon = { Icon(Ms.SendFill, null, tint = TextSecond) })
+                            DropdownMenuItem({ Text("Edit message", color = TextPrimary) }, { menu = false
+                                val et = android.widget.EditText(ctx); et.setText(sm.body); et.setSelection(et.text.length)
+                                android.app.AlertDialog.Builder(ctx).setTitle("Edit scheduled message").setView(et).setPositiveButton("Save") { _, _ ->
+                                    val nb = et.text.toString()
+                                    if (nb.isNotBlank() || sm.mediaPath != null) { ScheduledSendReceiver.update(ctx, sm.id, body = nb); tick++ }
+                                }.setNegativeButton("Cancel", null).show() }, leadingIcon = { Icon(Ms.Edit, null, tint = TextSecond) })
+                            DropdownMenuItem({ Text("Change time", color = TextPrimary) }, { menu = false
+                                pickDateTime(ctx, sm.sendAt) { at -> ScheduledSendReceiver.update(ctx, sm.id, sendAt = at); tick++ } }, leadingIcon = { Icon(Ms.Schedule, null, tint = TextSecond) })
+                            DropdownMenuItem({ Text("Delete", color = Red) }, { menu = false; ScheduledSendReceiver.cancel(ctx, sm.id); tick++ }, leadingIcon = { Icon(Ms.Delete, null, tint = Red) })
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/** Date picker, then time picker; calls [onPicked] with a future time only. */
+fun pickDateTime(ctx: Context, start: Long, onPicked: (Long) -> Unit) {
+    val now = Calendar.getInstance().apply { timeInMillis = maxOf(start, System.currentTimeMillis()) }
+    android.app.DatePickerDialog(ctx, { _, y, mo, d ->
+        android.app.TimePickerDialog(ctx, { _, h, mi ->
+            val t = Calendar.getInstance().apply { set(y, mo, d, h, mi, 0); set(Calendar.MILLISECOND, 0) }
+            if (t.timeInMillis <= System.currentTimeMillis()) android.widget.Toast.makeText(ctx, "Pick a future time", android.widget.Toast.LENGTH_SHORT).show()
+            else onPicked(t.timeInMillis)
+        }, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), android.text.format.DateFormat.is24HourFormat(ctx)).show()
+    }, now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH)).apply { datePicker.minDate = System.currentTimeMillis() - 1000 }.show()
 }
 
 // ━━━━━━━━━━━━━━━━ NEW CONVERSATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
