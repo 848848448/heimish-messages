@@ -18,6 +18,7 @@ class BootReceiver : BroadcastReceiver() {
             ScheduledSendReceiver.rearmAll(context)
             RemindReceiver.rearmAll(context)
             runCatching { AutoBackup.schedule(context) }
+            Thread { runCatching { MmsIncoming.retryPending(context.applicationContext, force = true) } }.start()
         }
     }
 }
