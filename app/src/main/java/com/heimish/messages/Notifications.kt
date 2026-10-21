@@ -203,7 +203,7 @@ object Notifications {
             val shortcutId = pushShortcut(ctx, threadId, sendTo, if (isGroup) groupTitle else sender, icon, persons.values.toList())
             builder.setShortcutId(shortcutId).setLocusId(LocusIdCompat(shortcutId))
             // Chat bubble (Android 11+): shows when bubbles are allowed for this conversation
-            if (Build.VERSION.SDK_INT >= 30 && prefs.getBoolean("bubbles", true)) runCatching {
+            if (Build.VERSION.SDK_INT >= 30 && prefs.getBoolean("bubbles", true) && ConvNotif.bubbleOn(ctx, threadId)) runCatching {
                 val bi = Intent(ctx, BubbleActivity::class.java).setAction(Intent.ACTION_VIEW)
                     .setData(Uri.parse("heimish://thread/$threadId"))
                     .putExtra("thread_id", threadId).putExtra("address", sendTo).putExtra("name", if (isGroup) groupTitle else sender)
@@ -247,21 +247,8 @@ object Notifications {
         try { NotificationManagerCompat.from(ctx).notify(nid, b.build()) } catch (_: SecurityException) {}
     }
 
-    /** Per-chat sound: creates a dedicated channel when the user picked a tone for this thread. */
-    fun threadChannel(ctx: Context, threadId: Long): String? {
-        val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-        if (!prefs.contains("tone_$threadId")) return null
-        val tone = prefs.getString("tone_$threadId", "") ?: ""
-        val id = "thread_${threadId}_" + tone.hashCode()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(id, "Chat tone", NotificationManager.IMPORTANCE_HIGH).apply {
-                if (tone.isEmpty()) setSound(null, null)
-                else setSound(Uri.parse(tone), android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).build())
-            }
-            (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
-        }
-        return id
-    }
+    /** Per-conversation channel (sound, vibrate, pop on screen) once the user customised this chat in Details > Notifications. */
+    fun threadChannel(ctx: Context, threadId: Long): String? = ConvNotif.channelFor(ctx, threadId)
 
     fun showTestNotification(ctx: Context) {
         showMessage(ctx, "Message", "This is a test notification \ud83d\udcf1", "test", 0)
