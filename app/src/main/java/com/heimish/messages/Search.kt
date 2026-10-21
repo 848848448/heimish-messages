@@ -76,16 +76,21 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     SideEffect { SearchMemory.q = q; SearchMemory.filter = filter }
     BackHandler { if (filter != null) filter = null else onBack() }
     // Start from the list we already have (instant), then refresh in the background
-    val convs by produceState(ConvCache.list?.let { l -> val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t } } ?: emptyList()) {
-        runCatching { value = withContext(Dispatchers.IO) { val l = SmsRepository.loadConversations(ctx); val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t } } }
+    // null = not loaded yet
+    val convsState by produceState<List<Conversation>?>(ConvCache.list?.let { l -> val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t } }) {
+        value = withContext(Dispatchers.IO) { runCatching { val l = SmsRepository.loadConversations(ctx); val t = TrashStore.all(ctx).keys; l.filter { it.threadId !in t } }.getOrNull() } ?: value ?: emptyList()
     }
+    val convs = convsState ?: emptyList()
     val contacts by produceState(emptyList<Pair<String, String>>()) { value = withContext(Dispatchers.IO) { runCatching { SmsRepository.loadContactsList(ctx) }.getOrDefault(emptyList()) } }
     val needMsgs = filter in setOf("starred", "images", "videos", "places", "links")
     // Asks the message store for exactly what the filter wants, across ALL chats (it used to read only the 40 newest chats)
-    val recent by produceState(emptyList<FoundMsg>(), filter, convs) {
-        value = emptyList()
+    // null = still loading (spinner); an empty list = loaded, nothing found ("No results")
+    val recent by produceState<List<FoundMsg>?>(null, filter, convsState) {
+        value = null
         val f = filter
-        if (needMsgs && f != null && convs.isNotEmpty()) value = withContext(Dispatchers.IO) { runCatching { findForFilter(ctx, f, convs) }.getOrDefault(emptyList()) }
+        val cs = convsState ?: return@produceState
+        value = if (!needMsgs || f == null || cs.isEmpty()) emptyList()
+            else withContext(Dispatchers.IO) { runCatching { findForFilter(ctx, f, cs) }.getOrDefault(emptyList()) }
     }
     val hits by produceState(emptyList<MsgHit>(), q) {
         if (q.trim().length < 2) { value = emptyList(); return@produceState }
@@ -194,7 +199,7 @@ private fun findForFilter(ctx: android.content.Context, filter: String, convs: L
 
 /** Results list (split out: the old early "return" out of the Column could crash Compose when the search opened). */
 @Composable
-private fun SearchResults(ctx: android.content.Context, convs: List<Conversation>, contacts: List<Pair<String, String>>, recent: List<FoundMsg>, hits: List<MsgHit>,
+private fun SearchResults(ctx: android.content.Context, convs: List<Conversation>, contacts: List<Pair<String, String>>, recent: List<FoundMsg>?, hits: List<MsgHit>,
                           filter: String?, needMsgs: Boolean, qt: String, onOpen: (Conversation) -> Unit) {
             val scope = rememberCoroutineScope()
             val convMatches = convs.filter { c ->
@@ -207,7 +212,7 @@ private fun SearchResults(ctx: android.content.Context, convs: List<Conversation
                     else -> false
                 }
             }
-            val msgMatches: List<FoundMsg> = if (needMsgs) recent.filter { fm ->
+            val msgMatches: List<FoundMsg> = if (needMsgs && recent != null) recent.filter { fm ->
                 val m = fm.m
                 (qt.isEmpty() || m.body.contains(qt, true)) && when (filter) {
                     "starred" -> StarStore.isStarred(ctx, msgKey(m))
@@ -255,7 +260,7 @@ private fun SearchResults(ctx: android.content.Context, convs: List<Conversation
                     }
                 }
                 if (convMatches.isEmpty() && msgMatches.isEmpty() && contactMatches.isEmpty() && (filter != null || hits.isEmpty())) item {
-                    if (needMsgs && recent.isEmpty()) Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
+                    if (needMsgs && recent == null) Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(32.dp), color = Brand, strokeWidth = 3.dp)
                     } else EmptyState(Ms.SearchOff, "No results", null, Modifier.padding(top = 48.dp))
                 }
