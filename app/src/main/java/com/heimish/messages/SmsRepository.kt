@@ -35,7 +35,9 @@ data class Message(
     val status: Int = -1,
     val type: Int = 0,
     val subId: Int = -1,
-    val dateSent: Long = 0L
+    val dateSent: Long = 0L,
+    /** An incoming MMS the carrier announced that is not downloaded yet (shown as a media bubble with progress/retry). */
+    val pendingMms: Boolean = false
 ) {
     /** Only a message the radio really refused counts as "Not sent". A bad delivery report is not a failed send. */
     val failed: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_FAILED
@@ -308,7 +310,8 @@ object SmsRepository {
                 val (parts, mmsAddr) = info[mmsId] ?: (mmsParts(ctx, mmsId) to mmsSenderAddress(ctx, mmsId))
                 out.add(Message(
                     id       = mmsId + 1_000_000L,
-                    body     = if (mmsId in notDownloaded) "📩 Multimedia message — downloading…" else parts.text,
+                    body     = if (mmsId in notDownloaded) "" else parts.text,
+                    pendingMms = mmsId in notDownloaded,
                     date     = date,
                     incoming = incoming,
                     isMms    = true,
