@@ -437,10 +437,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat…", color = TextHint) }, singleLine = true,
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary), modifier = Modifier.fillMaxWidth())
                     } else Row(Modifier.clickable { showDetails = true }, verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(conversation.displayName, address, 44.dp, 18.sp)
-                        Spacer(Modifier.width(14.dp))
+                        Avatar(conversation.displayName, address, 40.dp, 17.sp)
+                        Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(conversation.displayName, fontWeight = FontWeight.Normal, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary)
+                            Text(conversation.displayName, fontWeight = FontWeight.Normal, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary, style = listTextStyle())
                             if (address.contains(";")) Text("Group · ${address.split(";").size} people", fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -501,7 +501,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             )
         },
         bottomBar = {
-            Surface(color = Bg) {
+            Surface(color = ListBg) {
                 Column(Modifier.navigationBarsPadding().imePadding()) {
                     if (replyTo != null) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(SearchBg).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -509,7 +509,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("Reply to ${if (replyTo!!.incoming) conversation.displayName else "yourself"}", fontSize = 12.sp, color = Brand, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(replyTo!!.body.take(60).ifBlank { "📷 Media" }, fontSize = 13.sp, color = TextSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                PreviewLine(replyTo!!.body.take(80).ifBlank { "\uD83D\uDCF7 Photo" }, TextSecond, 13.sp, FontWeight.Normal)
                             }
                             IconButton({ replyTo = null }, Modifier.size(28.dp)) { Icon(Ms.Close, "Remove reply", Modifier.size(18.dp), tint = TextHint) }
                         }
@@ -540,7 +540,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         // Google Messages compose bar: one pill with ⊕, the text, emoji and gallery; a round voice/send button beside it
                         if (rec.mode != RecMode.IDLE) RecordingBar(rec, onTrash = { rec.finish(false) }, modifier = Modifier.weight(1f))
-                        else Row(Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(26.dp)).background(SearchBg).padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
+                        else Row(Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(26.dp)).background(FieldBg).padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
                             IconButton(onClick = { showAttach = !showAttach; showEmoji = false; showGallery = false; if (showAttach) keyboard?.hide() }, Modifier.size(48.dp)) {
                                 Icon(if (showAttach) Ms.Close else Ms.AddCircleFill, "Attach", tint = TextPrimary, modifier = Modifier.size(24.dp))
                             }
@@ -610,7 +610,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
         },
     ) { pad ->
-        Box(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg)
+        Box(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(ListBg)
             .background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0)))) {
         ChatWallpaper(conversation.threadId, chatWall, themeVer, Modifier.matchParentSize())
         LazyColumn(
