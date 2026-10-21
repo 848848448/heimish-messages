@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
             val fsc = getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getFloat("font_scale", 0f)
             val dens = androidx.compose.ui.platform.LocalDensity.current
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides (if (fsc > 0f) androidx.compose.ui.unit.Density(dens.density, fsc) else dens)) {
-                FontState.family = if (getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("font", "rubik") == "system") androidx.compose.ui.text.font.FontFamily.Default else Rubik
+                FontState.family = if (getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("font", "google") == "system") androidx.compose.ui.text.font.FontFamily.Default else GoogleSans
                 MaterialTheme(colorScheme = GMColors, typography = remember(FontState.family) { appTypography(FontState.family) }) {
                     Surface(Modifier.fillMaxSize(), color = Bg) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
                 }
