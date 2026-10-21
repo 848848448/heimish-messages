@@ -137,7 +137,9 @@ object Notifications {
         return id
     }
 
-    fun showMessage(ctx: Context, sender: String, body: String, address: String, threadId: Long) {
+    fun showMessage(ctx: Context, sender: String, rawBody: String, address: String, threadId: Long) {
+        // An iPhone / Google Messages reaction ("Liked “…”") reads as "Reacted 👍 to “…”"
+        val body = Reactions.pretty(rawBody)
         val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("notif_allow", true)) return
         if (Mute.isMuted(ctx, threadId)) return
@@ -190,12 +192,12 @@ object Notifications {
             val me = Person.Builder().setName("You").setKey("me").build()
             val style = NotificationCompat.MessagingStyle(me)
             val lines = unreadLines(ctx, threadId).toMutableList()
-            if (lines.none { it.body == body }) lines.add(Line(address, body, System.currentTimeMillis()))
+            if (lines.none { it.body == rawBody }) lines.add(Line(address, rawBody, System.currentTimeMillis()))
             val persons = HashMap<String, Person>()
             for (l in lines.takeLast(8)) {
                 val a = l.address.ifBlank { address }
                 val p = persons.getOrPut(a) { personFor(ctx, a, SmsRepository.getContactName(ctx, a) ?: a) }
-                style.addMessage(l.body, l.date, p)
+                style.addMessage(Reactions.pretty(l.body), l.date, p)
             }
             if (isGroup) { style.setConversationTitle(groupTitle); style.isGroupConversation = true }
             builder.setStyle(style)
@@ -217,12 +219,11 @@ object Notifications {
             if (showPreview) builder.setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body))
         }
 
-        if (Regex("code|otp|verif|passcode|\\bpin\\b|קאוד|קוד", RegexOption.IGNORE_CASE).containsMatchIn(body)) {
-            Regex("\\b(\\d{4,8})\\b").find(body)?.groupValues?.get(1)?.let { code ->
-                val ci = Intent(ctx, CopyCodeReceiver::class.java).putExtra("code", code)
-                builder.addAction(NotificationCompat.Action.Builder(android.R.drawable.ic_menu_edit, "Copy $code",
-                    PendingIntent.getBroadcast(ctx, nid + 30000, ci, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build())
-            }
+        // One-tap "Copy code" for one-time / verification codes
+        Otp.find(rawBody)?.let { code ->
+            val ci = Intent(ctx, CopyCodeReceiver::class.java).putExtra("code", code).putExtra("nid", nid)
+            builder.addAction(NotificationCompat.Action.Builder(android.R.drawable.ic_menu_edit, "Copy code $code",
+                PendingIntent.getBroadcast(ctx, nid + 30000, ci, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build())
         }
 
         try { NotificationManagerCompat.from(ctx).notify(nid, builder.build()) } catch (_: SecurityException) {}

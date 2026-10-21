@@ -55,7 +55,11 @@ object IntentRouter {
         val tid = i.getLongExtra("thread_id", -1L)
         val addrExtra = i.getStringExtra("address")
         if (tid >= 0 && i.getBooleanExtra("focus_reply", false)) ReplyFocus.request(tid)
-        if (tid >= 0 && addrExtra != null) return chatFor(ctx, tid, addrExtra, i.getStringExtra("name"))
+        if (tid >= 0 && addrExtra != null) {
+            // Reminder notification: open right at the message
+            i.getStringExtra("jump_key")?.let { k -> android.os.Handler(android.os.Looper.getMainLooper()).post { ChatJump.request(tid, k) } }
+            return chatFor(ctx, tid, addrExtra, i.getStringExtra("name"))
+        }
 
         when (i.action) {
             Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> {

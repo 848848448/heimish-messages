@@ -152,6 +152,12 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var pendingMediaType by remember { mutableStateOf("image") }
     var extraMedia by remember { mutableStateOf(listOf<Uri>()) }
     var replyTo by remember { mutableStateOf<Message?>(null) }
+    // Reactions other people sent ("Liked “…”" texts folded into the message), reply quotes, jump-to-message, search hits
+    var remoteReactions by remember { mutableStateOf<Map<String, List<RemoteReaction>>>(emptyMap()) }
+    var replyVer by remember { mutableIntStateOf(0) }
+    var flashKey by remember { mutableStateOf<String?>(null) }
+    var jumpReq by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var hitIdx by remember { mutableIntStateOf(0) }
     // Text / photo shared in from another app (share sheet, sms: link without a number)
     LaunchedEffect(Unit) {
         if (!ShareState.isEmpty) {
@@ -209,12 +215,15 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 if (firstOpen && msgs.isEmpty()) {
                     // Show the newest screenful right away, then read the rest
                     val quick = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, 40) }
-                        .filter { it.body.isNotBlank() || it.imageUri != null }
+                        .filter { it.body.isNotBlank() || it.imageUri != null }.let { Reactions.fold(ctx, it).msgs }
                     if (quick.isNotEmpty() && msgs.isEmpty()) { msgs = quick; lastKey = msgKey(quick.last()) }
                 }
                 val raw = withContext(Dispatchers.IO) { SmsRepository.loadMessages(ctx, conversation.threadId, msgLimit) }
                 hasOlder = raw.size >= msgLimit
-                val filteredMsgs = raw.filter { it.body.isNotBlank() || it.imageUri != null }
+                val folded = withContext(Dispatchers.Default) { Reactions.fold(ctx, raw.filter { it.body.isNotBlank() || it.imageUri != null }) }
+                val filteredMsgs = folded.msgs
+                if (folded.reactions != remoteReactions) remoteReactions = folded.reactions
+                if (withContext(Dispatchers.IO) { ReplyStore.bind(ctx, conversation.threadId, filteredMsgs) }) replyVer++
                 val newLast = filteredMsgs.lastOrNull()?.let { msgKey(it) }
                 val prevLast = lastKey
                 val newArrived = newLast != prevLast
@@ -259,6 +268,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
     DisposableEffect(Unit) { onDispose { keyboard?.hide() } }
 
+    fun replyWho(m: Message): String = if (!m.incoming) "You" else if (isGroupChat) (m.address?.let { SmsRepository.getContactName(ctx, it) ?: it } ?: conversation.displayName) else conversation.displayName
     fun doSend() {
         if (sendingNow) return  // a double tap used to send the same message twice
         val body = draft.trim()
@@ -271,6 +281,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
             sendingNow = true
             val extras = extraMedia
+            replyTo?.let { ReplyStore.pending(ctx, conversation.threadId, body, it, replyWho(it)) }
             scope.launch(Dispatchers.IO) {
                 val ok = SmsRepository.sendMms(ctx, address, uri, body, mime)
                 if (ok) extras.forEach { u -> SmsRepository.sendMms(ctx, address, u, "", null) }
@@ -285,6 +296,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         if (body.isEmpty()) return
         sendingNow = true
         val text = body
+        replyTo?.let { ReplyStore.pending(ctx, conversation.threadId, text, it, replyWho(it)) }
         draft = ""; replyTo = null
         scope.launch(Dispatchers.IO) {
             val ok = if (address.contains(";") && prefs.getBoolean("group_mms_send", true)) (SmsRepository.sendGroupText(ctx, address, text) || SmsRepository.sendSms(ctx, address, text)) else SmsRepository.sendSms(ctx, address, text)
@@ -316,44 +328,20 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             confirmButton = { TextButton({ showQuick = false }) { Text("Close") } })
     }
     if (showMedia) MediaDialog(msgs) { showMedia = false }
-    fun doSchedule(at: Long) {
-        val body = draft.trim()
-        ScheduledSendReceiver.schedule(ctx, address, body, at)
-        draft = ""; reactTick++
-        Toast.makeText(ctx, "Scheduled for " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(at)), Toast.LENGTH_LONG).show()
-    }
-    fun pickCustomTime() {
-        val now = Calendar.getInstance()
-        DatePickerDialog(ctx, { _, y, mo, d ->
-            TimePickerDialog(ctx, { _, h, mi ->
-                val t = Calendar.getInstance().apply { set(y, mo, d, h, mi, 0) }
-                if (t.timeInMillis <= System.currentTimeMillis()) {
-                    Toast.makeText(ctx, "Pick a future time", Toast.LENGTH_SHORT).show()
-                } else {
-                    val body = draft.trim()
-                    if (body.isEmpty()) {
-                        Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show()
-                    } else {
-                        ScheduledSendReceiver.schedule(ctx, address, body, t.timeInMillis)
-                        draft = ""; reactTick++
-                        Toast.makeText(ctx, "Scheduled for " + SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(t.time), Toast.LENGTH_LONG).show()
-                    }
-                }
-            }, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), false).show()
-        }, now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH)).show()
-    }
-
+    /** Long-press Send (or + → Schedule send): pick a time; the text and any photo/video waiting in the bar go out then. */
     fun pickScheduleTime() {
-        if (pendingMediaUri != null) { Toast.makeText(ctx, "Photos can't be scheduled yet. Send it now, or remove it to schedule the text", Toast.LENGTH_LONG).show(); return }
-        if (draft.trim().isEmpty()) { Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show(); return }
-        fun at(daysAhead: Int, hour: Int) = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, daysAhead); set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }.timeInMillis
-        val opts = ArrayList<Pair<String, Long>>()
-        opts.add("In 1 hour" to System.currentTimeMillis() + 3_600_000L)
-        if (at(0, 20) > System.currentTimeMillis() + 600_000L) opts.add("Tonight, 8:00 PM" to at(0, 20))
-        opts.add("Tomorrow morning, 8:00 AM" to at(1, 8))
-        opts.add("Tomorrow afternoon, 1:00 PM" to at(1, 13))
-        val labels = (opts.map { it.first } + "Pick date and time…").toTypedArray()
-        android.app.AlertDialog.Builder(ctx).setTitle("Schedule send").setItems(labels) { _, i -> if (i < opts.size) doSchedule(opts[i].second) else pickCustomTime() }.show()
+        if (draft.isBlank() && pendingMediaUri == null) { Toast.makeText(ctx, "Type a message first", Toast.LENGTH_SHORT).show(); return }
+        TimeMenu.show(ctx, "Schedule send", reminder = false) { at ->
+            val body = draft.trim(); val media = pendingMediaUri; val extras = extraMedia; val type = pendingMediaType
+            draft = ""; pendingMediaUri = null; extraMedia = emptyList(); replyTo = null
+            scope.launch(Dispatchers.IO) {
+                val mt = media?.let { u -> if (type == "image") null else ctx.contentResolver.getType(u) ?: (if (type == "video") "video/mp4" else "audio/mp4") }
+                ScheduledSendReceiver.schedule(ctx, address, body, at, media, mt)
+                extras.forEachIndexed { i, u -> ScheduledSendReceiver.schedule(ctx, address, "", at + 1000L * (i + 1), u, null) }
+                withContext(Dispatchers.Main) { reactTick++ }
+            }
+            Toast.makeText(ctx, "Scheduled for " + TimeMenu.label(at), Toast.LENGTH_LONG).show()
+        }
     }
 
     /** A finished voice note goes straight out as MMS audio/mp4, like WhatsApp. */
@@ -481,15 +469,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     val photoOpener: (Message) -> Unit = remember { { m: Message -> viewerAt = msgKey(m) } }
     viewerAt?.let { k -> ChatPhotoViewer(msgs, k, isGroupChat, conversation.displayName, onClose = { viewerAt = null }, onReacted = { reactTick++ }) }
     detailsMsg?.let { dm -> MessageDetailsDialog(dm, conversation.displayName, address) { detailsMsg = null } }
-    schedMsg?.let { sm ->
-        AlertDialog(onDismissRequest = { schedMsg = null }, title = { Text("Scheduled message") },
-            text = { Text(sm.body + "\n\n" + SimpleDateFormat("EEEE, MMM d, h:mm a", Locale.getDefault()).format(Date(sm.sendAt))) },
-            confirmButton = { TextButton({ ScheduledSendReceiver.cancel(ctx, sm.id); schedMsg = null; scope.launch(Dispatchers.IO) { SmsRepository.sendSms(ctx, sm.address, sm.body); withContext(Dispatchers.Main) { reload() } } }) { Text("Send now") } },
-            dismissButton = { Row {
-                TextButton({ ScheduledSendReceiver.cancel(ctx, sm.id); if (draft.isBlank()) draft = sm.body; schedMsg = null }) { Text("Edit") }
-                TextButton({ ScheduledSendReceiver.cancel(ctx, sm.id); schedMsg = null; reactTick++ }) { Text("Delete", color = Red) }
-            } })
-    }
+    schedMsg?.let { sm -> ScheduledMessageDialog(sm, onDismiss = { schedMsg = null }, onChanged = { reactTick++; reload() }) }
 
     // ── Message context menu (long-press) ──
     // ── Message long-press: Google Messages overlay (reactions on top, menu card below) ──
@@ -504,6 +484,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     // Back closes an open panel or the in-chat search first, instead of leaving the chat
     BackHandler(enabled = ctxMsg == null && !selecting && (showAttach || showEmoji || showGallery)) { showAttach = false; showEmoji = false; showGallery = false }
     BackHandler(enabled = ctxMsg == null && !selecting && !(showAttach || showEmoji || showGallery) && showSearch) { showSearch = false; searchQuery = ""; searchFilter = 0 }
+    // In-chat search: every match is highlighted; ↑ ↓ go through them, newest first (Google Messages style)
+    val searchHits = remember(msgs, showSearch, searchQuery) {
+        if (showSearch && searchQuery.isNotBlank()) msgs.filter { it.body.contains(searchQuery, true) }.map { msgKey(it) }.asReversed() else emptyList()
+    }
+    LaunchedEffect(searchHits) { hitIdx = 0 }
+    val currentHit = searchHits.getOrNull(hitIdx.coerceIn(0, (searchHits.size - 1).coerceAtLeast(0)))
+    LaunchedEffect(currentHit) { currentHit?.let { jumpReq = it to false } }
     Box(Modifier.fillMaxSize()) {
     Scaffold(containerColor = Chrome, modifier = if (ctxMsg != null) Modifier.blur(14.dp) else Modifier,
         topBar = {
@@ -540,8 +527,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 },
                 actions = {
                     if (showSearch) {
-                        TextButton({ searchFilter = (searchFilter + 1) % 3 }) { Text(listOf("All", "Photos", "Links")[searchFilter], color = Brand) }
-                        IconButton({ showSearch = false; searchQuery = ""; searchFilter = 0 }) { Icon(Ms.Close, "Close search") }
+                        ChatSearchActions(searchHits.size, hitIdx, searchFilter, onPrev = { hitIdx++ }, onNext = { hitIdx-- },
+                            onFilter = { searchFilter = (searchFilter + 1) % 3 }, onClose = { showSearch = false; searchQuery = ""; searchFilter = 0 })
                     } else {
                         if (!address.contains(";")) {
                             IconButton({ ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${address}"))) }) { Icon(Ms.Call, "Call") }
@@ -675,7 +662,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         }
                         Spacer(Modifier.width(8.dp))
                         val hasCont = draft.isNotBlank() || pendingMediaUri != null
-                        MicSendButton(hasCont, rec, onSendText = { doSend() }, onNeedPermission = { audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) }, onVoiceDone = { f -> sendVoice(f) })
+                        MicSendButton(hasCont, rec, onSendText = { doSend() }, onNeedPermission = { audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) }, onVoiceDone = { f -> sendVoice(f) }, onLongSend = { pickScheduleTime() })
                     }
                     AnimatedVisibility(showAttach, enter = PanelEnter, exit = PanelExit) {
                         PlusPanel(listOf(
@@ -711,8 +698,8 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             .background(Color(ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("chat_bg", 0)))) {
         ChatWallpaper(conversation.threadId, chatWall, themeVer, Modifier.matchParentSize())
         // Everything the list shows is worked out once per change, not on every recomposition of the list
-        val displayMsgs = remember(msgs, showSearch, searchQuery, searchFilter) {
-            if (showSearch && (searchQuery.isNotBlank() || searchFilter != 0)) msgs.filter { (searchQuery.isBlank() || it.body.contains(searchQuery, true)) && (searchFilter == 0 || (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it))) } else msgs
+        val displayMsgs = remember(msgs, showSearch, searchFilter) {
+            if (showSearch && searchFilter != 0) msgs.filter { (searchFilter == 1 && it.imageUri != null) || (searchFilter == 2 && isLinkMsg(it)) } else msgs
         }
         val grouped = remember(displayMsgs) { displayMsgs.groupByDate() }
         val pins = remember(msgs, showSearch, reactTick) { if (showSearch) emptyList() else msgs.filter { MsgPinStore.has(ctx, msgKey(it)) } }
@@ -765,6 +752,34 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             openPlaced = true
             positioned = true
         }
+        // Jump to a message (reply quote tap, search hit, reminder notification, Starred): scroll it to the middle and flash it.
+        // Not loaded yet (older)? Load more and try again.
+        LaunchedEffect(ChatJump.seq, openPlaced) { if (openPlaced) ChatJump.take(conversation.threadId)?.let { jumpReq = it to true } }
+        LaunchedEffect(jumpReq, chatRows, openPlaced) {
+            val (k, doFlash) = jumpReq ?: return@LaunchedEffect
+            if (!openPlaced) return@LaunchedEffect
+            val idx = chatRows.indexOfFirst { it is ChatRow.Msg && it.key == k }
+            if (idx < 0) {
+                if (hasOlder && !loadingOlder) { loadingOlder = true; msgLimit += 800; reload() }
+                else if (!hasOlder && fullLoaded) { jumpReq = null; Toast.makeText(ctx, "That message isn't here anymore", Toast.LENGTH_SHORT).show() }
+                return@LaunchedEffect
+            }
+            jumpReq = null
+            val target = headerRows + idx
+            runCatching {
+                listState.scrollToItem(target)
+                withTimeoutOrNull(500) { snapshotFlow { listState.layoutInfo }.first { l -> l.visibleItemsInfo.any { it.index == target } } }
+                val l = listState.layoutInfo
+                val it0 = l.visibleItemsInfo.firstOrNull { it.index == target }
+                val vp = l.viewportEndOffset - l.viewportStartOffset
+                if (it0 != null && vp > 0) listState.scrollBy(-((vp - it0.size) / 2f).coerceAtLeast(0f))
+            }
+            if (doFlash) { flashKey = k; delay(1600); if (flashKey == k) flashKey = null }
+        }
+        val bubbleExtras = remember(remoteReactions, showSearch, searchQuery, currentHit, flashKey, replyVer) {
+            ChatBubbleExtras(remoteReactions, if (showSearch) searchQuery.trim() else "", currentHit, flashKey, replyVer, onJump = { k -> jumpReq = k to true })
+        }
+        CompositionLocalProvider(LocalChatExtras provides bubbleExtras) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp).graphicsLayer { alpha = if (positioned) 1f else 0f },
@@ -774,38 +789,11 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
             if (msgs.isNotEmpty() && msgs.last().incoming) {
-                item(key = "smart_replies", contentType = "smart") {
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SmartReplies.suggest(msgs.last().body).forEach { reply ->
-                            Surface(
-                                onClick = { sendText(reply) },
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, DivLt)
-                            ) {
-                                Text(reply, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontSize = 14.sp, color = Brand, fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
-                }
+                item(key = "smart_replies", contentType = "smart") { SmartReplyRow(msgs.last()) { sendText(it) } }
             }
             // Scheduled messages for this chat, shown in place like Google Messages
             if (!showSearch && mine.isNotEmpty()) {
-                items(mine.asReversed(), key = { "sched_" + it.id }, contentType = { "sched" }) { sm ->
-                    Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.End) {
-                        Box(Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(20.dp)).border(1.5.dp, Brand.copy(alpha = .6f), RoundedCornerShape(20.dp))
-                            .clickable { schedMsg = sm }.padding(horizontal = 14.dp, vertical = 9.dp)) {
-                            Text(sm.body, color = TextPrimary, fontSize = 15.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, end = 6.dp)) {
-                            Icon(Ms.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
-                            Text("Scheduled · " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(sm.sendAt)), fontSize = 11.sp, color = TextHint)
-                        }
-                    }
-                }
+                items(mine.asReversed(), key = { "sched_" + it.id }, contentType = { "sched" }) { sm -> ScheduledInChat(sm) { schedMsg = sm } }
             }
             items(chatRows, key = { it.key }, contentType = { it.type }) { row ->
                 when (row) {
@@ -854,6 +842,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 }
             }
         }
+        }
         // Jump to the newest message when scrolled up (Google Messages' round arrow button); "↓ N new" when texts arrived meanwhile
         val farFromBottom by remember { derivedStateOf { listState.firstVisibleItemIndex > 4 } }
         val nearBottom by remember { derivedStateOf { listState.firstVisibleItemIndex <= 1 } }
@@ -883,46 +872,13 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
 
     ctxMsg?.let { m ->
-        val key = msgKey(m)
-        val starred = StarStore.isStarred(ctx, key)
-        val clip = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val acts = buildList {
-            if (m.failed) add(LongPressAction(Ms.Refresh, "Resend", Brand) {
-                scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } }
-                ctxMsg = null
-            })
-            add(LongPressAction(Ms.Reply, "Reply") { replyTo = m; ctxMsg = null })
-            add(LongPressAction(Ms.Forward, "Forward") {
-                ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
-                ctxMsg = null
-            })
-            if (m.body.isNotBlank()) add(LongPressAction(Ms.ContentCopy, "Copy") {
-                clip.setPrimaryClip(ClipData.newPlainText("msg", m.body))
-                Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
-            })
-            Regex("\\b(\\d{4,8})\\b").find(m.body)?.takeIf { Regex("(?i)code|otp|verif|passcode|קאוד|קוד").containsMatchIn(m.body) }?.groupValues?.get(1)?.let { code ->
-                add(LongPressAction(Ms.Password, "Copy code $code") {
-                    clip.setPrimaryClip(ClipData.newPlainText("code", code))
-                    Toast.makeText(ctx, "Copied $code", Toast.LENGTH_SHORT).show(); ctxMsg = null
-                })
-            }
-            add(LongPressAction(if (starred) Ms.Star else Ms.Star, if (starred) "Unstar" else "Star") {
-                StarStore.toggle(ctx, key); reactTick++; ctxMsg = null
-            })
-            if (MsgPinStore.has(ctx, key)) add(LongPressAction(Ms.PushPin, "Unpin") { MsgPinStore.toggle(ctx, key); reactTick++; ctxMsg = null })
-            add(LongPressAction(Ms.Delete, "Delete") {
-                scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m); withContext(Dispatchers.Main) { reload() } }
-                ctxMsg = null
-            })
-            add(LongPressAction(Ms.Checklist, "Select more") { selected = setOf(key); ctxMsg = null })
-            add(LongPressAction(Ms.Info, "Info") { detailsMsg = m; ctxMsg = null })
-        }
-        LongPressOverlay(m, reactTick, bubbleYs[key], ReactionStore.get(ctx, key), acts,
-            onReact = { emoji ->
-                val cur = ReactionStore.get(ctx, key)
-                ReactionStore.set(ctx, key, if (cur == emoji) null else emoji)
-                reactTick++; ctxMsg = null
-            },
+        MessageActionsOverlay(m, conversation, address, reactTick, bubbleYs[msgKey(m)],
+            onReply = { replyTo = m },
+            onResend = { scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } } },
+            onDelete = { scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m); withContext(Dispatchers.Main) { reload() } } },
+            onSelect = { selected = setOf(msgKey(m)) },
+            onDetails = { detailsMsg = m },
+            onChanged = { reactTick++ },
             onDismiss = { ctxMsg = null })
     }
     }

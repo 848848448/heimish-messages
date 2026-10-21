@@ -6,21 +6,18 @@ import android.content.Intent
 import android.util.Log
 
 /**
- * Re-schedules the nightly contacts sync after device reboot.
+ * After a reboot: re-schedules the nightly contacts sync, the update check, scheduled messages and reminders
+ * (Android clears all alarms on reboot). The automatic backup job is persisted by JobScheduler itself.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.d("BootReceiver", "Device booted — re-scheduling contacts sync")
+            Log.d("BootReceiver", "Device booted — re-scheduling alarms")
             ContactsSyncService.schedule(context)
             UpdateCheckReceiver.schedule(context)
-            // Re-arm scheduled messages (alarms are cleared on reboot)
-            runCatching {
-                for (m in ScheduledStore.getAll(context)) {
-                    ScheduledStore.remove(context, m.id)
-                    ScheduledSendReceiver.schedule(context, m.address, m.body, maxOf(m.sendAt, System.currentTimeMillis() + 5_000))
-                }
-            }
+            ScheduledSendReceiver.rearmAll(context)
+            RemindReceiver.rearmAll(context)
+            runCatching { AutoBackup.schedule(context) }
         }
     }
 }

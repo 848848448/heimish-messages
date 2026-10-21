@@ -174,6 +174,10 @@ class PackageReplacedReceiver : android.content.BroadcastReceiver() {
         if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         Notifications.init(ctx)
         ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putLong("upd_last", 0L).apply()
+        // An update drops the app's alarms: put scheduled messages and reminders back
+        ScheduledSendReceiver.rearmAll(ctx)
+        RemindReceiver.rearmAll(ctx)
+        runCatching { AutoBackup.schedule(ctx) }
         val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         runCatching { ctx.startActivity(open) }
         Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER}). Tap to open.", 7777)

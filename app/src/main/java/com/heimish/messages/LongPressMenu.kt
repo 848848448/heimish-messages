@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -28,7 +29,7 @@ import androidx.compose.ui.unit.sp
 /** One row of the Google Messages long-press menu. */
 class LongPressAction(val icon: ImageVector, val label: String, val tint: Color? = null, val onClick: () -> Unit)
 
-internal val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "😡")
+internal val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
 /**
  * Google Messages (2025) long-press: the chat behind is blurred and dimmed, the message is lifted
@@ -95,7 +96,8 @@ fun LongPressOverlay(
                 Spacer(Modifier.height(10.dp))
                 // Menu card
                 Surface(shape = RoundedCornerShape(24.dp), color = MenuSurf, shadowElevation = 3.dp, modifier = Modifier.width(232.dp)) {
-                    Column(Modifier.padding(vertical = 8.dp)) {
+                    // Scrolls when the list is long (it never pushes off the screen)
+                    Column(Modifier.heightIn(max = 380.dp).then(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())).padding(vertical = 8.dp)) {
                         actions.forEach { act ->
                             Row(Modifier.fillMaxWidth().clickable { act.onClick() }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(act.icon, null, tint = act.tint ?: TextPrimary, modifier = Modifier.size(22.dp))

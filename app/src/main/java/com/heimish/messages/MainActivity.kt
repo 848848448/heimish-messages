@@ -93,7 +93,13 @@ class MainActivity : ComponentActivity() {
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNowIfStale(this)
         UpdateCheckReceiver.schedule(this)
-        Thread { OtpCleaner.clean(applicationContext) }.start()
+        Thread {
+            OtpCleaner.clean(applicationContext)
+            // Alarms are gone after a force stop; re-setting them is cheap and idempotent
+            ScheduledSendReceiver.rearmAll(applicationContext)
+            RemindReceiver.rearmAll(applicationContext)
+            runCatching { AutoBackup.schedule(applicationContext) }
+        }.start()
         if (savedInstanceState == null) IntentRouter.pending = intent
         // Edge-to-edge: the app draws under the bars and lays itself out with WindowInsets. The keyboard (adjustResize) only
         // shrinks the content area, so the top bar stays pinned and the compose bar rides on the keyboard, like Google Messages.
@@ -287,7 +293,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             is Screen.SettingSub -> SettingSubScreen(s.key, { themeChoice = it }) { back() }
             Screen.Admin    -> AdminScreen { back() }
             Screen.Archived -> ArchivedScreen({ go(Screen.Chat(it)) }) { back() }
-            Screen.Starred  -> StarredScreen { back() }
+            Screen.Starred  -> StarredScreen({ go(Screen.Chat(it)) }) { back() }
             Screen.Scheduled -> ScheduledScreen { back() }
         } } }
     }
