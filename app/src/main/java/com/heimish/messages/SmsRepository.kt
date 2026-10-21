@@ -766,6 +766,23 @@ object SmsRepository {
         }
     }
 
+    /** Every attachment of one MMS, in order (photos, videos, voice notes, contact cards, files), for forwarding. Text and layout parts are skipped. */
+    fun mmsAttachments(ctx: Context, mmsRowId: Long): List<Pair<Uri, String>> {
+        val out = ArrayList<Pair<Uri, String>>()
+        runCatching {
+            ctx.contentResolver.query(Uri.parse("content://mms/part"), arrayOf("_id", "ct", "cl", "name"), "mid = ?", arrayOf(mmsRowId.toString()), "_id ASC")?.use { c ->
+                while (c.moveToNext()) {
+                    val ct = (c.getString(1) ?: "").trim()
+                    val low = ct.lowercase()
+                    if (low == "text/plain" || low == "application/smil" || low.isEmpty()) continue
+                    val nm = c.getString(2) ?: c.getString(3)
+                    out += Uri.parse("content://mms/part/${c.getLong(0)}") to (audioMimeFor(ct, nm) ?: low)
+                }
+            }
+        }
+        return out
+    }
+
     data class MmsParts(val text: String, val mediaUri: Uri?, val mediaMime: String?)
 
     private val mmsCache = android.util.LruCache<Long, Pair<MmsParts, String?>>(3000)
