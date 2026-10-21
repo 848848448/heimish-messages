@@ -1,5 +1,6 @@
 package com.heimish.messages
 
+import androidx.compose.ui.composed
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -27,6 +28,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -100,8 +103,47 @@ fun List<Message>.groupByDate(): List<Pair<String, List<Message>>> {
         Text(label, fontSize = 13.sp, color = TextSecond, fontWeight = FontWeight.Medium)
     }
 }
-internal val palette = listOf(Color(0xFF0B57D0), Color(0xFF146C2E), Color(0xFF8C4A2E), Color(0xFF6A2E8C), Color(0xFFB3261E), Color(0xFF185ABC), Color(0xFF0D652D), Color(0xFF9C27B0))
-fun avatarColor(seed: String): Color = palette[seed.hashCode().mod(palette.size)]
+/** Letter-avatar hues, Google Messages style: (solid tone, light container, on light, dark container, on dark). */
+private class AvatarHue(val solid: Color, val lightBg: Color, val lightFg: Color, val darkBg: Color, val darkFg: Color)
+private val avatarHues = listOf(
+    AvatarHue(Color(0xFF0B57D0), Color(0xFFD3E3FD), Color(0xFF0842A0), Color(0xFF0842A0), Color(0xFFD3E3FD)), // blue
+    AvatarHue(Color(0xFF146C2E), Color(0xFFC4EED0), Color(0xFF0A3818), Color(0xFF0F5223), Color(0xFFC4EED0)), // green
+    AvatarHue(Color(0xFFB3261E), Color(0xFFFFDAD6), Color(0xFF8C1D18), Color(0xFF8C1D18), Color(0xFFFFDAD6)), // red
+    AvatarHue(Color(0xFF7438D2), Color(0xFFEADDFF), Color(0xFF4F1B9A), Color(0xFF4F1B9A), Color(0xFFEADDFF)), // purple
+    AvatarHue(Color(0xFF9C4A00), Color(0xFFFFDCC2), Color(0xFF6E3400), Color(0xFF6E3400), Color(0xFFFFDCC2)), // orange
+    AvatarHue(Color(0xFF006A6A), Color(0xFFB2EBEB), Color(0xFF004F4F), Color(0xFF004F4F), Color(0xFFB2EBEB)), // teal
+    AvatarHue(Color(0xFFA0306F), Color(0xFFFFD8EA), Color(0xFF7A1A52), Color(0xFF7A1A52), Color(0xFFFFD8EA)), // pink
+    AvatarHue(Color(0xFF5B6300), Color(0xFFE0EA9C), Color(0xFF424A00), Color(0xFF424A00), Color(0xFFE0EA9C)), // olive
+)
+private fun hueFor(seed: String) = avatarHues[seed.hashCode().mod(avatarHues.size)]
+internal val palette: List<Color> get() = avatarHues.map { it.solid }
+/** Accent for a person (group-chat sender names): readable on light and dark backgrounds. */
+fun avatarColor(seed: String): Color = hueFor(seed).let { if (D) it.lightBg else it.solid }
+/** Solid tone that takes white text (notification avatars, which are drawn outside the app theme). */
+fun avatarSolid(seed: String): Color = hueFor(seed).solid
+/** Tonal letter-avatar container and letter colors, following light/dark mode. */
+fun avatarBg(seed: String): Color = hueFor(seed).let { if (D) it.darkBg else it.lightBg }
+fun avatarFg(seed: String): Color = hueFor(seed).let { if (D) it.darkFg else it.lightFg }
+
+/** Shared empty state: a soft tonal circle with an icon, a title, and an optional hint. */
+@Composable
+fun EmptyState(icon: ImageVector, title: String, hint: String? = null, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize().padding(horizontal = 40.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(112.dp).clip(CircleShape).background(Tonal.copy(alpha = if (D) .55f else .7f)), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(72.dp).clip(CircleShape).background(Tonal), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = OnTonal, modifier = Modifier.size(36.dp))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Text(title, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+            if (hint != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(hint, color = TextSecond, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
+            }
+        }
+    }
+}
 fun initial(name: String): String = (name.firstOrNull()?.uppercaseChar() ?: '#').toString()
 fun msgTime(ms: Long): String { if (ms <= 0) return ""; return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms)) }
 fun shortTime(ms: Long): String {
@@ -120,3 +162,15 @@ fun shortTime(ms: Long): String {
 
 object PhotoCache { val map = java.util.concurrent.ConcurrentHashMap<String, Uri>(); val miss: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet() }
 
+
+
+/** Expressive press feedback: the tile squishes a little under the finger and springs back, with the normal ripple. */
+fun Modifier.pressClick(shape: androidx.compose.ui.graphics.Shape, onClick: () -> Unit): Modifier = composed {
+    val src = remember { MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val s by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.93f else 1f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 700f), label = "press")
+    this.graphicsLayer(scaleX = s, scaleY = s)
+        .clip(shape)
+        .clickable(interactionSource = src, indication = LocalIndication.current, onClick = onClick)
+}
