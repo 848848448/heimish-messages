@@ -355,7 +355,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                             Text("Message", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
                             val vctx = LocalContext.current
                             Text("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", fontSize = 14.sp, color = TextHint,
-                                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { AdminAuth.onVersionTap(vctx) }.padding(horizontal = 8.dp, vertical = 4.dp))
+                                modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { AdminAuth.onVersionTap(vctx) }.padding(horizontal = 8.dp, vertical = 4.dp))
                             Spacer(Modifier.height(14.dp))
                             Text("Simple, fast text messaging.", fontSize = 14.sp, color = TextSecond, textAlign = TextAlign.Center)
                             Spacer(Modifier.height(20.dp))
@@ -459,7 +459,6 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
     }
     fun lockAdmin() {
         AdminAuth.lock(ctx)
-        Toast.makeText(ctx, "Admin locked and hidden", Toast.LENGTH_SHORT).show()
         onBack()
     }
     fun copied(num: String) {
