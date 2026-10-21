@@ -1,7 +1,5 @@
 package com.heimish.messages
 
-import androidx.compose.material.icons.automirrored.filled.Label
-import androidx.compose.material.icons.automirrored.outlined.Reply
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -45,10 +43,6 @@ import androidx.compose.foundation.content.hasMediaType
 import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -421,23 +415,23 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     Scaffold(containerColor = Chrome, modifier = if (ctxMsg != null) Modifier.blur(14.dp) else Modifier,
         topBar = {
             if (selecting) TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
-                navigationIcon = { IconButton({ selected = emptySet() }) { Icon(Icons.Default.Close, "Cancel") } },
+                navigationIcon = { IconButton({ selected = emptySet() }) { Icon(Ms.Close, "Cancel") } },
                 title = { Text("${selected.size}", fontSize = 20.sp) },
                 actions = {
                     val chosen = msgs.filter { msgKey(it) in selected }.sortedBy { it.date }
                     IconButton({
                         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msgs", chosen.joinToString("\n") { it.body }))
                         Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); selected = emptySet()
-                    }) { Icon(Icons.Outlined.ContentCopy, "Copy") }
-                    IconButton({ chosen.forEach { StarStore.toggle(ctx, msgKey(it)) }; reactTick++; selected = emptySet() }) { Icon(Icons.Outlined.StarOutline, "Star") }
+                    }) { Icon(Ms.ContentCopy, "Copy") }
+                    IconButton({ chosen.forEach { StarStore.toggle(ctx, msgKey(it)) }; reactTick++; selected = emptySet() }) { Icon(Ms.Star, "Star") }
                     IconButton({
                         scope.launch(Dispatchers.IO) { chosen.forEach { SmsRepository.deleteMessage(ctx, it) }; withContext(Dispatchers.Main) { reload() } }
                         selected = emptySet()
-                    }) { Icon(Icons.Outlined.Delete, "Delete") }
+                    }) { Icon(Ms.Delete, "Delete") }
                 }
             ) else
             TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
-                navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                navigationIcon = { IconButton(if (showSearch) { { showSearch = false; searchQuery = "" } } else onBack) { Icon(Ms.ArrowBack, "Back") } },
                 title = {
                     if (showSearch) {
                         TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat…", color = TextHint) }, singleLine = true,
@@ -454,52 +448,52 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 actions = {
                     if (showSearch) {
                         TextButton({ searchFilter = (searchFilter + 1) % 3 }) { Text(listOf("All", "Photos", "Links")[searchFilter], color = Brand) }
-                        IconButton({ showSearch = false; searchQuery = ""; searchFilter = 0 }) { Icon(Icons.Default.Close, "Close search") }
+                        IconButton({ showSearch = false; searchQuery = ""; searchFilter = 0 }) { Icon(Ms.Close, "Close search") }
                     } else {
                         if (!address.contains(";")) {
-                            IconButton({ ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${address}"))) }) { Icon(Icons.Default.Phone, "Call") }
+                            IconButton({ ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${address}"))) }) { Icon(Ms.Call, "Call") }
                         }
                         Box {
-                            IconButton({ showMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
+                            IconButton({ showMenu = true }) { Icon(Ms.MoreVert, "Menu") }
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf), shape = RoundedCornerShape(16.dp)) {
-                                DropdownMenuItem({ Text("Search", color = TextPrimary) }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Icons.Default.Search, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Details", color = TextPrimary) }, { showMenu = false; showDetails = true }, leadingIcon = { Icon(Icons.Default.Info, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Chat theme", color = TextPrimary) }, { showMenu = false; showTheme = true }, leadingIcon = { Icon(Icons.Outlined.Palette, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Icons.Default.Reply, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Icons.Default.PhotoLibrary, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Icons.Default.AddToHomeScreen, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Icons.Default.Schedule, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Search", color = TextPrimary) }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Ms.Search, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Details", color = TextPrimary) }, { showMenu = false; showDetails = true }, leadingIcon = { Icon(Ms.Info, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Chat theme", color = TextPrimary) }, { showMenu = false; showTheme = true }, leadingIcon = { Icon(Ms.Palette, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Ms.Reply, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Ms.PhotoLibrary, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Ms.AddToHomeScreen, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Ms.Schedule, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text(if (Mute.isMuted(ctx, conversation.threadId)) "Unmute" else "Mute notifications", color = TextPrimary) }, {
                                     showMenu = false
                                     if (Mute.isMuted(ctx, conversation.threadId)) { Mute.clear(ctx, conversation.threadId); Toast.makeText(ctx, "Unmuted", Toast.LENGTH_SHORT).show() }
                                     else android.app.AlertDialog.Builder(ctx).setTitle("Mute notifications").setItems(arrayOf("1 hour", "8 hours", "24 hours", "Always")) { _, i -> Mute.setFor(ctx, conversation.threadId, longArrayOf(3_600_000L, 28_800_000L, 86_400_000L, 0L)[i]); Toast.makeText(ctx, "Muted", Toast.LENGTH_SHORT).show() }.show()
-                                }, leadingIcon = { Icon(Icons.Default.NotificationsOff, null, tint = TextSecond) })
+                                }, leadingIcon = { Icon(Ms.NotificationsOff, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Remind me", color = TextPrimary) }, {
                                     showMenu = false
                                     android.app.AlertDialog.Builder(ctx).setTitle("Remind me").setItems(arrayOf("In 1 hour", "In 3 hours", "Tomorrow morning")) { _, i ->
                                         val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0) }
                                         RemindReceiver.set(ctx, conversation, when (i) { 0 -> System.currentTimeMillis() + 3_600_000L; 1 -> System.currentTimeMillis() + 10_800_000L; else -> cal.timeInMillis })
                                         Toast.makeText(ctx, "Reminder set", Toast.LENGTH_SHORT).show() }.show()
-                                }, leadingIcon = { Icon(Icons.Default.Notifications, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Export chat", color = TextPrimary) }, { showMenu = false; exportChat(ctx, conversation, msgs) }, leadingIcon = { Icon(Icons.Default.Share, null, tint = TextSecond) })
+                                }, leadingIcon = { Icon(Ms.Notifications, null, tint = TextSecond) })
+                                if (moreOpen) DropdownMenuItem({ Text("Export chat", color = TextPrimary) }, { showMenu = false; exportChat(ctx, conversation, msgs) }, leadingIcon = { Icon(Ms.Share, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Notification sound", color = TextPrimary) }, {
                                     showMenu = false
                                     toneL.launch(Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_NOTIFICATION).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true))
-                                }, leadingIcon = { Icon(Icons.Default.MusicNote, null, tint = TextSecond) })
+                                }, leadingIcon = { Icon(Ms.MusicNote, null, tint = TextSecond) })
                                 if (moreOpen) DropdownMenuItem({ Text("Label", color = TextPrimary) }, {
                                     showMenu = false
                                     val et = android.widget.EditText(ctx); et.setText(LabelStore.get(ctx, conversation.threadId) ?: ""); et.hint = "Label (empty to remove)"
                                     android.app.AlertDialog.Builder(ctx).setTitle("Label this chat").setView(et).setPositiveButton("Save") { _, _ -> LabelStore.set(ctx, conversation.threadId, et.text.toString()); Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show() }.setNegativeButton("Cancel", null).show()
-                                }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null, tint = TextSecond) })
+                                }, leadingIcon = { Icon(Ms.Label, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Block & report spam", color = TextPrimary) }, {
                                     showMenu = false; BlockedStore.block(ctx, address)
                                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
-                                }, leadingIcon = { Icon(Icons.Default.Block, null, tint = Red) })
+                                }, leadingIcon = { Icon(Ms.Block, null, tint = Red) })
                                 DropdownMenuItem({ Text("Delete conversation", color = TextPrimary) }, {
                                     showMenu = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }
                                     Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show(); onBack()
-                                }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Red) })
-                                DropdownMenuItem({ Text(if (moreOpen) "Less" else "More", color = TextPrimary) }, { moreOpen = !moreOpen }, leadingIcon = { Icon(if (moreOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextSecond) })
+                                }, leadingIcon = { Icon(Ms.Delete, null, tint = Red) })
+                                DropdownMenuItem({ Text(if (moreOpen) "Less" else "More", color = TextPrimary) }, { moreOpen = !moreOpen }, leadingIcon = { Icon(if (moreOpen) Ms.ExpandLess else Ms.ExpandMore, null, tint = TextSecond) })
                             }
                         }
                     }
@@ -517,7 +511,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 Text("Reply to ${if (replyTo!!.incoming) conversation.displayName else "yourself"}", fontSize = 12.sp, color = Brand, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(replyTo!!.body.take(60).ifBlank { "📷 Media" }, fontSize = 13.sp, color = TextSecond, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton({ replyTo = null }, Modifier.size(28.dp)) { Icon(Icons.Default.Close, "Remove reply", Modifier.size(18.dp), tint = TextHint) }
+                            IconButton({ replyTo = null }, Modifier.size(28.dp)) { Icon(Ms.Close, "Remove reply", Modifier.size(18.dp), tint = TextHint) }
                         }
                     }
                     if (pendingMediaUri != null) {
@@ -525,17 +519,17 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             when (pendingMediaType) {
                                 "image" -> AsyncImage(pendingMediaUri, "preview", Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
                                 "video" -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.PlayCircle, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                                    Icon(Ms.PlayCircleFill, null, tint = Color.White, modifier = Modifier.size(32.dp))
                                 }
                                 else -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(Brand), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Mic, null, tint = OnBrand, modifier = Modifier.size(32.dp))
+                                    Icon(Ms.MicFill, null, tint = OnBrand, modifier = Modifier.size(32.dp))
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
                             extraMedia.take(3).forEach { u -> Spacer(Modifier.width(6.dp)); AsyncImage(u, null, Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop) }
                             Spacer(Modifier.width(8.dp))
                             Text(when (pendingMediaType) { "image" -> if (extraMedia.isEmpty()) "Photo ready to send" else "${extraMedia.size + 1} photos ready to send"; "video" -> "Video ready to send"; else -> "Voice note ready to send" }, fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
-                            IconButton({ pendingMediaUri = null; extraMedia = emptyList() }) { Icon(Icons.Default.Close, "Remove", tint = TextHint) }
+                            IconButton({ pendingMediaUri = null; extraMedia = emptyList() }) { Icon(Ms.Close, "Remove", tint = TextHint) }
                         }
                     }
                     if (draft.length > 100) {
@@ -548,7 +542,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         if (rec.mode != RecMode.IDLE) RecordingBar(rec, onTrash = { rec.finish(false) }, modifier = Modifier.weight(1f))
                         else Row(Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(26.dp)).background(SearchBg).padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.Bottom) {
                             IconButton(onClick = { showAttach = !showAttach; showEmoji = false; showGallery = false; if (showAttach) keyboard?.hide() }, Modifier.size(48.dp)) {
-                                Icon(if (showAttach) Icons.Default.Close else Icons.Filled.AddCircle, "Attach", tint = TextPrimary, modifier = Modifier.size(24.dp))
+                                Icon(if (showAttach) Ms.Close else Ms.AddCircleFill, "Attach", tint = TextPrimary, modifier = Modifier.size(24.dp))
                             }
                             androidx.compose.foundation.text.BasicTextField(
                                 draft, { draft = it }, Modifier.weight(1f).padding(vertical = 14.dp)
@@ -580,9 +574,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     }
                                 }
                             )
-                            IconButton({ emojiTab = 0; showEmoji = !showEmoji; showAttach = false; showGallery = false; if (showEmoji) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.EmojiEmotions, "Emoji", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
+                            IconButton({ emojiTab = 0; showEmoji = !showEmoji; showAttach = false; showGallery = false; if (showEmoji) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Ms.Mood, "Emoji", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
                             AnimatedVisibility(draft.isEmpty(), enter = fadeIn(androidx.compose.animation.core.tween(150)) + expandHorizontally(androidx.compose.animation.core.tween(180)), exit = fadeOut(androidx.compose.animation.core.tween(100)) + shrinkHorizontally(androidx.compose.animation.core.tween(180))) {
-                                IconButton({ showGallery = !showGallery; showAttach = false; showEmoji = false; if (showGallery) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.AddPhotoAlternate, "Photo", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
+                                IconButton({ showGallery = !showGallery; showAttach = false; showEmoji = false; if (showGallery) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Ms.AddPhotoAlternate, "Photo", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
                             }
                         }
                         Spacer(Modifier.width(8.dp))
@@ -591,16 +585,16 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     }
                     AnimatedVisibility(showAttach, enter = PanelEnter, exit = PanelExit) {
                         PlusPanel(listOf(
-                            Triple(Icons.Outlined.PhotoLibrary, "Gallery") { imagePicker.launch("image/*") },
-                            Triple(Icons.Outlined.Gif, "GIFs") { showAttach = false; emojiTab = 1; showEmoji = true },
-                            Triple(Icons.Outlined.StickyNote2, "Stickers") { showAttach = false; emojiTab = 2; showEmoji = true },
-                            Triple(Icons.Outlined.AttachFile, "Files") { filePicker.launch("*/*") },
-                            Triple(Icons.Outlined.LocationOn, "Location") { locPerm.launch(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION)) },
-                            Triple(Icons.Outlined.AccountCircle, "Contacts") { contactPicker.launch(null) },
-                            Triple(Icons.Outlined.Schedule, "Schedule send") { showAttach = false; pickScheduleTime() },
-                            Triple(Icons.Outlined.PhotoCamera, "Camera") { startCamera() },
-                            Triple(Icons.Outlined.Videocam, "Video") { videoPicker.launch("video/*") },
-                            Triple(Icons.Outlined.Mic, "Voice") { showAttach = false; if (rec.hasPermission()) { if (rec.start()) rec.mode = RecMode.LOCKED } else audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
+                            Triple(Ms.PhotoLibrary, "Gallery") { imagePicker.launch("image/*") },
+                            Triple(Ms.Gif, "GIFs") { showAttach = false; emojiTab = 1; showEmoji = true },
+                            Triple(Ms.StickyNote2, "Stickers") { showAttach = false; emojiTab = 2; showEmoji = true },
+                            Triple(Ms.AttachFile, "Files") { filePicker.launch("*/*") },
+                            Triple(Ms.LocationOn, "Location") { locPerm.launch(arrayOf(android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.ACCESS_FINE_LOCATION)) },
+                            Triple(Ms.AccountCircle, "Contacts") { contactPicker.launch(null) },
+                            Triple(Ms.Schedule, "Schedule send") { showAttach = false; pickScheduleTime() },
+                            Triple(Ms.PhotoCamera, "Camera") { startCamera() },
+                            Triple(Ms.Videocam, "Video") { videoPicker.launch("video/*") },
+                            Triple(Ms.Mic, "Voice") { showAttach = false; if (rec.hasPermission()) { if (rec.start()) rec.mode = RecMode.LOCKED } else audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
                         ))
                     }
                     AnimatedVisibility(showGallery, enter = PanelEnter, exit = PanelExit) {
@@ -634,7 +628,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             }
             if (pins.isNotEmpty()) item(key = "pinned_banner") {
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                    Icon(Ms.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                     Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -678,7 +672,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             Text(sm.body, color = TextPrimary, fontSize = 15.sp)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, end = 6.dp)) {
-                            Icon(Icons.Default.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
+                            Icon(Ms.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
                             Text("Scheduled · " + SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault()).format(Date(sm.sendAt)), fontSize = 11.sp, color = TextHint)
                         }
                     }
@@ -711,7 +705,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             SmallFloatingActionButton(onClick = { scope.launch { runCatching { listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0), 100000) } } },
                 shape = CircleShape, containerColor = MenuSurf, contentColor = TextPrimary,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp, pressedElevation = 4.dp)) {
-                Icon(Icons.Default.KeyboardArrowDown, "Jump to newest", modifier = Modifier.size(24.dp))
+                Icon(Ms.KeyboardArrowDown, "Jump to newest", modifier = Modifier.size(24.dp))
             }
         }
         }
@@ -722,35 +716,35 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
         val starred = StarStore.isStarred(ctx, key)
         val clip = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val acts = buildList {
-            if (m.failed) add(LongPressAction(Icons.Outlined.Refresh, "Resend", Brand) {
+            if (m.failed) add(LongPressAction(Ms.Refresh, "Resend", Brand) {
                 scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } }
                 ctxMsg = null
             })
-            add(LongPressAction(Icons.AutoMirrored.Outlined.Reply, "Reply") { replyTo = m; ctxMsg = null })
-            add(LongPressAction(Icons.Outlined.Shortcut, "Forward") {
+            add(LongPressAction(Ms.Reply, "Reply") { replyTo = m; ctxMsg = null })
+            add(LongPressAction(Ms.Forward, "Forward") {
                 ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
                 ctxMsg = null
             })
-            if (m.body.isNotBlank()) add(LongPressAction(Icons.Outlined.ContentCopy, "Copy") {
+            if (m.body.isNotBlank()) add(LongPressAction(Ms.ContentCopy, "Copy") {
                 clip.setPrimaryClip(ClipData.newPlainText("msg", m.body))
                 Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); ctxMsg = null
             })
             Regex("\\b(\\d{4,8})\\b").find(m.body)?.takeIf { Regex("(?i)code|otp|verif|passcode|קאוד|קוד").containsMatchIn(m.body) }?.groupValues?.get(1)?.let { code ->
-                add(LongPressAction(Icons.Outlined.Password, "Copy code $code") {
+                add(LongPressAction(Ms.Password, "Copy code $code") {
                     clip.setPrimaryClip(ClipData.newPlainText("code", code))
                     Toast.makeText(ctx, "Copied $code", Toast.LENGTH_SHORT).show(); ctxMsg = null
                 })
             }
-            add(LongPressAction(if (starred) Icons.Outlined.StarBorder else Icons.Outlined.StarOutline, if (starred) "Unstar" else "Star") {
+            add(LongPressAction(if (starred) Ms.Star else Ms.Star, if (starred) "Unstar" else "Star") {
                 StarStore.toggle(ctx, key); reactTick++; ctxMsg = null
             })
-            if (MsgPinStore.has(ctx, key)) add(LongPressAction(Icons.Outlined.PushPin, "Unpin") { MsgPinStore.toggle(ctx, key); reactTick++; ctxMsg = null })
-            add(LongPressAction(Icons.Outlined.Delete, "Delete") {
+            if (MsgPinStore.has(ctx, key)) add(LongPressAction(Ms.PushPin, "Unpin") { MsgPinStore.toggle(ctx, key); reactTick++; ctxMsg = null })
+            add(LongPressAction(Ms.Delete, "Delete") {
                 scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m); withContext(Dispatchers.Main) { reload() } }
                 ctxMsg = null
             })
-            add(LongPressAction(Icons.Outlined.Checklist, "Select more") { selected = setOf(key); ctxMsg = null })
-            add(LongPressAction(Icons.Outlined.Info, "Info") { detailsMsg = m; ctxMsg = null })
+            add(LongPressAction(Ms.Checklist, "Select more") { selected = setOf(key); ctxMsg = null })
+            add(LongPressAction(Ms.Info, "Info") { detailsMsg = m; ctxMsg = null })
         }
         LongPressOverlay(m, reactTick, bubbleYs[key], ReactionStore.get(ctx, key), acts,
             onReact = { emoji ->
