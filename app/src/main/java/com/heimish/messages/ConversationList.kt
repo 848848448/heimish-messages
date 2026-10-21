@@ -506,7 +506,7 @@ fun StarredScreen(onBack: () -> Unit) {
                             Text(shortTime(m.date), fontSize = 11.sp, color = TextHint)
                         }
                         Spacer(Modifier.height(2.dp))
-                        Text(m.body.ifBlank { if (m.imageUri != null) "📷 Media" else " " }, fontSize = 14.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(m.body.ifBlank { if (m.mediaMime?.startsWith("audio/") == true) "🎤 Voice message" else if (m.imageUri != null) "📷 Media" else " " }, fontSize = 14.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 HorizontalDivider(thickness = .5.dp, color = DivLt)
