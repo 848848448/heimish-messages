@@ -405,63 +405,90 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
 // ━━━━━━━━━━━━━━━━ ADMIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdminScreen(onBack: () -> Unit) {
+fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    var q by remember { mutableStateOf("") }
-    var resLines by remember { mutableStateOf(emptyList<String>()) }
-    var status by remember { mutableStateOf("") }
+    var q by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(AdminSearchMemory.q) }
+    var result by remember { mutableStateOf(AdminSearchMemory.last) }
+    var loading by remember { mutableStateOf(false) }
+    var retry by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
     val configured = BuildConfig.WORKER_URL.isNotBlank() && BuildConfig.ADMIN_TOKEN.isNotBlank()
 
-    fun search(query: String) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val url = java.net.URL("${BuildConfig.WORKER_URL}/contacts?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
-                conn.connectTimeout = 10000; conn.readTimeout = 10000
-                val code = conn.responseCode
-                val r = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText().orEmpty(); conn.disconnect()
-                if (code !in 200..299) {
-                    val msg = runCatching { org.json.JSONObject(r).optString("error") }.getOrNull().orEmpty()
-                    throw java.io.IOException("HTTP $code" + if (msg.isNotBlank()) " — $msg" else "")
-                }
-                val json = org.json.JSONObject(r)
-                val arr = json.optJSONArray("contacts")
-                val lines = mutableListOf<String>()
-                if (arr != null) for (i in 0 until arr.length()) {
-                    val c = arr.getJSONObject(i)
-                    lines.add("${c.optString("name")}  ·  ${c.optString("addr", c.optString("phone"))}" + (if (c.has("_device")) "  (${c.optString("_device")})" else ""))
-                }
-                withContext(Dispatchers.Main) {
-                    resLines = lines
-                    status = "${json.optInt("results")} of ${json.optInt("total")} contacts"
-                }
-            } catch (e: Exception) { withContext(Dispatchers.Main) { resLines = emptyList(); status = "Error: ${e.message}" } }
-        }
+    // Debounced search: waits 250 ms after the last keystroke; a newer keystroke cancels the older request.
+    LaunchedEffect(q, retry) {
+        AdminSearchMemory.q = q
+        val t = q.trim()
+        if (t.isEmpty() || !configured) { loading = false; result = CloudSearch.Idle; AdminSearchMemory.last = CloudSearch.Idle; return@LaunchedEffect }
+        val cur = result
+        if (cur is CloudSearch.Done && cur.query == t) { loading = false; return@LaunchedEffect }
+        delay(250)
+        loading = true
+        val r = try { withContext(Dispatchers.IO) { CloudContacts.fetch(t) } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: CloudSearchError) { CloudSearch.Failed(t, e.code, e.message ?: "") }
+            catch (e: java.net.UnknownHostException) { CloudSearch.Failed(t, null, "Can't reach the contacts server (no internet?)") }
+            catch (e: java.net.SocketTimeoutException) { CloudSearch.Failed(t, null, "The contacts server took too long to answer") }
+            catch (e: Exception) { CloudSearch.Failed(t, null, e.message ?: e.javaClass.simpleName) }
+        result = r; AdminSearchMemory.last = r; loading = false
     }
 
-    Scaffold(containerColor = Bg,
+    fun openChat(c: CloudContact) {
+        scope.launch {
+            val number = CloudContacts.dialable(c.number)
+            val threadId = withContext(Dispatchers.IO) { SmsRepository.getOrCreateThreadId(ctx, number) }
+            onOpen(Conversation(threadId, number, c.name.ifBlank { CloudContacts.pretty(c.number) }, "", System.currentTimeMillis(), false))
+        }
+    }
+    fun copied(num: String) {
+        scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar("Copied $num", duration = SnackbarDuration.Short) }
+    }
+
+    Scaffold(containerColor = Bg, snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
             navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad).padding(16.dp)) {
-            item {
+        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+            item(key = "search") {
                 SettingsHeader("Contact search")
                 if (!configured) {
                     Text("Contact search is not configured in this build.", fontSize = 14.sp, color = TextSecond)
                 } else {
-                    TextField(q, {
-                        q = it; if (it.isNotBlank()) search(it) else { resLines = emptyList(); status = "" }
-                    }, Modifier.fillMaxWidth(), placeholder = { Text("Search name or number…", color = TextHint) }, singleLine = true, shape = RoundedCornerShape(28.dp),
+                    TextField(q, { q = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search name or number…", color = TextHint) }, singleLine = true, shape = RoundedCornerShape(28.dp),
                         leadingIcon = { Icon(Ms.Search, null, tint = TextHint) },
+                        trailingIcon = {
+                            if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Brand)
+                            else if (q.isNotEmpty()) IconButton({ q = "" }) { Icon(Ms.Close, "Clear", tint = TextHint) }
+                        },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         colors = TextFieldDefaults.colors(focusedContainerColor = SearchBg, unfocusedContainerColor = SearchBg, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, cursorColor = Brand))
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
             }
-            items(resLines) { line -> Text(line, fontSize = 14.sp, color = TextPrimary, modifier = Modifier.padding(vertical = 4.dp)) }
-            if (status.isNotBlank()) item { Text(status, fontSize = 12.sp, color = TextHint, modifier = Modifier.padding(vertical = 6.dp)) }
-            item {
+            when (val r = result) {
+                is CloudSearch.Done -> {
+                    item(key = "count") {
+                        val n = r.items.size
+                        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (n == 1) "1 result" else "$n results", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                            if (r.total > 0) Text("  ·  of ${"%,d".format(r.total)} contacts" + if (r.truncated) " (first 500)" else "", fontSize = 13.sp, color = TextHint)
+                        }
+                    }
+                    if (r.items.isEmpty()) item(key = "empty") { CloudSearchState(Ms.SearchOff, "No results", "Nothing matches “${r.query}”. Try part of the name or the last digits of the number.") }
+                    else {
+                        val multiDevice = r.items.flatMap { it.devices }.distinct().size > 1
+                        itemsIndexed(r.items, key = { _, c -> c.key }) { i, c ->
+                            CloudContactRow(c, r.query, multiDevice, first = i == 0, last = i == r.items.lastIndex, onOpen = { openChat(it) }, onCopied = { copied(it) })
+                        }
+                        item(key = "tip") { Text("Tap to text · long-press to copy", fontSize = 12.sp, color = TextHint, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) }
+                    }
+                }
+                is CloudSearch.Failed -> item(key = "error") {
+                    CloudSearchState(Ms.Error, if (r.httpCode != null) "Search failed (HTTP ${r.httpCode})" else "Search failed", r.message.ifBlank { null }, "Try again") { result = CloudSearch.Idle; retry++ }
+                }
+                CloudSearch.Idle -> {}
+            }
+            item(key = "device") {
                 SettingsHeader("Device info")
                 Text("Model: ${Build.MODEL}", fontSize = 14.sp, color = TextPrimary)
                 Text("Android: ${Build.VERSION.RELEASE}", fontSize = 14.sp, color = TextSecond)
