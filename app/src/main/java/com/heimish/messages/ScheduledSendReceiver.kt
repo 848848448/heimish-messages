@@ -40,9 +40,13 @@ class ScheduledSendReceiver : BroadcastReceiver() {
 
     companion object {
         /** Sends scheduled message [id] now. The store is the truth: a message cancelled or edited after the alarm was set is honoured. */
-        fun fire(ctx: Context, id: Long): Boolean {
-            val m = ScheduledStore.get(ctx, id) ?: return false
-            ScheduledStore.remove(ctx, id)  // first, so a second alarm (reboot re-arm) can never send it twice
+        private val RETRY_DELAYS = longArrayOf(60_000L, 5 * 60_000L, 15 * 60_000L, 60 * 60_000L)
+        private const val CLAIM_MS = 10 * 60_000L
+
+        fun fire(ctx: Context, id: Long, manual: Boolean = false): Boolean {
+            // Claim it first (persisted), so a second alarm (reboot re-arm) can't send it twice while this send runs.
+            // The message itself stays in the store until the send succeeded: a failed send no longer loses the text.
+            val m = ScheduledStore.claim(ctx, id, CLAIM_MS, manual) ?: return false
             val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
             val ok = runCatching {
                 if (m.mediaPath != null) {
@@ -54,12 +58,21 @@ class ScheduledSendReceiver : BroadcastReceiver() {
                     SmsRepository.sendGroupText(ctx, m.address, m.body) || SmsRepository.sendSms(ctx, m.address, m.body)
                 } else SmsRepository.sendSms(ctx, m.address, m.body)
             }.getOrDefault(false)
-            if (!ok) {
+            if (ok) ScheduledStore.remove(ctx, id)
+            else if (!manual && m.attempts < RETRY_DELAYS.size) {
+                // Retry with backoff: 1 min, 5 min, 15 min, 1 hour
+                val next = m.copy(attempts = m.attempts + 1, nextTry = System.currentTimeMillis() + RETRY_DELAYS[m.attempts], claimAt = 0L)
+                ScheduledStore.put(ctx, next)
+                arm(ctx, next)
+                Log.w("ScheduledSend", "Scheduled message $id failed (try ${m.attempts + 1}), retrying at ${next.nextTry}")
+            } else {
+                // Out of retries: keep it in Scheduled (marked not sent, not re-armed) so the text can be edited or sent again
+                ScheduledStore.put(ctx, m.copy(failed = true, claimAt = 0L))
                 val name = SmsRepository.splitRecipients(m.address).joinToString(", ") { SmsRepository.getContactName(ctx, it) ?: it }
                 runCatching { Notifications.showFailed(ctx, name, m.address, SmsRepository.getThreadIdForAddress(ctx, m.address)) }
             }
             runCatching { MessageWidget.refresh(ctx) }
-            Log.d("ScheduledSend", "Scheduled message $id sent=$ok")
+            Log.d("ScheduledSend", "Scheduled message $id sent=$ok attempts=${m.attempts}")
             return ok
         }
 
@@ -69,7 +82,7 @@ class ScheduledSendReceiver : BroadcastReceiver() {
         }
 
         private fun arm(ctx: Context, m: ScheduledMessage) =
-            ExactAlarm.set(ctx, maxOf(m.sendAt, System.currentTimeMillis() + 5_000), pi(ctx, m.id))
+            ExactAlarm.set(ctx, maxOf(m.sendAt, m.nextTry, System.currentTimeMillis() + 5_000), pi(ctx, m.id))
 
         /** Schedules a text (or a photo/video with [mediaUri]; it is copied so it's still there at send time). Returns the id. */
         fun schedule(ctx: Context, address: String, body: String, sendAtMillis: Long, mediaUri: Uri? = null, mime: String? = null): Long {
@@ -90,7 +103,8 @@ class ScheduledSendReceiver : BroadcastReceiver() {
         /** Changes the text and/or the time of a scheduled message (same id). */
         fun update(ctx: Context, id: Long, body: String? = null, sendAt: Long? = null): Boolean {
             val m = ScheduledStore.get(ctx, id) ?: return false
-            val n = m.copy(body = body ?: m.body, sendAt = sendAt ?: m.sendAt)
+            // Editing a message that failed to send makes it a fresh scheduled message again
+            val n = m.copy(body = body ?: m.body, sendAt = sendAt ?: m.sendAt, attempts = 0, nextTry = 0L, claimAt = 0L, failed = false)
             ScheduledStore.put(ctx, n)
             arm(ctx, n)
             return true
@@ -103,7 +117,7 @@ class ScheduledSendReceiver : BroadcastReceiver() {
         }
 
         /** Sets every alarm again: after a reboot, an app update or a force stop (Android drops alarms then). Safe to call often. */
-        fun rearmAll(ctx: Context) { runCatching { ScheduledStore.getAll(ctx).forEach { arm(ctx, it) } } }
+        fun rearmAll(ctx: Context) { runCatching { ScheduledStore.getAll(ctx).filter { !it.failed }.forEach { arm(ctx, it) } } }
     }
 }
 
@@ -120,7 +134,8 @@ object ScheduledStore {
             val a = JSONArray(p.getString(KEY, "[]"))
             for (i in 0 until a.length()) { val o = a.getJSONObject(i)
                 out.add(ScheduledMessage(o.getLong("id"), o.getLong("at"), o.getString("a"), o.optString("b"),
-                    o.optString("f").takeIf { it.isNotEmpty() }, o.optString("mt").takeIf { it.isNotEmpty() })) }
+                    o.optString("f").takeIf { it.isNotEmpty() }, o.optString("mt").takeIf { it.isNotEmpty() },
+                    o.optInt("n", 0), o.optLong("r", 0L), o.optLong("c", 0L), o.optBoolean("x", false))) }
         }
         // Messages scheduled by older versions ("id|sendAt|address|body")
         val old = p.getStringSet(OLD_KEY, null)
@@ -134,7 +149,8 @@ object ScheduledStore {
     }
     private fun write(ctx: Context, l: List<ScheduledMessage>) {
         val a = JSONArray()
-        l.forEach { m -> a.put(JSONObject().put("id", m.id).put("at", m.sendAt).put("a", m.address).put("b", m.body).apply { m.mediaPath?.let { put("f", it) }; m.mime?.let { put("mt", it) } }) }
+        l.forEach { m -> a.put(JSONObject().put("id", m.id).put("at", m.sendAt).put("a", m.address).put("b", m.body).apply { m.mediaPath?.let { put("f", it) }; m.mime?.let { put("mt", it) }
+            if (m.attempts > 0) put("n", m.attempts); if (m.nextTry > 0) put("r", m.nextTry); if (m.claimAt > 0) put("c", m.claimAt); if (m.failed) put("x", true) }) }
         prefs(ctx).edit().putString(KEY, a.toString()).commit()
     }
 
@@ -147,7 +163,15 @@ object ScheduledStore {
     fun add(ctx: Context, id: Long, address: String, body: String, sendAt: Long) = put(ctx, ScheduledMessage(id, sendAt, address, body))
     fun remove(ctx: Context, id: Long) = synchronized(lock) { val l = read(ctx); if (l.removeAll { it.id == id }) write(ctx, l) }
     fun get(ctx: Context, id: Long): ScheduledMessage? = synchronized(lock) { read(ctx).firstOrNull { it.id == id } }
+    /** Marks [id] as being sent right now. Null if it's gone, already failed for good, or another send claimed it in the last [claimMs]. */
+    fun claim(ctx: Context, id: Long, claimMs: Long, manual: Boolean = false): ScheduledMessage? = synchronized(lock) {
+        val l = read(ctx); val m = l.firstOrNull { it.id == id } ?: return null
+        val now = System.currentTimeMillis()
+        if ((m.failed && !manual) || (m.claimAt > 0 && now - m.claimAt < claimMs)) return null
+        val c = m.copy(claimAt = now); l.removeAll { it.id == id }; l.add(c); write(ctx, l); c
+    }
     fun getAll(ctx: Context): List<ScheduledMessage> = synchronized(lock) { read(ctx).sortedBy { it.sendAt } }
 }
 
-data class ScheduledMessage(val id: Long, val sendAt: Long, val address: String, val body: String, val mediaPath: String? = null, val mime: String? = null)
+data class ScheduledMessage(val id: Long, val sendAt: Long, val address: String, val body: String, val mediaPath: String? = null, val mime: String? = null,
+                            val attempts: Int = 0, val nextTry: Long = 0L, val claimAt: Long = 0L, val failed: Boolean = false)

@@ -573,14 +573,15 @@ fun ScheduledScreen(onBack: () -> Unit) {
                         if (sm.mediaPath != null) Text(if (sm.mime?.startsWith("video") == true) "\uD83C\uDFA5 Video" else "\uD83D\uDCF7 Photo", fontSize = 13.sp, color = TextSecond)
                         if (sm.body.isNotBlank()) Text(sm.body, fontSize = 13.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(2.dp))
-                        Text(fmt.format(Date(sm.sendAt)), fontSize = 12.sp, color = Brand, fontWeight = FontWeight.Medium)
+                        if (sm.failed) Text("Not sent · " + fmt.format(Date(sm.sendAt)), fontSize = 12.sp, color = Red, fontWeight = FontWeight.Medium)
+                        else Text(fmt.format(Date(sm.sendAt)), fontSize = 12.sp, color = Brand, fontWeight = FontWeight.Medium)
                     }
                     var menu by remember { mutableStateOf(false) }
                     Box {
                         IconButton({ menu = true }) { Icon(Ms.MoreVert, "More", tint = TextSecond) }
                         DropdownMenu(menu, { menu = false }, containerColor = Surf) {
                             DropdownMenuItem({ Text("Send now", color = TextPrimary) }, { menu = false
-                                Thread { ScheduledSendReceiver.fire(ctx.applicationContext, sm.id) }.start(); tick++ }, leadingIcon = { Icon(Ms.SendFill, null, tint = TextSecond) })
+                                Thread { ScheduledSendReceiver.fire(ctx.applicationContext, sm.id, manual = true) }.start(); tick++ }, leadingIcon = { Icon(Ms.SendFill, null, tint = TextSecond) })
                             DropdownMenuItem({ Text("Edit message", color = TextPrimary) }, { menu = false
                                 val et = android.widget.EditText(ctx); et.setText(sm.body); et.setSelection(et.text.length)
                                 android.app.AlertDialog.Builder(ctx).setTitle("Edit scheduled message").setView(et).setPositiveButton("Save") { _, _ ->
