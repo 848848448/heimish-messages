@@ -93,5 +93,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     // Installs the baseline profile (src/main/baseline-prof.txt + the Compose libraries' own) on sideloaded installs
     implementation("androidx.profileinstaller:profileinstaller:1.3.1")
+    testImplementation("junit:junit:4.13.2")
 }
 // v3.4
