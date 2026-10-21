@@ -154,13 +154,16 @@ fun EmojiPicker(onPick: (String) -> Unit) {
 }
 
 // ━━━━━━━━━━━━━━━━ MESSAGE BUBBLE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/** The chat screen provides this so a tapped photo opens the swipeable viewer over all the chat's photos. */
+val LocalPhotoOpener = compositionLocalOf<((Message) -> Unit)?> { null }
+
 internal val URL_REGEX = Regex("(https?://[\\w\\-._~:/?#\\[\\]@!\$&'()*+,;=%]+|[\\w.+-]+@[\\w-]+\\.[\\w.-]+[A-Za-z]|\\+?\\d[\\d ().-]{7,}\\d)", RegexOption.IGNORE_CASE)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta: Boolean = true, joinedAbove: Boolean = false, joinedBelow: Boolean = false, onTap: (() -> Unit)? = null) {
     val ctx = LocalContext.current
-    val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+    val prefs = remember { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE) }
     val isIn = m.incoming
     val bubbleColor = if (ThemeState.chat != null) BubbleOut else remember(reactTick) { Color(prefs.getInt("bubble_color", BubbleOut.toArgb())) }
     val outColor = if (isIn) BubbleIn else bubbleColor
@@ -169,10 +172,10 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     val outSub = if (isIn) TextHint else if (customOut) Color.White.copy(.72f) else BubbleOutSub
     val linkColor = if (isIn) Brand else if (customOut) Color(0xFFCDE1FF) else BubbleOutLink
     val previewBg = if (isIn) (if (D) Color(0xFF5F6368) else Color(0xFFD8DEE9)) else if (customOut) BrandDk else (if (D) Color(0xFF7CACF8) else BrandDk)
-    val textSize = when (prefs.getString("text_size", "default")) {
+    val textSize = remember(reactTick) { when (prefs.getString("text_size", "default")) {
         "small" -> 14.sp; "large" -> 18.sp; "largest" -> 20.sp; else -> 16.sp
-    }
-    val previewMode = prefs.getString("preview_mode", "links") ?: "links"
+    } }
+    val previewMode = remember(reactTick) { prefs.getString("preview_mode", "links") ?: "links" }
     var vTick by remember { mutableIntStateOf(0) }
     val reaction = remember(reactTick, vTick) { ReactionStore.get(ctx, msgKey(m)) }
     val starred = remember(reactTick) { StarStore.isStarred(ctx, msgKey(m)) }
@@ -187,6 +190,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
             dismissButton = { TextButton({ warnUrl = null }) { Text("Cancel") } })
     }
     var viewing by remember { mutableStateOf(false) }
+    val openPhoto = LocalPhotoOpener.current
     if (viewing && m.imageUri != null) PhotoViewer(m.imageUri, onClose = { viewing = false }, title = if (isIn) (m.address?.let { a -> SmsRepository.getContactName(ctx, a) ?: a } ?: "") else "You", date = m.date, reactKey = msgKey(m), onReacted = { vTick++ })
     val cr = prefs.getInt("bubble_corner", 24).dp
     // Google Messages style: bubbles in a run from the same person get tight corners where they touch
@@ -214,18 +218,18 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                                 Icon(Ms.PlayCircleFill, null, tint = Color.White, modifier = Modifier.size(48.dp))
                             }
                             mime.startsWith("audio/") -> VoiceNoteBubble(m, m.imageUri, isIn, outText, outSub, onLongClick)
-                            else -> AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 240.dp).clickable { viewing = true }.clip(
+                            else -> AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 240.dp).clickable { if (openPhoto != null) openPhoto(m) else viewing = true }.clip(
                                 if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
                             ), contentScale = ContentScale.Crop)
                         }
                     }
                     if (m.body.isNotBlank()) {
-                        val urls = URL_REGEX.findAll(m.body).toList()
+                        val urls = remember(m.body) { URL_REGEX.findAll(m.body).toList() }
                         if (urls.isEmpty()) {
                             Text(m.body, color = outText, fontSize = textSize, lineHeight = (textSize.value + 6).sp,
                                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp))
                         } else {
-                            val annotated = buildAnnotatedString {
+                            val annotated = remember(m.body, outText, linkColor) { buildAnnotatedString {
                                 var last = 0
                                 urls.forEach { match ->
                                     withStyle(SpanStyle(color = outText)) { append(m.body.substring(last, match.range.first)) }
@@ -235,7 +239,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                                     last = match.range.last + 1
                                 }
                                 if (last < m.body.length) withStyle(SpanStyle(color = outText)) { append(m.body.substring(last)) }
-                            }
+                            } }
                             ClickableText(annotated, style = androidx.compose.ui.text.TextStyle(fontFamily = FontState.family, fontSize = textSize, lineHeight = (textSize.value + 6).sp),
                                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (m.imageUri != null) 6.dp else 9.dp, bottom = 9.dp),
                                 onClick = { off -> annotated.getStringAnnotations("URL", off, off).firstOrNull()?.let { a -> val v = a.item
@@ -243,7 +247,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                                 runCatching { ctx.startActivity(if (v.startsWith("http", true)) Intent(Intent.ACTION_VIEW, Uri.parse(v)) else if (v.contains("@")) Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + v)) else Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + v.filter { c -> c.isDigit() || c == '+' }))) } } })
                             if (previewMode != "none" && urls.any { it.value.startsWith("http", true) }) {
                                 val url = urls.first { it.value.startsWith("http", true) }.value
-                                val domain = try { java.net.URL(url).host.removePrefix("www.") } catch (_: Exception) { url }
+                                val domain = remember(url) { try { java.net.URL(url).host.removePrefix("www.") } catch (_: Exception) { url } }
                                 Box(Modifier.padding(horizontal = 10.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp))
                                     .background(previewBg)
                                     .clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.padding(10.dp)) {
@@ -271,7 +275,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                             Icon(Ms.StarFill, null, tint = Amber, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.width(3.dp))
                         }
-                        Text(msgTime(m.date), fontSize = 11.sp, color = TextHint)
+                        Text(remember(m.date) { msgTime(m.date) }, fontSize = 11.sp, color = TextHint)
                         if (!isIn && !failed) {
                             Spacer(Modifier.width(3.dp))
                             Icon(
