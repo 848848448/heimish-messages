@@ -93,11 +93,9 @@ internal fun sharePhoto(ctx: Context, uri: Uri) {
 
 /** Forward inside the app: the photo waits while you pick who gets it (the same path as sharing into the app). */
 internal fun forwardPhoto(ctx: Context, uri: Uri): Boolean {
-    // The in-app "Forward message" picker; afterwards you land back in this chat at the same spot
-    if (ForwardState.open != null) return startForwardOne(ctx, uri)
-    val f = cacheCopy(ctx, uri) ?: run { Toast.makeText(ctx, "Could not forward", Toast.LENGTH_SHORT).show(); return false }
-    IntentRouter.pending = Intent(Intent.ACTION_SEND).setType("image/jpeg").putExtra(Intent.EXTRA_STREAM, Uri.fromFile(f))
-    return true
+    // The in-app "Forward message" picker; afterwards you land back in this chat at the same spot.
+    // (From the floating bubble the app opens on the same picker.)
+    return startForwardOne(ctx, uri)
 }
 
 /** One photo the full-screen viewer can show. [key] identifies the message for reactions. */
@@ -173,8 +171,8 @@ fun PhotoViewer(items: List<ViewerItem>, startIndex: Int, onClose: () -> Unit, o
     var menu by remember { mutableStateOf(false) }
     var reaction by remember(cur.reactKey) { mutableStateOf(cur.reactKey?.let { ReactionStore.get(ctx, it) }) }
     val prefs = remember { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE) }
-    var hint by remember { mutableStateOf(prefs.getInt("viewer_hint_count", 0) < 4) }
-    LaunchedEffect(Unit) { if (hint) { prefs.edit().putInt("viewer_hint_count", prefs.getInt("viewer_hint_count", 0) + 1).apply(); delay(4500); hint = false } }
+    // No on-screen "swipe to…" hint (removed on request); the variable stays so the gesture code is unchanged
+    var hint by remember { mutableStateOf(false) }
     // A page that scrolls away comes back unzoomed
     LaunchedEffect(pager.currentPage) { zooms.forEach { (i, z) -> if (i != pager.currentPage) z.reset() } }
 

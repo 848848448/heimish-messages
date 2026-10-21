@@ -230,7 +230,7 @@ fun ScheduledInChat(sm: ScheduledMessage, onClick: () -> Unit) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, end = 6.dp)) {
             Icon(Ms.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
-            Text("Scheduled · " + TimeMenu.label(sm.sendAt) + " · tap to change", fontSize = 11.sp, color = TextHint)
+            Text("Scheduled · " + TimeMenu.label(sm.sendAt), fontSize = 11.sp, color = TextHint)
         }
     }
 }

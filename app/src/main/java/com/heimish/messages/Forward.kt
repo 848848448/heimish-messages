@@ -160,10 +160,31 @@ object Forwarder {
 /** Forward from the full-screen photo viewer: the same picker, and back to the same chat afterwards. */
 internal fun startForwardOne(ctx: Context, uri: Uri): Boolean {
     val p = Forwarder.buildOne(ctx, uri, ActiveThread.id) ?: run { Toast.makeText(ctx, "Could not forward", Toast.LENGTH_SHORT).show(); return false }
-    val open = ForwardState.open ?: return false
     ForwardState.payload = p
-    open()
-    return true
+    if (openForwardPicker(ctx)) return true
+    ForwardState.clear()
+    return false
+}
+
+/**
+ * Opens the "Forward message" picker for [ForwardState.payload]. In the app it slides in on top of the chat you are in.
+ * From the floating chat bubble (which has no picker) the app itself opens on the picker; that used to say "Could not forward".
+ */
+internal fun openForwardPicker(ctx: Context): Boolean {
+    val open = ForwardState.open
+    if (open != null && ctx.findActivity() !is BubbleActivity) { open(); return true }
+    return runCatching {
+        ctx.startActivity(android.content.Intent(ctx, MainActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("open_forward", true))
+        true
+    }.getOrDefault(false)
+}
+
+internal fun Context.findActivity(): android.app.Activity? {
+    var c: Context? = this
+    while (c is android.content.ContextWrapper) { if (c is android.app.Activity) return c; c = c.baseContext }
+    return null
 }
 
 /** A row in the picker: a chat that already exists, a contact, or a typed number. */
