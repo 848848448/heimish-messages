@@ -239,6 +239,12 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     }
 
     BackHandler(enabled = stack.size > 1) { back() }
+    // Every screen keeps its own saved state (list scroll position etc.) while it is in the back stack, so going back
+    // lands exactly where you were instead of at the top. A screen that is closed forgets it (opening it again starts fresh).
+    val saveHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val openKeys = remember { HashSet<String>() }
+    val liveKeys = stack.map(::screenKey).toSet()
+    LaunchedEffect(liveKeys) { openKeys.filter { it !in liveKeys }.forEach { saveHolder.removeState(it); openKeys.remove(it) } }
 
     var locked by remember { mutableStateOf(prefs.getBoolean("app_lock", false)) }
     DisposableEffect(Unit) {
@@ -258,7 +264,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             onRequest = { permL.launch(Permissions.ALL) },
             onGranted = { hasPerms = true }
         )
-        else -> ScreenTransition(screen, stack.size) { s -> when (s) {
+        else -> ScreenTransition(screen, stack.size) { s -> val sk = screenKey(s); openKeys.add(sk); saveHolder.SaveableStateProvider(sk) { when (s) {
             Screen.List     -> ConvListScreen({ go(Screen.Chat(it)) }, { go(Screen.NewConv) }, { go(Screen.Settings) }, { go(Screen.Admin) }, { go(Screen.Archived) }, { go(Screen.Starred) }, { go(Screen.Scheduled) }, { go(Screen.Spam) }, { go(Screen.WhatsNew(it)) }, { go(Screen.Trash) }, { go(Screen.Search) })
             is Screen.WhatsNew -> UpdateScreen(s.info, s.autoInstall) { back() }
             Screen.Trash    -> TrashScreen { back() }
@@ -273,9 +279,12 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             Screen.Archived -> ArchivedScreen({ go(Screen.Chat(it)) }) { back() }
             Screen.Starred  -> StarredScreen { back() }
             Screen.Scheduled -> ScheduledScreen { back() }
-        } }
+        } } }
     }
 }
+
+/** One key per back-stack screen: its scroll positions (and other saveable state) live under this key while it is in the stack. */
+private fun screenKey(s: Screen): String = if (s is Screen.WhatsNew) "whatsnew" else encodeScreen(s)
 
 /**
  * Material "shared axis X" screen transition: a short slide plus fade, forward when a screen is pushed and
