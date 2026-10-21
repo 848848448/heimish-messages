@@ -228,8 +228,9 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                                     scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
                                     refresh()
                                 }),
-                            listOf(MenuEntry(Ms.Settings, "Messages settings") { showMenu = false; onSettings() },
-                                MenuEntry(Ms.AdminPanelSettings, "Admin panel") { showMenu = false; onAdmin() })
+                            // Admin is hidden until the version line in Settings is tapped 7 times (AdminAuth).
+                            listOfNotNull(MenuEntry(Ms.Settings, "Messages settings") { showMenu = false; onSettings() },
+                                if (AdminAuth.revealed) MenuEntry(Ms.AdminPanelSettings, "Admin panel") { showMenu = false; onAdmin() } else null)
                         )) { showMenu = false }
                     }
                 }
