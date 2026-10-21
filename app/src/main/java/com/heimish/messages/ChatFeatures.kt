@@ -284,7 +284,7 @@ fun ChatSearchActions(hits: Int, at: Int, filter: Int, onPrev: () -> Unit, onNex
 @Composable
 fun MessageActionsOverlay(
     m: Message, conversation: Conversation, address: String, reactTick: Int, bubbleY: Float?,
-    onReply: () -> Unit, onResend: () -> Unit, onDelete: () -> Unit, onSelect: () -> Unit, onDetails: () -> Unit,
+    onReply: () -> Unit, onResend: () -> Unit, onDelete: () -> Unit, onSelect: () -> Unit, onDetails: () -> Unit, onForward: () -> Unit,
     onChanged: () -> Unit, onDismiss: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -295,10 +295,8 @@ fun MessageActionsOverlay(
     val acts = buildList {
         if (m.failed) add(LongPressAction(Ms.Refresh, "Resend", Brand) { onResend(); onDismiss() })
         add(LongPressAction(Ms.Reply, "Reply") { onReply(); onDismiss() })
-        add(LongPressAction(Ms.Forward, "Forward") {
-            ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
-            onDismiss()
-        })
+        // Google Messages: Forward opens the in-app "Forward message" picker (text, photos, videos, voice notes, files)
+        add(LongPressAction(Ms.Forward, "Forward") { onForward(); onDismiss() })
         if (m.body.isNotBlank()) add(LongPressAction(Ms.ContentCopy, "Copy") {
             clip.setPrimaryClip(ClipData.newPlainText("msg", m.body))
             if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); onDismiss()
