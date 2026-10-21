@@ -203,7 +203,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                                 val sel = prefs.contains("bubble_color") && prefs.getInt("bubble_color", 0) == clr.toArgb()
                                 Box(Modifier.size(44.dp).clip(CircleShape).background(clr).border(if (sel) 3.dp else 0.dp, if (sel) TextPrimary else Color.Transparent, CircleShape).clickable {
                                     prefs.edit().putInt("bubble_color", clr.toArgb()).apply()
-                                    Toast.makeText(ctx, "Color updated — open a chat to see it", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(ctx, "Color updated", Toast.LENGTH_SHORT).show()
                                 })
                             }
                         }
@@ -304,7 +304,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                     item { SettingsHeader("Scheduled send & reminders") }
                     item {
                         val exact = remember { ExactAlarm.canExact(ctx) }
-                        Text(if (exact) "Press and hold Send in a chat to pick a time. Scheduled messages and reminders go off exactly on time, even after a restart."
+                        Text(if (exact) "Scheduled messages and reminders go off exactly on time, even after a restart."
                             else "Exact alarms are off for this app, so scheduled messages and reminders may be a few minutes late.",
                             Modifier.padding(vertical = 8.dp), fontSize = 14.sp, color = TextSecond)
                         if (!exact) ExactAlarm.settingsIntent(ctx)?.let { i -> OutlinedButton({ runCatching { ctx.startActivity(i) } }) { Text("Allow exact alarms") } }
@@ -504,13 +504,12 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
                             if (r.total > 0) Text("  ·  of ${"%,d".format(r.total)} contacts" + if (r.truncated) " (first 500)" else "", fontSize = 13.sp, color = TextHint)
                         }
                     }
-                    if (r.items.isEmpty()) item(key = "empty") { CloudSearchState(Ms.SearchOff, "No results", "Nothing matches “${r.query}”. Try part of the name or the last digits of the number.") }
+                    if (r.items.isEmpty()) item(key = "empty") { CloudSearchState(Ms.SearchOff, "No results", "Nothing matches “${r.query}”") }
                     else {
                         val multiDevice = r.items.flatMap { it.devices }.distinct().size > 1
                         itemsIndexed(r.items, key = { _, c -> c.key }) { i, c ->
                             CloudContactRow(c, r.query, multiDevice, first = i == 0, last = i == r.items.lastIndex, onOpen = { openChat(it) }, onCopied = { copied(it) })
                         }
-                        item(key = "tip") { Text("Tap to text · long-press to copy", fontSize = 12.sp, color = TextHint, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) }
                     }
                 }
                 is CloudSearch.Failed -> item(key = "error") {
@@ -532,7 +531,7 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
                 OutlinedButton({ lockAdmin() }, shape = RoundedCornerShape(50)) {
                     Icon(Ms.Lock, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Lock admin", color = TextPrimary)
                 }
-                Text("Signs out on this phone and hides Admin from the menu. Tap the version in Settings 7 times to bring it back.", fontSize = 12.sp, color = TextHint, modifier = Modifier.padding(top = 6.dp))
+                Text("Signs out on this phone and hides Admin from the menu.", fontSize = 12.sp, color = TextHint, modifier = Modifier.padding(top = 6.dp))
                 Spacer(Modifier.height(16.dp))
             }
         }

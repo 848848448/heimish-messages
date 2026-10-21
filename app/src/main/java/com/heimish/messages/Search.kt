@@ -33,6 +33,7 @@ import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // Material Symbols: outlined on the tiles, filled on the active filter chip
@@ -80,10 +81,11 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     }
     val contacts by produceState(emptyList<Pair<String, String>>()) { value = withContext(Dispatchers.IO) { runCatching { SmsRepository.loadContactsList(ctx) }.getOrDefault(emptyList()) } }
     val needMsgs = filter in setOf("starred", "images", "videos", "places", "links")
-    val recent by produceState(emptyList<FoundMsg>(), needMsgs, convs) {
-        if (needMsgs && convs.isNotEmpty()) value = withContext(Dispatchers.IO) {
-            convs.take(40).flatMap { c -> runCatching { SmsRepository.loadMessages(ctx, c.threadId, 250) }.getOrDefault(emptyList()).map { FoundMsg(c, it) } }
-        }
+    // Asks the message store for exactly what the filter wants, across ALL chats (it used to read only the 40 newest chats)
+    val recent by produceState(emptyList<FoundMsg>(), filter, convs) {
+        value = emptyList()
+        val f = filter
+        if (needMsgs && f != null && convs.isNotEmpty()) value = withContext(Dispatchers.IO) { runCatching { findForFilter(ctx, f, convs) }.getOrDefault(emptyList()) }
     }
     val hits by produceState(emptyList<MsgHit>(), q) {
         if (q.trim().length < 2) { value = emptyList(); return@produceState }
@@ -133,10 +135,68 @@ fun SearchScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
     }
 }
 
+/** Messages for a search filter, read straight from the SMS/MMS store (newest first, capped). */
+private fun findForFilter(ctx: android.content.Context, filter: String, convs: List<Conversation>): List<FoundMsg> {
+    val byThread = convs.associateBy { it.threadId }
+    val cr = ctx.contentResolver
+    val out = ArrayList<FoundMsg>()
+    fun convFor(t: Long, addr: String) = byThread[t] ?: Conversation(t, addr, SmsRepository.getContactName(ctx, addr) ?: addr, "", 0L, false)
+    when (filter) {
+        "starred" -> {
+            val keys = ctx.getSharedPreferences("heimish_prefs", android.content.Context.MODE_PRIVATE).getStringSet("starred_messages", emptySet())?.toSet() ?: emptySet()
+            val threads = HashSet<Long>()
+            fun threadsOf(uri: android.net.Uri, ids: List<Long>) = ids.chunked(400).forEach { ch ->
+                runCatching { cr.query(uri, arrayOf("thread_id"), "_id IN (" + ch.joinToString(",") + ")", null, null)?.use { c -> while (c.moveToNext()) threads.add(c.getLong(0)) } }
+            }
+            threadsOf(android.provider.Telephony.Sms.CONTENT_URI, keys.filter { it.startsWith("s") }.mapNotNull { it.drop(1).toLongOrNull() })
+            threadsOf(android.net.Uri.parse("content://mms"), keys.filter { it.startsWith("m") }.mapNotNull { it.drop(1).toLongOrNull()?.minus(1_000_000L) })
+            for (t in threads) {
+                val c = byThread[t] ?: continue
+                for (m in SmsRepository.loadMessages(ctx, t, 2000)) if (msgKey(m) in keys) out.add(FoundMsg(c, m))
+            }
+        }
+        "images", "videos" -> {
+            val kind = if (filter == "images") "image/%" else "video/%"
+            // newest attachments first: part rows of that type, then their messages
+            val parts = LinkedHashMap<Long, Pair<Long, String>>() // mms id -> (part id, type)
+            cr.query(android.net.Uri.parse("content://mms/part"), arrayOf("_id", "mid", "ct"), "ct LIKE ?", arrayOf(kind), "_id DESC LIMIT 300")?.use { c ->
+                while (c.moveToNext()) { val mid = c.getLong(1); if (!parts.containsKey(mid)) parts[mid] = c.getLong(0) to (c.getString(2) ?: "") }
+            }
+            parts.keys.chunked(400).forEach { ch ->
+                cr.query(android.net.Uri.parse("content://mms"), arrayOf("_id", "thread_id", "date", "msg_box"), "_id IN (" + ch.joinToString(",") + ")", null, null)?.use { c ->
+                    while (c.moveToNext()) {
+                        val mid = c.getLong(0); val t = c.getLong(1); val p = parts[mid] ?: continue
+                        val conv = byThread[t] ?: continue
+                        val m = Message(id = mid + 1_000_000L, body = "", date = c.getLong(2) * 1000L, incoming = c.getInt(3) == 1, isMms = true,
+                            imageUri = android.net.Uri.parse("content://mms/part/" + p.first), mediaMime = p.second)
+                        out.add(FoundMsg(conv, m))
+                    }
+                }
+            }
+        }
+        "links", "places" -> {
+            val like = if (filter == "links") listOf("%http%", "%www.%") else listOf("%maps%", "%goo.gl%", "%geo:%")
+            val sel = like.joinToString(" OR ") { android.provider.Telephony.Sms.BODY + " LIKE ?" }
+            cr.query(android.provider.Telephony.Sms.CONTENT_URI,
+                arrayOf(android.provider.Telephony.Sms._ID, android.provider.Telephony.Sms.THREAD_ID, android.provider.Telephony.Sms.ADDRESS, android.provider.Telephony.Sms.BODY,
+                    android.provider.Telephony.Sms.DATE, android.provider.Telephony.Sms.TYPE),
+                sel, like.toTypedArray(), android.provider.Telephony.Sms.DATE + " DESC LIMIT 400")?.use { c ->
+                while (c.moveToNext()) {
+                    val t = c.getLong(1); val a = c.getString(2) ?: ""
+                    if (byThread[t] == null) continue // trashed / spam chats stay out
+                    out.add(FoundMsg(convFor(t, a), Message(id = c.getLong(0), body = c.getString(3) ?: "", date = c.getLong(4), incoming = c.getInt(5) == 1, address = a, type = c.getInt(5))))
+                }
+            }
+        }
+    }
+    return out
+}
+
 /** Results list (split out: the old early "return" out of the Column could crash Compose when the search opened). */
 @Composable
 private fun SearchResults(ctx: android.content.Context, convs: List<Conversation>, contacts: List<Pair<String, String>>, recent: List<FoundMsg>, hits: List<MsgHit>,
                           filter: String?, needMsgs: Boolean, qt: String, onOpen: (Conversation) -> Unit) {
+            val scope = rememberCoroutineScope()
             val convMatches = convs.filter { c ->
                 (qt.isEmpty() || c.displayName.contains(qt, true) || c.address.contains(qt)) && when (filter) {
                     "unread" -> c.unread
@@ -186,15 +246,18 @@ private fun SearchResults(ctx: android.content.Context, convs: List<Conversation
                     header("Contacts")
                     items(contactMatches, key = { "p" + it.second + it.first }) { (name, number) ->
                         ResultRow(name, number, highlight(name, qt, Brand), AnnotatedString(number), "") {
-                            val tid = SmsRepository.getThreadIdForAddress(ctx, number)
-                            onOpen(Conversation(tid, number, name, "", System.currentTimeMillis(), false))
+                            // the thread lookup can create a thread: off the main thread
+                            scope.launch {
+                                val tid = withContext(Dispatchers.IO) { runCatching { SmsRepository.getThreadIdForAddress(ctx, number) }.getOrDefault(-1L) }
+                                onOpen(Conversation(tid, number, name, "", System.currentTimeMillis(), false))
+                            }
                         }
                     }
                 }
                 if (convMatches.isEmpty() && msgMatches.isEmpty() && contactMatches.isEmpty() && (filter != null || hits.isEmpty())) item {
                     if (needMsgs && recent.isEmpty()) Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(32.dp), color = Brand, strokeWidth = 3.dp)
-                    } else EmptyState(Ms.SearchOff, "No results", "Try another word, or a different filter", Modifier.padding(top = 48.dp))
+                    } else EmptyState(Ms.SearchOff, "No results", null, Modifier.padding(top = 48.dp))
                 }
             }
 }

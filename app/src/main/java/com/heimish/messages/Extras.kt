@@ -264,7 +264,6 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
                                 .clickable { bg = v; p.edit().putInt("chat_bg", v).apply() })
                         }
                     }
-                    Text("Open a chat to see the change.", Modifier.padding(18.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
                 }
                 "backup" -> {
                     val running = Backup.State.running

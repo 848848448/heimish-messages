@@ -567,7 +567,6 @@ fun MicSendButton(
                                 if (rec.mode == RecMode.HOLDING) {
                                     val f = rec.finish(true)
                                     if (f != null) done(f)
-                                    else if (System.currentTimeMillis() - t0 < 700) Toast.makeText(ctx, "Hold to record, release to send", Toast.LENGTH_SHORT).show()
                                 }
                                 break
                             }

@@ -39,17 +39,34 @@ object TrashStore {
     }.toMap()
     fun has(ctx: Context, t: Long) = all(ctx).containsKey(t)
     private fun save(ctx: Context, m: Map<Long, Long>) = p(ctx).edit().putStringSet(KEY, m.map { "${it.key}:${it.value}" }.toSet()).apply()
-    fun add(ctx: Context, t: Long) = save(ctx, all(ctx) + (t to System.currentTimeMillis()))
-    fun remove(ctx: Context, t: Long) = save(ctx, all(ctx) - t)
-    fun clear(ctx: Context) = save(ctx, emptyMap())
+    // add/remove (UI) and maintain (background) all read-modify-write the same set: one at a time, or a chat you just
+    // deleted could pop back when the background pass saved its older copy over it
+    @Synchronized fun add(ctx: Context, t: Long) = save(ctx, all(ctx) + (t to System.currentTimeMillis()))
+    @Synchronized fun addAll(ctx: Context, ts: Collection<Long>) { val now = System.currentTimeMillis(); save(ctx, all(ctx) + ts.map { it to now }) }
+    @Synchronized fun remove(ctx: Context, t: Long) = save(ctx, all(ctx) - t)
+    @Synchronized fun removeAll(ctx: Context, ts: Collection<Long>) = save(ctx, all(ctx) - ts.toSet())
+    @Synchronized fun clear(ctx: Context) = save(ctx, emptyMap())
     /** Really delete chats older than 30 days; a chat that got a new message after it was trashed comes back. */
     fun maintain(ctx: Context, convs: List<Conversation>) {
         val now = System.currentTimeMillis()
-        val m = all(ctx).toMutableMap()
-        var changed = false
-        convs.forEach { c -> m[c.threadId]?.let { at -> if (c.date > at + 5_000) { m.remove(c.threadId); changed = true } } }
-        m.filter { now - it.value > KEEP_MS }.keys.forEach { t -> runCatching { SmsRepository.deleteThread(ctx, t) }; m.remove(t); changed = true }
-        if (changed) save(ctx, m)
+        val expired: List<Long>
+        synchronized(this) {
+            val m = all(ctx).toMutableMap()
+            var changed = false
+            convs.forEach { c -> m[c.threadId]?.let { at -> if (c.date > at + 5_000) { m.remove(c.threadId); changed = true } } }
+            expired = m.filter { now - it.value > KEEP_MS }.keys.toList()
+            expired.forEach { m.remove(it); changed = true }
+            if (changed) save(ctx, m)
+        }
+        // the slow deletes run outside the lock so the UI never waits on them
+        expired.forEach { t -> runCatching { SmsRepository.deleteThread(ctx, t) } }
+        p(ctx).edit().putLong("trash_maintained", now).apply()
+    }
+    /** The 30-day clean-up also runs when the app is opened straight into a chat (it used to need the chat list). */
+    fun maintainIfDue(ctx: Context) {
+        if (all(ctx).isEmpty()) return
+        if (System.currentTimeMillis() - p(ctx).getLong("trash_maintained", 0L) < 6 * 3_600_000L) return
+        runCatching { maintain(ctx, SmsRepository.loadConversations(ctx)) }
     }
 }
 

@@ -84,8 +84,16 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { recreate() }
+    // Re-read on every resume: becoming (or stopping being) the default SMS app in system Settings shows at once
+    private val defaultApp = mutableStateOf(false)
+    override fun onResume() {
+        super.onResume()
+        defaultApp.value = isDefaultSmsApp(this)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashCatcher.install(this)
+        defaultApp.value = isDefaultSmsApp(this)
         // One image loader for the whole app that can play GIFs (photos in chats, viewer, panels)
         coil.Coil.setImageLoader(coil.ImageLoader.Builder(applicationContext).components {
             if (Build.VERSION.SDK_INT >= 28) add(coil.decode.ImageDecoderDecoder.Factory()) else add(coil.decode.GifDecoder.Factory())
@@ -96,6 +104,7 @@ class MainActivity : ComponentActivity() {
         UpdateCheckReceiver.schedule(this)
         Thread {
             OtpCleaner.clean(applicationContext)
+            TrashStore.maintainIfDue(applicationContext)
             // Alarms are gone after a force stop; re-setting them is cheap and idempotent
             ScheduledSendReceiver.rearmAll(applicationContext)
             RemindReceiver.rearmAll(applicationContext)
@@ -116,7 +125,7 @@ class MainActivity : ComponentActivity() {
                         // One place pads for the status bar, navigation bar, cutout and keyboard, and consumes them, so no
                         // screen below adds the same space a second time (Scaffold / TopAppBar / imePadding read 0 here).
                         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                            AppRoot(isDefaultSmsApp(this@MainActivity)) { requestDefault() }
+                            AppRoot(defaultApp.value) { requestDefault() }
                         }
                     }
                 }
@@ -256,6 +265,11 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     LaunchedEffect(pendingIntent) {
         val i = pendingIntent ?: return@LaunchedEffect
         IntentRouter.pending = null
+        // Forward started in the floating chat bubble: the picker opens here, on top of wherever the app was
+        if (i.getBooleanExtra("open_forward", false)) {
+            if (ForwardState.payload != null && stack.last() !is Screen.Forward) stack = stack + Screen.Forward
+            return@LaunchedEffect
+        }
         if (i.getBooleanExtra("open_update", false)) {
             stack = listOf(Screen.List, Screen.WhatsNew(UpdateManager.info, i.getBooleanExtra("install_update", false)))
             return@LaunchedEffect
@@ -287,6 +301,8 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
         lc?.addObserver(lo)
         onDispose { lc?.removeObserver(lo) }
     }
+    // After a crash: show what happened once, with Copy (so it can be sent in)
+    if (!locked && isDefault && hasPerms) CrashReportDialog()
     when {
         locked && prefs.getBoolean("app_lock", false) -> LockScreen { locked = false }
         !isDefault -> SetupScreen(onRequestDefault)
@@ -498,7 +514,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?, onDetails: (() -> Uni
     }
     val sub = when (st) {
         is UpdState.Downloading -> "${(st.progress * 100).toInt()}%" + (if (st.totalBytes > 0) " · ${UpdateManager.mb(st.doneBytes)} of ${UpdateManager.mb(st.totalBytes)}" else "")
-        is UpdState.Ready -> "Build ${info.build} · tap Install"
+        is UpdState.Ready -> "Build ${info.build} · ready to install"
         UpdState.Installing -> "The app will restart by itself"
         is UpdState.Error -> st.message
         else -> "Build ${info.build}" + (if (info.sizeBytes > 0) " · ${UpdateManager.mb(info.sizeBytes)}" else "")

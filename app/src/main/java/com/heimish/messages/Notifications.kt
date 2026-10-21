@@ -75,7 +75,18 @@ object Notifications {
     private fun contactBitmap(ctx: Context, address: String, name: String): Bitmap {
         runCatching {
             SmsRepository.contactPhotoUri(ctx, address)?.let { uri ->
-                ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }?.let { return circle(it) }
+                // PHOTO_URI is the full-size photo: decode it small (a notification only shows ~48 dp, and big bitmaps
+                // can make the notification too large to post, so it silently never showed)
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= 192 && bounds.outHeight / (sample * 2) >= 192) sample *= 2
+                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }?.let { src ->
+                    val s = minOf(src.width, src.height)
+                    val small = if (s > 256) Bitmap.createScaledBitmap(src, src.width * 256 / s, src.height * 256 / s, true) else src
+                    return circle(small)
+                }
             }
         }
         // Letter avatar in the same color the app uses
@@ -201,7 +212,8 @@ object Notifications {
             }
             if (isGroup) { style.setConversationTitle(groupTitle); style.isGroupConversation = true }
             builder.setStyle(style)
-            val icon = IconCompat.createWithBitmap(contactBitmap(ctx, if (isGroup) sendTo else address, if (isGroup) groupTitle else sender))
+            val avatarBmp = contactBitmap(ctx, if (isGroup) sendTo else address, if (isGroup) groupTitle else sender)
+            val icon = IconCompat.createWithBitmap(avatarBmp)
             val shortcutId = pushShortcut(ctx, threadId, sendTo, if (isGroup) groupTitle else sender, icon, persons.values.toList())
             builder.setShortcutId(shortcutId).setLocusId(LocusIdCompat(shortcutId))
             // Chat bubble (Android 11+): shows when bubbles are allowed for this conversation
@@ -212,7 +224,7 @@ object Notifications {
                 val bpi = PendingIntent.getActivity(ctx, nid + 50000, bi, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
                 builder.setBubbleMetadata(NotificationCompat.BubbleMetadata.Builder(bpi, icon).setDesiredHeight(640).setSuppressNotification(false).setAutoExpandBubble(false).build())
             }
-            builder.setLargeIcon(contactBitmap(ctx, if (isGroup) sendTo else address, if (isGroup) groupTitle else sender))
+            builder.setLargeIcon(avatarBmp)
             if (lines.size > 1) builder.setNumber(lines.size)
         } else {
             builder.setContentTitle(if (showSender) sender else "New message")
@@ -226,7 +238,19 @@ object Notifications {
                 PendingIntent.getBroadcast(ctx, nid + 30000, ci, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build())
         }
 
-        try { NotificationManagerCompat.from(ctx).notify(nid, builder.build()) } catch (_: SecurityException) {}
+        try { NotificationManagerCompat.from(ctx).notify(nid, builder.build()) } catch (_: SecurityException) {
+        } catch (e: Exception) {
+            // Never lose a message notification: if the rich one can't be posted, post a plain one
+            android.util.Log.w("Notifications", "rich notification failed", e)
+            runCatching {
+                val plain = NotificationCompat.Builder(ctx, channelId).setSmallIcon(R.drawable.ic_stat_message).setColor(0xFF0B57D0.toInt())
+                    .setContentIntent(openPi).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH).addAction(replyAction).addAction(readAction)
+                    .setContentTitle(if (showSender) sender else "New message")
+                if (showPreview) plain.setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                NotificationManagerCompat.from(ctx).notify(nid, plain.build())
+            }
+        }
     }
 
     fun showFailed(ctx: Context, name: String, address: String, threadId: Long) {
@@ -234,7 +258,7 @@ object Notifications {
         val nid = nidFor(threadId) + 40000
         val open = PendingIntent.getActivity(ctx, nid, openIntent(ctx, threadId, address, name), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val b = NotificationCompat.Builder(ctx, CHANNEL_FAILED).setSmallIcon(R.drawable.ic_stat_message)
-            .setContentTitle("Message not sent").setContentText("To $name · tap to open and retry")
+            .setContentTitle("Message not sent").setContentText("To $name")
             .setCategory(NotificationCompat.CATEGORY_ERROR).setContentIntent(open).setAutoCancel(true)
         try { NotificationManagerCompat.from(ctx).notify(nid, b.build()) } catch (_: SecurityException) {}
     }
@@ -276,6 +300,12 @@ class DirectReplyReceiver : BroadcastReceiver() {
                 if (threadId >= 0) SmsRepository.markThreadRead(ctx, threadId)
                 NotificationManagerCompat.from(ctx).cancel(nid)
                 MessageWidget.refresh(ctx)
+            } catch (e: Exception) {
+                // A send that throws must not take the whole app down; say so instead
+                android.util.Log.w("DirectReply", "reply failed", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(ctx, "Reply not sent", android.widget.Toast.LENGTH_LONG).show()
+                }
             } finally { pending.finish() }
         }.start()
     }
@@ -289,7 +319,7 @@ class MarkReadReceiver : BroadcastReceiver() {
         NotificationManagerCompat.from(ctx).cancel(nid)
         val pending = goAsync()
         Thread {
-            try { if (threadId >= 0) SmsRepository.markThreadRead(ctx, threadId); MessageWidget.refresh(ctx) } finally { pending.finish() }
+            try { if (threadId >= 0) SmsRepository.markThreadRead(ctx, threadId); MessageWidget.refresh(ctx) } catch (_: Exception) {} finally { pending.finish() }
         }.start()
     }
 }

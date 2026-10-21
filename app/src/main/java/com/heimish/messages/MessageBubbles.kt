@@ -308,7 +308,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                         if (failed) {
                             Icon(Ms.Error, "Failed", tint = Color(0xFFD93025), modifier = Modifier.size(13.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Not sent · tap to retry", fontSize = 11.sp, color = Color(0xFFD93025), fontWeight = FontWeight.Medium)
+                            Text("Not sent", fontSize = 11.sp, color = Color(0xFFD93025), fontWeight = FontWeight.Medium)
                             Spacer(Modifier.width(6.dp))
                         }
                         if (starred) {

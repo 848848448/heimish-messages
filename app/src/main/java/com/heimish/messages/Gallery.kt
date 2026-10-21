@@ -200,7 +200,7 @@ fun GalleryPanel(
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(Tonal).clickable { ask() }.padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Icon(Ms.Info, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(10.dp))
-                Text("You let the app see only some photos. Tap to pick more, or allow all.", color = OnTonal, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("You let the app see only some photos.", color = OnTonal, fontSize = 13.sp, modifier = Modifier.weight(1f))
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -243,7 +243,7 @@ fun GalleryPanel(
                 Icon(Ms.PhotoLibrary, null, tint = Brand, modifier = Modifier.size(32.dp)); Spacer(Modifier.height(8.dp))
                 Text("See your photos and videos here", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(4.dp))
-                Text(if (blocked) "Photo access is off. Turn on \"Photos and videos\" in the app's settings." else "Allow access so you can pick them right in the chat. Or tap Gallery to choose without it.",
+                Text(if (blocked) "Photo access is off. Turn on \"Photos and videos\" in the app's settings." else "Photos and videos aren't shared with the app yet.",
                     color = TextSecond, fontSize = 13.sp, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(12.dp))
                 Button({ ask() }, shape = RoundedCornerShape(50), colors = ButtonDefaults.buttonColors(containerColor = Brand, contentColor = OnBrand)) { Text(if (blocked) "Open settings" else "Allow access") }

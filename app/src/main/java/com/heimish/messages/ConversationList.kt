@@ -149,6 +149,26 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             }
         }
     }
+    /** Several chats at once (selection bar): ONE "N conversations…" bar whose Undo brings all of them back
+     *  (it used to queue one bar per chat, ~4 s each, and Undo only restored the one on screen). */
+    fun actMany(kind: String, cs: List<Conversation>) {
+        if (cs.isEmpty()) return
+        if (cs.size == 1) { act(kind, cs[0]); return }
+        val ids = cs.map { it.threadId }
+        scope.launch {
+            if (kind == "delete") {
+                hidden = hidden + ids
+                TrashStore.addAll(ctx, ids); tick++
+                val r = snackbar.showSnackbar("${ids.size} conversations moved to trash", "Undo", duration = SnackbarDuration.Short)
+                if (r == SnackbarResult.ActionPerformed) TrashStore.removeAll(ctx, ids)
+                hidden = hidden - ids.toSet(); tick++
+            } else {
+                ids.forEach { ArchiveStore.setArchived(ctx, it, true) }; tick++
+                val r = snackbar.showSnackbar("${ids.size} conversations archived", "Undo", duration = SnackbarDuration.Short)
+                if (r == SnackbarResult.ActionPerformed) { ids.forEach { ArchiveStore.setArchived(ctx, it, false) }; tick++ }
+            }
+        }
+    }
     val spamIds = remember(list, tick) { SpamStore.all(ctx) }
     val hits by produceState(emptyList<MsgHit>(), search) {
         value = if (search.trim().length >= 2) { delay(250); withContext(Dispatchers.IO) { SmsRepository.searchMessages(ctx, search.trim()) } } else emptyList()
@@ -276,8 +296,8 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 Text("${sel.size} selected", Modifier.weight(1f), color = OnTonal, fontWeight = FontWeight.SemiBold)
                 IconButton({ sel.forEach { PinStore.toggle(ctx, it) }; sel = emptySet(); tick++ }) { Icon(Ms.PushPin, "Pin", tint = OnTonal) }
                 IconButton({ val ids = sel; scope.launch { withContext(Dispatchers.IO) { ids.forEach { SmsRepository.markThreadRead(ctx, it) } }; refresh() }; sel = emptySet() }) { Icon(Ms.DoneAll, "Mark read", tint = OnTonal) }
-                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("archive", it) }; sel = emptySet() }) { Icon(Ms.Archive, "Archive", tint = OnTonal) }
-                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("delete", it) }; sel = emptySet() }) { Icon(Ms.Delete, "Delete", tint = OnTonal) }
+                IconButton({ val ids = sel; actMany("archive", list.filter { it.threadId in ids }); sel = emptySet() }) { Icon(Ms.Archive, "Archive", tint = OnTonal) }
+                IconButton({ val ids = sel; actMany("delete", list.filter { it.threadId in ids }); sel = emptySet() }) { Icon(Ms.Delete, "Delete", tint = OnTonal) }
             }
             if (latestKnown > BuildConfig.BUILD_NUMBER) Text("Message ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER} · " + (if (latestKnown > BuildConfig.BUILD_NUMBER) "update available" else if (latestKnown > 0) "up to date" else "checking for updates…"),
                 Modifier.padding(horizontal = 20.dp, vertical = 2.dp), fontSize = 11.sp, color = if (latestKnown > BuildConfig.BUILD_NUMBER) Brand else TextHint)
@@ -286,8 +306,8 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             if (filtered.isEmpty() && hits.isEmpty() && loaded) {
                 if (search.isBlank()) EmptyState(if (cat == "All") Ms.Forum else Ms.FilterList,
                     if (cat == "All") "No conversations yet" else "Nothing in $cat",
-                    if (cat == "All") "Tap Start chat to send your first message" else "Chats that fit this filter show up here")
-                else EmptyState(Ms.SearchOff, "No results for \"$search\"", "Try a name, a number or a word from a message")
+                    if (cat == "All") null else "Chats that fit this filter show up here")
+                else EmptyState(Ms.SearchOff, "No results for \"$search\"")
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
@@ -446,7 +466,7 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
             title = { Text("Archived", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (list.isEmpty()) {
-            EmptyState(Ms.Archive, "No archived conversations", "Swipe a chat or long-press it to archive it", Modifier.padding(pad))
+            EmptyState(Ms.Archive, "No archived conversations", null, Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(list, key = { it.threadId }) { conv ->
                 Row(Modifier.animateItem().fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -499,7 +519,7 @@ fun StarredScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
             title = { Text("Starred messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (starred.isEmpty()) {
-            EmptyState(Ms.Star, "No starred messages", "Long-press a message and tap Star", Modifier.padding(pad))
+            EmptyState(Ms.Star, "No starred messages", null, Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(starred, key = { (_, m) -> msgKey(m) }) { (conv, m) ->
                 Row(Modifier.fillMaxWidth().clickable { ChatJump.request(conv.threadId, msgKey(m)); onOpen(conv) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -540,7 +560,7 @@ fun ScheduledScreen(onBack: () -> Unit) {
             title = { Text("Scheduled messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (items2.isEmpty()) {
-            EmptyState(Ms.Schedule, "Nothing scheduled", "In a chat: type a message, then press and hold Send", Modifier.padding(pad))
+            EmptyState(Ms.Schedule, "Nothing scheduled", null, Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(items2, key = { it.id }) { sm ->
                 Row(Modifier.animateItem().fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SearchBg).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
