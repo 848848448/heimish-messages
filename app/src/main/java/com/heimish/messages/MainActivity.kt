@@ -291,7 +291,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             Screen.NewConv  -> NewConvScreen({ stack = stack.dropLast(1) + Screen.Chat(it) }) { ShareState.clear(); back() }
             Screen.Settings -> SettingsScreen({ go(if (it.startsWith("x_")) Screen.Extra(it.removePrefix("x_")) else Screen.SettingSub(it)) }) { back() }
             is Screen.SettingSub -> SettingSubScreen(s.key, { themeChoice = it }) { back() }
-            Screen.Admin    -> AdminScreen { back() }
+            Screen.Admin    -> AdminScreen({ go(Screen.Chat(it)) }) { back() }
             Screen.Archived -> ArchivedScreen({ go(Screen.Chat(it)) }) { back() }
             Screen.Starred  -> StarredScreen({ go(Screen.Chat(it)) }) { back() }
             Screen.Scheduled -> ScheduledScreen { back() }
