@@ -40,10 +40,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -318,7 +314,7 @@ val LocalScreenActive = staticCompositionLocalOf { true }
     Box(Modifier.fillMaxSize().background(Brand), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
             Box(Modifier.size(96.dp).clip(CircleShape).background(Color.White.copy(.16f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Chat, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                Icon(Ms.ChatFill, null, tint = Color.White, modifier = Modifier.size(48.dp))
             }
             Spacer(Modifier.height(24.dp))
             Text("Message", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -339,7 +335,7 @@ val LocalScreenActive = staticCompositionLocalOf { true }
     Box(Modifier.fillMaxSize().background(Brand), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
             Box(Modifier.size(96.dp).clip(CircleShape).background(Color.White.copy(.16f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Lock, null, tint = Color.White, modifier = Modifier.size(44.dp))
+                Icon(Ms.LockFill, null, tint = Color.White, modifier = Modifier.size(44.dp))
             }
             Spacer(Modifier.height(24.dp))
             Text("Permissions needed", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -377,9 +373,9 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
         } else {
             val ch = name.firstOrNull()
             val fg = avatarFg(seed)
-            if (address.contains(";")) Icon(Icons.Filled.Group, null, tint = fg, modifier = Modifier.size(size * 0.54f))
+            if (address.contains(";")) Icon(Ms.GroupFill, null, tint = fg, modifier = Modifier.size(size * 0.54f))
             else if (ch != null && ch.isLetter()) Text(initial(name), color = fg, fontWeight = FontWeight.Medium, fontSize = fontSize)
-            else Icon(Icons.Filled.Person, null, tint = fg, modifier = Modifier.size(size * 0.54f))
+            else Icon(Ms.PersonFill, null, tint = fg, modifier = Modifier.size(size * 0.54f))
         }
     }
 }
@@ -444,7 +440,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?, onDetails: (() -> Uni
         Column(Modifier.animateContentSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(40.dp).clip(CircleShape).background(Brand), contentAlignment = Alignment.Center) {
-                    Icon(if (st is UpdState.Ready) Icons.Default.InstallMobile else Icons.Default.SystemUpdate, null, tint = OnBrand, modifier = Modifier.size(22.dp))
+                    Icon(if (st is UpdState.Ready) Ms.InstallMobile else Ms.SystemUpdate, null, tint = OnBrand, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
@@ -457,7 +453,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?, onDetails: (() -> Uni
                         Text(if (st is UpdState.Ready) "Install" else if (st is UpdState.Error) "Retry" else "Update")
                     }
                 }
-                if (onDismiss != null && st !is UpdState.Downloading && st != UpdState.Installing) IconButton(onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = OnTonal) }
+                if (onDismiss != null && st !is UpdState.Downloading && st != UpdState.Installing) IconButton(onDismiss) { Icon(Ms.Close, "Dismiss", tint = OnTonal) }
             }
             if (st is UpdState.Downloading) {
                 Spacer(Modifier.height(10.dp))
@@ -501,14 +497,14 @@ fun UpdateScreen(info: UpdateInfo?, autoInstall: Boolean, onBack: () -> Unit) {
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
             title = { Text(if (inf != null) "App update" else "What's new", fontWeight = FontWeight.SemiBold) },
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) },
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }) },
         bottomBar = { inf?.let { i -> Box(Modifier.navigationBarsPadding().padding(16.dp)) { UpdateButton(i) } } }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.size(84.dp).clip(RoundedCornerShape(26.dp)).background(Brand), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.Chat, null, tint = OnBrand, modifier = Modifier.size(42.dp))
+                        Icon(Ms.ChatFill, null, tint = OnBrand, modifier = Modifier.size(42.dp))
                     }
                     Spacer(Modifier.height(14.dp))
                     Text("Message", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
@@ -521,8 +517,8 @@ fun UpdateScreen(info: UpdateInfo?, autoInstall: Boolean, onBack: () -> Unit) {
                     if (inf != null && inf!!.sizeBytes > 0) {
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AssistChip(onClick = {}, label = { Text(UpdateManager.mb(inf!!.sizeBytes)) }, leadingIcon = { Icon(Icons.Default.Download, null, Modifier.size(16.dp)) })
-                            AssistChip(onClick = {}, label = { Text("v${BuildConfig.VERSION_NAME}") }, leadingIcon = { Icon(Icons.Default.Info, null, Modifier.size(16.dp)) })
+                            AssistChip(onClick = {}, shape = RoundedCornerShape(50), label = { Text(UpdateManager.mb(inf!!.sizeBytes)) }, leadingIcon = { Icon(Ms.Download, null, Modifier.size(16.dp)) })
+                            AssistChip(onClick = {}, shape = RoundedCornerShape(50), label = { Text("v${BuildConfig.VERSION_NAME}") }, leadingIcon = { Icon(Ms.Info, null, Modifier.size(16.dp)) })
                         }
                     }
                 }
@@ -533,7 +529,7 @@ fun UpdateScreen(info: UpdateInfo?, autoInstall: Boolean, onBack: () -> Unit) {
                     Surface(Modifier.fillMaxWidth().padding(vertical = 6.dp), shape = RoundedCornerShape(24.dp), color = SearchBg) {
                         Column(Modifier.padding(18.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(if (isFix) Icons.Default.Build else Icons.Default.AutoAwesome, null, tint = Brand, modifier = Modifier.size(20.dp))
+                                Icon(if (isFix) Ms.Build else Ms.AutoAwesome, null, tint = Brand, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
                             }
