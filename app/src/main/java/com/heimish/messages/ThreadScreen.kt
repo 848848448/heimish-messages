@@ -566,11 +566,14 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                         TextField(searchQuery, { searchQuery = it }, placeholder = { Text("Search in chat…", color = TextHint) }, singleLine = true,
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary), modifier = Modifier.fillMaxWidth())
                     } else Row(Modifier.clickable { showDetails = true }, verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(conversation.displayName, address, 40.dp, 17.sp)
+                        val members = remember(address) { SmsRepository.splitRecipients(address).filter { it.isNotBlank() } }
+                        if (members.size > 1) GroupAvatar(members, 40.dp) else Avatar(conversation.displayName, address, 40.dp, 17.sp)
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(conversation.displayName, fontWeight = FontWeight.Normal, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary, style = listTextStyle())
-                            if (address.contains(";")) Text("Group · ${address.split(";").size} people", fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            // a group, like Google Messages: first names only, one line, and "4 people" under it
+                            val title = if (members.size > 1) remember(address, conversation.displayName) { groupFirstNames(ctx, members) } else conversation.displayName
+                            Text(title, fontWeight = FontWeight.Normal, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary, style = listTextStyle())
+                            if (members.size > 1) Text("${members.size} people", fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 },
