@@ -54,6 +54,7 @@ object IntentRouter {
         // Notification tap / conversation shortcut
         val tid = i.getLongExtra("thread_id", -1L)
         val addrExtra = i.getStringExtra("address")
+        if (tid >= 0 && i.getBooleanExtra("focus_reply", false)) ReplyFocus.request(tid)
         if (tid >= 0 && addrExtra != null) return chatFor(ctx, tid, addrExtra, i.getStringExtra("name"))
 
         when (i.action) {
