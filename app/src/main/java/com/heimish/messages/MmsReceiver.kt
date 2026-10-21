@@ -90,9 +90,10 @@ object MmsIncoming {
             MmsLog.log(ctx, "not a notification (delivery/read report) — nothing to download")
             return
         }
-        val loc = n?.contentLocation?.trim()?.takeIf { it.startsWith("http", true) } ?: legacyContentLocation(pdu)?.also { MmsLog.log(ctx, "address from raw bytes: $it") } ?: run {
+        val rawLoc = n?.contentLocation?.trim()?.takeIf { it.startsWith("http", true) } ?: legacyContentLocation(pdu)?.also { MmsLog.log(ctx, "address from raw bytes: $it") } ?: run {
             Log.w(TAG, "MMS notification without a download address"); MmsLog.log(ctx, "ERROR notification without a download address — dropped"); return
         }
+        val loc = fullLocation(ctx, rawLoc, n?.transactionId, subId)
         val expiresAt = when {
             n == null || n.expiry <= 0 -> 0L
             n.expiryAbsolute -> n.expiry * 1000
@@ -110,6 +111,7 @@ object MmsIncoming {
                 put("loc", loc); put("tid", n?.transactionId ?: ""); put("from", n?.from ?: "")
                 put("sub", subId); put("first", System.currentTimeMillis()); put("exp", expiresAt)
                 put("size", n?.messageSize ?: 0L); put("attempts", 0); put("row", -1L)
+                put("pdu", MmsLog.hex(pdu, 2000))
             }
             q.items[loc] = entry
             save(ctx, q)
@@ -122,6 +124,45 @@ object MmsIncoming {
             if (row != null) synchronized(lock) { val q = load(ctx); q.items[loc]?.put("row", row); entry.put("row", row); save(ctx, q) }
         }
         startDownload(ctx, entry)
+    }
+
+    /**
+     * The real download address. Verizon (and other carriers whose config has "enabledTransID") send a Content-Location
+     * that ends in "...?message-id=" and expect the phone to append the Transaction-ID — exactly what AOSP Messaging does
+     * (MmsConfig.getTransIdEnabled / SmsManager.MMS_CONFIG_APPEND_TRANSACTION_ID). Without it the MMSC answers 404.
+     */
+    fun fullLocation(ctx: Context?, loc: String, tid: String?, subId: Int): String {
+        val t = tid?.trim().orEmpty()
+        if (t.isEmpty() || loc.endsWith(t)) return loc
+        val cfgAppend = ctx?.let { c ->
+            runCatching { SmsRepository.smsManager(c, subId).carrierConfigValues?.getBoolean(SmsManager.MMS_CONFIG_APPEND_TRANSACTION_ID, false) }.getOrNull()
+        } ?: false
+        val fixed = if (loc.endsWith("=")) loc + t else loc
+        if (ctx != null && fixed != loc) MmsLog.log(ctx, "address ends with '=', appended the transaction id (carrier enabledTransID=$cfgAppend): $fixed")
+        return fixed
+    }
+
+    /** Queue entries / not-downloaded rows saved with the short Verizon address (before the transaction-id fix): repair them. */
+    private fun repairLocations(ctx: Context) {
+        val fixedRows = ArrayList<Pair<Long, String>>()
+        synchronized(lock) {
+            val q = load(ctx)
+            var changed = false
+            for ((loc, e) in q.items.entries.toList()) {
+                val fixed = fullLocation(null, loc, e.optString("tid"), e.optInt("sub", -1))
+                if (fixed == loc) continue
+                q.items.remove(loc)
+                if (q.done.contains(fixed)) { changed = true; continue }
+                e.put("loc", fixed); e.put("attempts", 0); e.put("last", 0L); e.put("pend", 0); e.put("first", System.currentTimeMillis())
+                q.items[fixed] = e; changed = true
+                e.optLong("row", -1L).takeIf { it > 0 }?.let { fixedRows.add(it to fixed) }
+                MmsLog.log(ctx, "repaired queued address: $loc -> $fixed")
+            }
+            if (changed) save(ctx, q)
+        }
+        for ((row, fixed) in fixedRows) runCatching {
+            ctx.contentResolver.update(Uri.parse("content://mms/$row"), ContentValues().apply { put("ct_l", fixed) }, null, null)
+        }.onFailure { MmsLog.err(ctx, "ct_l update for row $row", it) }
     }
 
     /** Watchdog: the phone's MMS service never answered the download request. */
@@ -314,6 +355,7 @@ object MmsIncoming {
         val now = System.currentTimeMillis()
         if (!force && now - prefs.getLong("last_sweep", 0L) < 2 * 60_000L) return
         prefs.edit().putLong("last_sweep", now).apply()
+        runCatching { repairLocations(ctx) }.onFailure { MmsLog.err(ctx, "repair addresses", it) }
         runCatching { adoptStuckRows(ctx) }.onFailure { Log.w(TAG, "scan: ${it.message}"); MmsLog.err(ctx, "scan for stuck rows", it) }
         val todo = ArrayList<JSONObject>()
         synchronized(lock) {
@@ -340,7 +382,8 @@ object MmsIncoming {
             "m_type = 130 AND date > ?", arrayOf(since.toString()), "date DESC LIMIT 30")?.use { c ->
             while (c.moveToNext()) {
                 val row = c.getLong(0)
-                val loc = c.getString(1)?.trim()?.takeIf { it.startsWith("http", true) } ?: continue
+                val loc = c.getString(1)?.trim()?.takeIf { it.startsWith("http", true) }
+                    ?.let { fullLocation(null, it, c.getString(2), if (c.isNull(3)) -1 else c.getInt(3)) } ?: continue
                 synchronized(lock) {
                     val q = load(ctx)
                     if (q.items.containsKey(loc)) return@synchronized
