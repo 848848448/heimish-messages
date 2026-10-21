@@ -1,9 +1,7 @@
 New
-- Picture messages and group messages come in again. Every MMS (photos, videos, voice notes, group texts) is now downloaded, saved in the right chat and shown with a notification
-- Group messages land in the group chat with everyone in it (not in a private chat with the sender)
-- If a picture message can't download right away (no data, weak signal), it shows in the chat as "Multimedia message — downloading…" and the app keeps trying by itself: when you open the app, after a restart, and after updating
-
-Fixed
-- No MMS ever arrived: the app downloaded each picture/group message and then threw it away instead of saving it. Fixed
-- The same MMS sent twice by the carrier no longer shows up twice
-- The app no longer sits waiting up to 40 seconds in the background after every incoming MMS
+- Admin → Users, at the top of the Admin panel: how many people have the app, how many installations, and how many were active in the last 7 days
+- The list of users, newest first: phone number like (845) 238-9140 (or the contact's name if they're in your contacts), phone model, app version and when they last opened the app
+- Tap a user to open a chat with them in the app; Call (rings them right away), Copy and Message buttons on each row; long-press copies the number
+- Search users by number, name, phone model or version; pull down to refresh
+- The web admin has the same Users table and totals
+- Each phone reports itself once a day and right after an update. Older versions show up once they update to this one
