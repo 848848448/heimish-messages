@@ -56,6 +56,22 @@ class MmsPduTest {
         assertEquals("personal", m.messageClass)
     }
 
+    /** A carrier-style M-Notification.ind as raw bytes: charset-encoded subject, absolute expiry, delivery-report and an
+     *  application header before the download address (the order real MMSCs use). */
+    @Test fun parsesRawCarrierNotification() {
+        val hex = "8c829830613162326333643465008d928918802b31323132353535303139392f545950453d504c4d4e009607ea50686f746f008a808e030186a0880680046a0f1b808681582d436172726965722d496e666f006162630083687474703a2f2f6d6d732e6578616d706c652e6e65742f6d6d732f776170656e633f6c6f636174696f6e3d31323132353535303139395f616263267269643d30323700"
+        val pdu = ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+        val m = MmsPdu.parse(pdu)
+        assertEquals(MmsPdu.TYPE_NOTIFICATION_IND, m.messageType)
+        assertEquals("0a1b2c3d4e", m.transactionId)
+        assertEquals("+12125550199", m.from)
+        assertEquals("Photo", m.subject)
+        assertEquals(100000L, m.messageSize)
+        assertEquals(true, m.expiryAbsolute)
+        assertEquals(0x6A0F1B80L, m.expiry)
+        assertEquals("http://mms.example.net/mms/wapenc?location=12125550199_abc&rid=027", m.contentLocation)
+    }
+
     @Test fun parsesGroupRetrieveConfWithParts() {
         val yiddish = "גוט מארגן 👋"
         val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 1, 2, 3, 4, 0xFF.toByte(), 0xD9.toByte())

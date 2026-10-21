@@ -172,13 +172,23 @@ object MmsIncoming {
                 .putExtra("dl", id)
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
             val pi = PendingIntent.getBroadcast(ctx, 40_000 + id % 50_000, done, flags)
-            val cfg = Bundle()
-            val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
-            cfg.putBoolean(SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, prefs.getBoolean("group_mms", true))
-            Log.d(TAG, "downloading MMS (sub $subId)")
-            val mgr = SmsRepository.smsManager(ctx, subId)
-            val mgrSub = SmsRepository.effectiveSubId(ctx, subId) // -1 = the phone's default SIM
-            MmsLog.log(ctx, "download #$id requested: attempt=${e.optInt("attempts") + 1} url=$loc pushSub=$subId managerSub=$mgrSub uri=$uri grants=$grants pi=mutable:${Build.VERSION.SDK_INT >= 31}")
+            val attempt = e.optInt("attempts") + 1
+            // Fallback for phones where the SIM named in the push can't fetch MMS (dual SIM / eSIM, data on the other
+            // SIM): every 3rd try goes through the default data/SMS SIM when that is a different one, with no config overrides.
+            val altSub = runCatching {
+                listOf(SubscriptionManager.getDefaultDataSubscriptionId(), SubscriptionManager.getDefaultSmsSubscriptionId())
+                    .firstOrNull { it >= 0 && it != SmsRepository.effectiveSubId(ctx, subId) } ?: -1
+            }.getOrDefault(-1)
+            val fallback = attempt >= 3 && attempt % 3 == 0
+            val cfg: Bundle? = if (fallback) null else Bundle().apply {
+                val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+                putBoolean(SmsManager.MMS_CONFIG_GROUP_MMS_ENABLED, prefs.getBoolean("group_mms", true))
+            }
+            val useAlt = fallback && altSub >= 0
+            Log.d(TAG, "downloading MMS (sub ${if (useAlt) altSub else subId})")
+            val mgr = SmsRepository.smsManager(ctx, if (useAlt) altSub else subId)
+            val mgrSub = SmsRepository.effectiveSubId(ctx, if (useAlt) altSub else subId) // -1 = the phone's default SIM
+            MmsLog.log(ctx, "download #$id requested: attempt=$attempt${if (fallback) " (fallback: no overrides${if (useAlt) ", other SIM $altSub" else ""})" else ""} url=$loc pushSub=$subId managerSub=$mgrSub uri=$uri grants=$grants pi=mutable:${Build.VERSION.SDK_INT >= 31}")
             armTimeout(ctx, loc, id)
             mgr.downloadMultimediaMessage(ctx, loc, uri, cfg, pi)
             MmsLog.log(ctx, "download #$id handed to the system (waiting for its answer)")
@@ -395,7 +405,7 @@ object MmsIncoming {
         try {
             fun addr(a: String, type: Int) = cr.insert(Uri.parse("content://mms/$id/addr"), ContentValues().apply {
                 put("address", a); put("type", type); put("charset", 106); put("msg_id", id)
-            })
+            }).also { if (it == null) MmsLog.log(ctx, "ERROR addr insert failed ($type $a)") }
             addr(m.from ?: "insert-address-token", 137)
             m.to.forEach { addr(it, 151) }
             m.cc.forEach { addr(it, 130) }
@@ -497,7 +507,7 @@ object MmsIncoming {
         }
         val markRead = { runCatching { cr.update(Uri.parse("content://mms/$mmsId"), ContentValues().apply { put("read", 1); put("seen", 1) }, null, null) } }
         if (BlockedStore.isBlocked(ctx, addr)) { MmsLog.log(ctx, "notify: sender $addr is blocked — silent"); markRead(); return }
-        if (SpamFilter.isSpam(ctx, addr, text) || (SmsRepository.getContactName(ctx, addr) == null && KeywordStore.matches(ctx, text))) {
+        if (SpamFilter.isSpam(ctx, addr, text) || (text.isNotBlank() && SmsRepository.getContactName(ctx, addr) == null && KeywordStore.matches(ctx, text))) {
             MmsLog.log(ctx, "notify: spam filter matched $addr — moved to spam"); markRead(); SpamStore.add(ctx, threadId); return
         }
         if (threadId > 0) runCatching { TrashStore.remove(ctx, threadId) } // a new message brings a trashed chat back
