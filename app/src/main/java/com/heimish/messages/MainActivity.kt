@@ -95,13 +95,23 @@ class MainActivity : ComponentActivity() {
         UpdateCheckReceiver.schedule(this)
         Thread { OtpCleaner.clean(applicationContext) }.start()
         if (savedInstanceState == null) IntentRouter.pending = intent
+        // Edge-to-edge: the app draws under the bars and lays itself out with WindowInsets. The keyboard (adjustResize) only
+        // shrinks the content area, so the top bar stays pinned and the compose bar rides on the keyboard, like Google Messages.
+        // (Before, the window was panned up under the keyboard, which pushed the chat's top bar off the screen.)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             val fsc = getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getFloat("font_scale", 0f)
             val dens = androidx.compose.ui.platform.LocalDensity.current
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides (if (fsc > 0f) androidx.compose.ui.unit.Density(dens.density, fsc) else dens)) {
                 FontState.family = if (getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getString("font", "google") == "system") androidx.compose.ui.text.font.FontFamily.Default else GoogleSans
                 MaterialTheme(colorScheme = GMColors, typography = remember(FontState.family) { appTypography(FontState.family) }) {
-                    Surface(Modifier.fillMaxSize(), color = Bg) { AppRoot(isDefaultSmsApp(this)) { requestDefault() } }
+                    Surface(Modifier.fillMaxSize(), color = Bg) {
+                        // One place pads for the status bar, navigation bar, cutout and keyboard, and consumes them, so no
+                        // screen below adds the same space a second time (Scaffold / TopAppBar / imePadding read 0 here).
+                        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                            AppRoot(isDefaultSmsApp(this@MainActivity)) { requestDefault() }
+                        }
+                    }
                 }
             }
         }
