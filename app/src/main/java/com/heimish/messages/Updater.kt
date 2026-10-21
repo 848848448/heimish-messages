@@ -180,8 +180,10 @@ class PackageReplacedReceiver : android.content.BroadcastReceiver() {
         runCatching { AutoBackup.schedule(ctx) }
         // Download picture/group messages that are still waiting (e.g. from before this update)
         Thread { runCatching { MmsIncoming.retryPending(ctx.applicationContext, force = true) } }.start()
-        val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        runCatching { ctx.startActivity(open) }
+        // The update check and the nightly contacts sync are alarms too; they were only re-armed when the app was opened
+        runCatching { UpdateCheckReceiver.schedule(ctx) }
+        runCatching { ContactsSyncService.schedule(ctx) }
+        // No startActivity here: Android 10+ blocks starting an activity from the background. The notification opens the app.
         Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", 7777)
     }
 }
