@@ -519,6 +519,7 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
                 item(key = "lock-hidden") {
                     TextButton({ lockAdmin() }, Modifier.fillMaxWidth()) { Text("Hide Admin again", color = TextSecond) }
                 }
+                item(key = "mms-log") { MmsLogCard() }
                 return@LazyColumn
             }
             if (configured) {
@@ -556,6 +557,7 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
                 }
                 item(key = "users-gap") { Spacer(Modifier.height(8.dp)) }
             }
+            item(key = "mms-log") { MmsLogCard() }
             item(key = "search") {
                 SettingsHeader("Contact search")
                 if (!configured) {
