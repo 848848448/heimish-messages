@@ -1,5 +1,7 @@
 package com.heimish.messages
 
+import androidx.compose.ui.focus.focusRequester
+
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -295,6 +297,18 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
 
     // Pick several photos at once; they go out one after another (the first one carries the text)
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> if (uris.isNotEmpty()) { pendingMediaUri = uris.first(); extraMedia = uris.drop(1).take(9); pendingMediaType = "image"; showAttach = false } }
+    // Photos/videos picked in the in-chat gallery go straight into the compose bar (the text you type is the caption)
+    fun setPicked(l: List<Uri>) {
+        if (l.isEmpty()) { pendingMediaUri = null; extraMedia = emptyList(); return }
+        pendingMediaUri = l.first(); extraMedia = l.drop(1).take(9)
+        pendingMediaType = if (isVideoUri(ctx, l.first())) "video" else "image"
+    }
+    val pickedNow: List<Uri> = if (pendingMediaUri != null && pendingMediaType != "audio") listOf(pendingMediaUri!!) + extraMedia else emptyList()
+    // "Gallery" in the sheet: Android's full photo picker (albums, search), photos and videos, up to 10
+    val fullPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
+        if (uris.isNotEmpty()) { setPicked((pickedNow + uris).distinct().take(10)); showGallery = false }
+    }
+    val composeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { uri -> pendingMediaUri = uri; pendingMediaType = "video"; showAttach = false } }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
@@ -519,6 +533,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             when (pendingMediaType) {
                                 "image" -> AsyncImage(pendingMediaUri, "preview", Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
                                 "video" -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
+                                    MediaThumb(pendingMediaUri!!, true, Modifier.fillMaxSize())
                                     Icon(Ms.PlayCircleFill, null, tint = Color.White, modifier = Modifier.size(32.dp))
                                 }
                                 else -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(Brand), contentAlignment = Alignment.Center) {
@@ -526,9 +541,9 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
-                            extraMedia.take(3).forEach { u -> Spacer(Modifier.width(6.dp)); AsyncImage(u, null, Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop) }
+                            extraMedia.take(3).forEach { u -> Spacer(Modifier.width(6.dp)); MediaThumb(u, isVideoUri(ctx, u), Modifier.size(56.dp).clip(RoundedCornerShape(10.dp))) }
                             Spacer(Modifier.width(8.dp))
-                            Text(when (pendingMediaType) { "image" -> if (extraMedia.isEmpty()) "Photo ready to send" else "${extraMedia.size + 1} photos ready to send"; "video" -> "Video ready to send"; else -> "Voice note ready to send" }, fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
+                            Text(when (pendingMediaType) { "image" -> if (extraMedia.isEmpty()) "Photo ready to send" else "${extraMedia.size + 1} ready to send"; "video" -> if (extraMedia.isEmpty()) "Video ready to send" else "${extraMedia.size + 1} ready to send"; else -> "Voice note ready to send" }, fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
                             IconButton({ pendingMediaUri = null; extraMedia = emptyList() }) { Icon(Ms.Close, "Remove", tint = TextHint) }
                         }
                     }
@@ -545,7 +560,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 Icon(if (showAttach) Ms.Close else Ms.AddCircleFill, "Attach", tint = TextPrimary, modifier = Modifier.size(24.dp))
                             }
                             androidx.compose.foundation.text.BasicTextField(
-                                draft, { draft = it }, Modifier.weight(1f).padding(vertical = 14.dp)
+                                draft, { draft = it }, Modifier.weight(1f).padding(vertical = 14.dp).focusRequester(composeFocus)
                                     // GIFs and stickers from the keyboard (Gboard etc.) become a picture message
                                     .contentReceiver { tc ->
                                         if (!tc.hasMediaType(androidx.compose.foundation.content.MediaType.Image)) return@contentReceiver tc
@@ -585,7 +600,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                     }
                     AnimatedVisibility(showAttach, enter = PanelEnter, exit = PanelExit) {
                         PlusPanel(listOf(
-                            Triple(Ms.PhotoLibrary, "Gallery") { imagePicker.launch("image/*") },
+                            Triple(Ms.PhotoLibrary, "Gallery") { showAttach = false; showEmoji = false; showGallery = true },
                             Triple(Ms.Gif, "GIFs") { showAttach = false; emojiTab = 1; showEmoji = true },
                             Triple(Ms.StickyNote2, "Stickers") { showAttach = false; emojiTab = 2; showEmoji = true },
                             Triple(Ms.AttachFile, "Files") { filePicker.launch("*/*") },
@@ -598,8 +613,11 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         ))
                     }
                     AnimatedVisibility(showGallery, enter = PanelEnter, exit = PanelExit) {
-                        GalleryPanel(onCamera = { startCamera() }, onFolders = { showGallery = false; imagePicker.launch("image/*") },
-                            onPicked = { l -> pendingMediaUri = l.first(); pendingMediaType = "image"; extraMedia = l.drop(1); showGallery = false })
+                        GalleryPanel(selected = pickedNow, onSelectionChange = { setPicked(it) }, onCamera = { startCamera() },
+                            onFullPicker = { runCatching { fullPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }.onFailure { imagePicker.launch("image/*") } },
+                            onCaption = { showGallery = false; runCatching { composeFocus.requestFocus() }; keyboard?.show() },
+                            onSend = { showGallery = false; doSend() },
+                            onClose = { showGallery = false })
                     }
                     AnimatedVisibility(showEmoji, enter = PanelEnter, exit = PanelExit) {
                         ExpressionPanel(emojiTab, onEmoji = { draft += it },
