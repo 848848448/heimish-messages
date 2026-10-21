@@ -349,11 +349,11 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
         scope.launch {
             val p = Forwarder.build(ctx, list, conversation.threadId)
             forwarding = false
-            val open = ForwardState.open
-            when {
-                p == null -> Toast.makeText(ctx, "Nothing to forward", Toast.LENGTH_SHORT).show()
-                open == null -> Toast.makeText(ctx, "Could not forward", Toast.LENGTH_SHORT).show()
-                else -> { ForwardState.payload = p; keyboard?.hide(); open() }
+            if (p == null) Toast.makeText(ctx, "Nothing to forward", Toast.LENGTH_SHORT).show()
+            else {
+                ForwardState.payload = p; keyboard?.hide()
+                // From the floating bubble the app opens on the picker (the bubble has no picker of its own)
+                if (!openForwardPicker(ctx)) { ForwardState.clear(); Toast.makeText(ctx, "Could not forward", Toast.LENGTH_SHORT).show() }
             }
         }
     }
@@ -484,18 +484,17 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
         }
     }
     val audioPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) Toast.makeText(ctx, "Hold the mic to record, release to send", Toast.LENGTH_SHORT).show() else Toast.makeText(ctx, "Microphone permission needed for voice notes", Toast.LENGTH_SHORT).show()
+        if (!granted) Toast.makeText(ctx, "Microphone permission needed for voice notes", Toast.LENGTH_SHORT).show()
     }
     val locPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (res.values.any { it }) {
-            runCatching {
-                val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                val loc = lm.getProviders(true).firstNotNullOfOrNull { p -> runCatching { lm.getLastKnownLocation(p) }.getOrNull() }
+            Toast.makeText(ctx, "Getting your location…", Toast.LENGTH_SHORT).show()
+            LocationFix.get(ctx) { loc ->
                 if (loc != null) {
                     val link = "https://maps.google.com/?q=${loc.latitude},${loc.longitude}"
                     draft = if (draft.isBlank()) link else "$draft\n$link"
-                } else Toast.makeText(ctx, "Location unavailable", Toast.LENGTH_SHORT).show()
-            }.onFailure { Toast.makeText(ctx, "Location unavailable", Toast.LENGTH_SHORT).show() }
+                } else Toast.makeText(ctx, "Location unavailable — is Location turned on?", Toast.LENGTH_LONG).show()
+            }
         } else Toast.makeText(ctx, "Location permission needed", Toast.LENGTH_SHORT).show()
         showAttach = false
     }
