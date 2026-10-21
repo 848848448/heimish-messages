@@ -902,7 +902,8 @@ object SmsRepository {
         }
 
 
-        private val photoCache = HashMap<String, Uri?>()
+        // Read from the notification thread and the UI at once: keep it synchronized
+        private val photoCache: MutableMap<String, Uri?> = java.util.Collections.synchronizedMap(HashMap<String, Uri?>())
 
         fun contactPhotoUri(ctx: Context, number: String): Uri? {
             if (number.isBlank() || number.contains(";")) return null
