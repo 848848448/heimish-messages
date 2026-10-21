@@ -11,10 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -70,21 +66,21 @@ fun TrashScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     Scaffold(containerColor = Chrome, topBar = {
         TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } },
             title = { Text("Trash", fontSize = 22.sp) },
             actions = {
                 if (list.isNotEmpty()) {
-                    IconButton({ list.forEach { TrashStore.remove(ctx, it.threadId) }; tick++ }) { Icon(Icons.Outlined.RestoreFromTrash, "Restore all") }
-                    IconButton({ confirmAll = true }) { Icon(Icons.Outlined.DeleteForever, "Delete all") }
+                    IconButton({ list.forEach { TrashStore.remove(ctx, it.threadId) }; tick++ }) { Icon(Ms.RestoreFromTrash, "Restore all") }
+                    IconButton({ confirmAll = true }) { Icon(Ms.DeleteForever, "Delete all") }
                 }
             })
     }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg)) {
             Row(Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(16.dp)).background(Surf).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Info, null, tint = TextSecond, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(12.dp))
+                Icon(Ms.Info, null, tint = TextSecond, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(12.dp))
                 Text("Conversations stay in the trash for 30 days before they're deleted forever", color = TextSecond, fontSize = 14.sp)
             }
-            if (list.isEmpty()) EmptyState(Icons.Outlined.DeleteOutline, "Nothing in the trash", "Deleted conversations wait here for 30 days") else LazyColumn {
+            if (list.isEmpty()) EmptyState(Ms.Delete, "Nothing in the trash", "Deleted conversations wait here for 30 days") else LazyColumn {
                 items(list, key = { it.threadId }) { c ->
                     val left = (((trash[c.threadId] ?: 0L) + TrashStore.KEEP_MS - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0)
                     Row(Modifier.animateItem().fillMaxWidth().clickable { pick = c }.padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -119,7 +115,7 @@ fun AccountMenu(groups: List<List<MenuEntry>>, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxWidth(.94f).clip(RoundedCornerShape(28.dp)).background(Chrome).verticalScroll(rememberScrollState()).padding(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onDismiss) { Icon(Icons.Default.Close, "Close", tint = TextPrimary) }
+                IconButton(onDismiss) { Icon(Ms.Close, "Close", tint = TextPrimary) }
                 Text("Messages", color = TextPrimary, fontSize = 20.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 Spacer(Modifier.width(48.dp))
             }
