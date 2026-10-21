@@ -526,6 +526,29 @@ object MmsIncoming {
         MmsLog.log(ctx, "notification shown for thread $threadId ($body)")
     }
 
+    /** For the chat bubble of a not-downloaded MMS row: true while a download is running or a retry is still planned. */
+    fun isDownloading(ctx: Context, row: Long): Boolean = synchronized(lock) {
+        val e = load(ctx).items.values.firstOrNull { it.optLong("row", -1L) == row } ?: return false
+        val now = System.currentTimeMillis()
+        val exp = e.optLong("exp")
+        if (e.optInt("pend", 0) != 0 && now - e.optLong("last") < ANSWER_TIMEOUT_MS + 60_000L) return true
+        !(exp in 1 until now) && e.optInt("attempts") < MAX_ATTEMPTS && now - e.optLong("first", now) < 2 * 3600_000L
+    }
+
+    /** The retry button on a not-downloaded MMS bubble: fresh attempts for that one message, downloading now. */
+    fun retryRow(ctx: Context, row: Long) {
+        MmsLog.log(ctx, "retry tapped for row $row")
+        var e = synchronized(lock) { load(ctx).items.values.firstOrNull { it.optLong("row", -1L) == row } }
+        if (e == null) { runCatching { adoptStuckRows(ctx) }; e = synchronized(lock) { load(ctx).items.values.firstOrNull { it.optLong("row", -1L) == row } } }
+        if (e == null) { MmsLog.log(ctx, "ERROR row $row has no download address"); return }
+        val loc = e.getString("loc")
+        synchronized(lock) {
+            val q = load(ctx); q.items[loc]?.apply { put("attempts", 0); put("last", 0L); put("pend", 0); put("first", System.currentTimeMillis()) }; save(ctx, q)
+            e = q.items[loc] ?: e
+        }
+        startDownload(ctx, e!!)
+    }
+
     /** Admin "Retry now": every queued MMS gets a fresh set of attempts, downloaded now. */
     fun retryNow(ctx: Context) {
         synchronized(lock) {

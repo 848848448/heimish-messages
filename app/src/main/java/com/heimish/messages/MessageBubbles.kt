@@ -258,6 +258,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                             ), contentScale = ContentScale.Crop)
                         }
                     }
+                    if (m.pendingMms) MmsPendingBlock(m, isIn, outSub)
                     if (m.body.isNotBlank()) {
                         val urls = remember(m.body) { URL_REGEX.findAll(m.body).toList() }
                         if (urls.isEmpty()) {
@@ -335,3 +336,34 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     }
 }
 
+
+/** A not-yet-downloaded incoming MMS, like Google Messages: a media tile with a spinner while downloading, and an
+ *  icon-only retry button once the automatic tries have stopped. The real message replaces it when it arrives. */
+@Composable
+private fun MmsPendingBlock(m: Message, isIn: Boolean, tint: Color) {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext
+    var downloading by remember(m.id) { mutableStateOf(true) }
+    var tick by remember(m.id) { mutableIntStateOf(0) }
+    LaunchedEffect(m.id, tick) {
+        if (tick > 0) delay(2000) // let the retry register before reading its state
+        while (true) {
+            downloading = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { MmsIncoming.isDownloading(app, m.rowId) }.getOrDefault(false) }
+            delay(3000)
+        }
+    }
+    Box(Modifier.size(width = 220.dp, height = 150.dp).background(tint.copy(alpha = .10f)), contentAlignment = Alignment.Center) {
+        Icon(Ms.Image, null, tint = tint.copy(alpha = .35f), modifier = Modifier.size(64.dp))
+        if (downloading) {
+            CircularProgressIndicator(Modifier.size(40.dp), color = tint, strokeWidth = 3.dp)
+        } else {
+            IconButton(onClick = {
+                downloading = true
+                Thread { runCatching { MmsIncoming.retryRow(app, m.rowId) } }.start()
+                tick++
+            }, modifier = Modifier.size(48.dp).clip(CircleShape).background(tint.copy(alpha = .22f))) {
+                Icon(Ms.Refresh, "Retry", tint = tint)
+            }
+        }
+    }
+}
