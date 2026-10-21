@@ -1,7 +1,5 @@
 package com.heimish.messages
 
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -42,10 +40,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -98,53 +92,53 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(containerColor = SettPageBg, modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = SettPageBg, scrolledContainerColor = SettPageBg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } },
             title = { Text("Settings") }, scrollBehavior = scroll) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
             item {
                 // App card
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(28.dp)).background(Tonal).clickable { onSub("about") }.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(18.dp)).background(Brand), contentAlignment = Alignment.Center) { Icon(Icons.Filled.Chat, null, tint = OnBrand, modifier = Modifier.size(28.dp)) }
+                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(18.dp)).background(Brand), contentAlignment = Alignment.Center) { Icon(Ms.ChatFill, null, tint = OnBrand, modifier = Modifier.size(28.dp)) }
                     Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Message", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = OnTonal)
                         Text("Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER}", fontSize = 13.sp, color = OnTonal.copy(alpha = .75f))
                     }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = OnTonal)
+                    Icon(Ms.ChevronRight, null, tint = OnTonal)
                 }
             }
             item { SettingsHeader("Personalize") }
             item { SettGroup {
-                SettRow(Icons.Default.Palette, "Theme", "Dark mode, wallpaper colors, font", Color(0xFF7B5CF5)) { onSub("theme") }
-                SettRow(Icons.Default.ChatBubble, "Bubble color", "The color of your messages", Color(0xFF1A73E8)) { onSub("bubbles") }
-                SettRow(Icons.Default.Style, "Bubble shape & background", "Round or square bubbles, chat wallpaper", Color(0xFF00897B)) { onSub("x_style") }
-                SettRow(Icons.Default.FormatSize, "Message text size", "Text inside chat bubbles", Color(0xFFE8710A)) { onSub("textsize") }
-                SettRow(Icons.Default.TextFields, "App text size", "Bigger text everywhere in the app", Color(0xFFD93025)) { onSub("x_access") }
+                SettRow(Ms.Palette, "Theme", "Dark mode, wallpaper colors, font", Color(0xFF7B5CF5)) { onSub("theme") }
+                SettRow(Ms.ChatBubble, "Bubble color", "The color of your messages", Color(0xFF1A73E8)) { onSub("bubbles") }
+                SettRow(Ms.Style, "Bubble shape & background", "Round or square bubbles, chat wallpaper", Color(0xFF00897B)) { onSub("x_style") }
+                SettRow(Ms.FormatSize, "Message text size", "Text inside chat bubbles", Color(0xFFE8710A)) { onSub("textsize") }
+                SettRow(Ms.TextFields, "App text size", "Bigger text everywhere in the app", Color(0xFFD93025)) { onSub("x_access") }
             } }
             item { SettingsHeader("Notifications") }
             item { SettGroup {
-                SettRow(Icons.Default.Notifications, "Notifications", "Sounds, vibration, previews, bubbles", Color(0xFFE37400)) { onSub("notifications") }
-                SettRow(Icons.Default.NotificationsOff, "Quiet hours", "Silent messages at night", Color(0xFF5F6368)) { onSub("x_dnd") }
+                SettRow(Ms.Notifications, "Notifications", "Sounds, vibration, previews, bubbles", Color(0xFFE37400)) { onSub("notifications") }
+                SettRow(Ms.NotificationsOff, "Quiet hours", "Silent messages at night", Color(0xFF5F6368)) { onSub("x_dnd") }
             } }
             item { SettingsHeader("Messages") }
             item { SettGroup {
-                SettRow(Icons.AutoMirrored.Filled.Reply, "Quick replies", "Edit your canned replies", Color(0xFF188038)) { onSub("x_quick") }
-                SettRow(Icons.Default.Link, "Automatic previews", "Web link previews", Color(0xFF1A73E8)) { onSub("previews") }
-                SettRow(Icons.Default.SwipeRight, "Swipe actions", "What swiping a chat does", Color(0xFF9334E6)) { onSub("swipe") }
-                SettRow(Icons.Default.SimCard, "SIM card & group texts", "Choose SIM, group MMS", Color(0xFF00897B)) { onSub("x_sim") }
-                SettRow(Icons.Default.Tune, "Advanced", "Delivery reports, sounds, Enter to send, updates", Color(0xFF5F6368)) { onSub("advanced") }
+                SettRow(Ms.Reply, "Quick replies", "Edit your canned replies", Color(0xFF188038)) { onSub("x_quick") }
+                SettRow(Ms.Link, "Automatic previews", "Web link previews", Color(0xFF1A73E8)) { onSub("previews") }
+                SettRow(Ms.SwipeRight, "Swipe actions", "What swiping a chat does", Color(0xFF9334E6)) { onSub("swipe") }
+                SettRow(Ms.SimCard, "SIM card & group texts", "Choose SIM, group MMS", Color(0xFF00897B)) { onSub("x_sim") }
+                SettRow(Ms.Tune, "Advanced", "Delivery reports, sounds, Enter to send, updates", Color(0xFF5F6368)) { onSub("advanced") }
             } }
             item { SettingsHeader("Privacy & safety") }
             item { SettGroup {
-                SettRow(Icons.Default.Shield, "Spam & blocking", "Spam filter, blocked numbers, keywords, link warnings", Color(0xFF188038)) { onSub("safety") }
-                SettRow(Icons.Default.Lock, "App lock", "Fingerprint, face or PIN", Color(0xFF1A73E8)) { onSub("x_lock") }
-                SettRow(Icons.Default.DeleteSweep, "Verification codes", "Auto-delete old codes", Color(0xFFE8710A)) { onSub("x_otp") }
+                SettRow(Ms.Shield, "Spam & blocking", "Spam filter, blocked numbers, keywords, link warnings", Color(0xFF188038)) { onSub("safety") }
+                SettRow(Ms.Lock, "App lock", "Fingerprint, face or PIN", Color(0xFF1A73E8)) { onSub("x_lock") }
+                SettRow(Ms.DeleteSweep, "Verification codes", "Auto-delete old codes", Color(0xFFE8710A)) { onSub("x_otp") }
             } }
             item { SettingsHeader("Data") }
             item { SettGroup {
-                SettRow(Icons.Default.Backup, "Backup & restore", "Save or restore your texts", Color(0xFF1A73E8)) { onSub("x_backup") }
-                SettRow(Icons.Default.Info, "About & updates", "Version, check for updates", Color(0xFF5F6368)) { onSub("about") }
+                SettRow(Ms.Backup, "Backup & restore", "Save or restore your texts", Color(0xFF1A73E8)) { onSub("x_backup") }
+                SettRow(Ms.Info, "About & updates", "Version, check for updates", Color(0xFF5F6368)) { onSub("about") }
             } }
         }
     }
@@ -177,7 +171,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
     val subScroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(containerColor = Bg, modifier = Modifier.nestedScroll(subScroll.nestedScrollConnection),
         topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }, title = { Text(title) }, scrollBehavior = subScroll) }
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }, title = { Text(title) }, scrollBehavior = subScroll) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 18.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
             when (key) {
@@ -336,7 +330,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                         Spacer(Modifier.height(20.dp))
                         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.size(72.dp).clip(CircleShape).background(Brand), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Filled.Chat, null, tint = OnBrand, modifier = Modifier.size(36.dp))
+                                Icon(Ms.ChatFill, null, tint = OnBrand, modifier = Modifier.size(36.dp))
                             }
                             Spacer(Modifier.height(14.dp))
                             Text("Message", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
@@ -387,7 +381,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) { Text(title, fontSize = 16.sp, color = TextPrimary); Spacer(Modifier.height(2.dp)); Text(sub, fontSize = 13.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = TextHint, modifier = Modifier.size(20.dp))
+        Icon(Ms.ChevronRight, null, tint = TextHint, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -427,7 +421,7 @@ fun AdminScreen(onBack: () -> Unit) {
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) }) }
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).padding(16.dp)) {
             item {
@@ -438,7 +432,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     TextField(q, {
                         q = it; if (it.isNotBlank()) search(it) else { resLines = emptyList(); status = "" }
                     }, Modifier.fillMaxWidth(), placeholder = { Text("Search name or number…", color = TextHint) }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                        leadingIcon = { Icon(Icons.Default.Search, null, tint = TextHint) },
+                        leadingIcon = { Icon(Ms.Search, null, tint = TextHint) },
                         colors = TextFieldDefaults.colors(focusedContainerColor = SearchBg, unfocusedContainerColor = SearchBg, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, cursorColor = Brand))
                 }
                 Spacer(Modifier.height(12.dp))

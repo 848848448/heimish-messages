@@ -123,7 +123,7 @@ object UpdateManager {
         val total = i?.sizeBytes ?: 0L
         val text = if (total > 0) "${mb((total * pct / 100.0).toLong())} of ${mb(total)}" else "$pct%"
         return NotificationCompat.Builder(ctx, CH_PROGRESS)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setSmallIcon(R.drawable.ms_download)
             .setContentTitle("Downloading update" + (i?.let { " · build ${it.build}" } ?: ""))
             .setContentText(text)
             .setSubText("$pct%")
@@ -143,12 +143,12 @@ object UpdateManager {
     fun notifyReady(ctx: Context, i: UpdateInfo) {
         ensureChannels(ctx)
         val n = NotificationCompat.Builder(ctx, CH_AVAILABLE)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ms_download_done)
             .setContentTitle("Update ready to install")
             .setContentText("Message ${BuildConfig.VERSION_NAME} build ${i.build} · tap to install")
             .setStyle(NotificationCompat.BigTextStyle().bigText(notesSummary(i.notes).ifBlank { "Tap to install build ${i.build}" }))
             .setContentIntent(openAppIntent(ctx, true))
-            .addAction(android.R.drawable.stat_sys_download_done, "Install", openAppIntent(ctx, true))
+            .addAction(R.drawable.ms_download_done, "Install", openAppIntent(ctx, true))
             .setAutoCancel(true)
             .build()
         try { NotificationManagerCompat.from(ctx).notify(NID_READY, n) } catch (_: SecurityException) {}
@@ -156,7 +156,7 @@ object UpdateManager {
 
     private fun notifyError(ctx: Context) {
         val n = NotificationCompat.Builder(ctx, CH_AVAILABLE)
-            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setSmallIcon(R.drawable.ms_error)
             .setContentTitle("Update download failed")
             .setContentText("Tap to try again")
             .setContentIntent(openAppIntent(ctx, false))
@@ -172,7 +172,7 @@ object UpdateManager {
             .setContentText(notesSummary(i.notes).ifBlank { "Tap to see what's new" })
             .setStyle(NotificationCompat.BigTextStyle().bigText(notesSummary(i.notes).ifBlank { "Tap to see what's new" }))
             .setContentIntent(openAppIntent(ctx, false))
-            .addAction(android.R.drawable.stat_sys_download, "Update now", downloadPendingIntent(ctx))
+            .addAction(R.drawable.ms_download, "Update now", downloadPendingIntent(ctx))
             .setAutoCancel(true)
             .build()
         try { NotificationManagerCompat.from(ctx).notify(NID_AVAILABLE, n) } catch (_: SecurityException) {}

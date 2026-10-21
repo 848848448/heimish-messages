@@ -16,9 +16,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -105,8 +102,8 @@ private fun loadPhoneGifs(ctx: Context): List<Pair<Uri, String>> = runCatching {
     out
 }.getOrDefault(emptyList())
 
-private val CatIcons: List<ImageVector> = listOf(Icons.Outlined.EmojiEmotions, Icons.Outlined.EmojiPeople, Icons.Outlined.EmojiNature, Icons.Outlined.EmojiFoodBeverage,
-    Icons.Outlined.EmojiEvents, Icons.Outlined.EmojiTransportation, Icons.Outlined.EmojiObjects, Icons.Outlined.EmojiSymbols, Icons.Outlined.EmojiFlags)
+private val CatIcons: List<ImageVector> @Composable get() = listOf(Ms.Mood, Ms.EmojiPeople, Ms.EmojiNature, Ms.EmojiFoodBeverage,
+    Ms.EmojiEvents, Ms.EmojiTransportation, Ms.EmojiObjects, Ms.EmojiSymbols, Ms.EmojiFlags)
 
 /** Google Messages emoji / GIF / sticker panel: tabs on top, search pill, grid with category headers and a category bar. */
 @Composable
@@ -127,7 +124,7 @@ fun ExpressionPanel(startTab: Int = 0, onEmoji: (String) -> Unit, onGif: (Uri) -
             }
             Spacer(Modifier.width(10.dp))
             Row(Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(50)).background(TileBg).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Search, null, tint = TextSecond, modifier = Modifier.size(18.dp))
+                Icon(Ms.Search, null, tint = TextSecond, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Box(Modifier.weight(1f)) {
                     if (q.isEmpty()) Text(listOf("Search emoji", "Search GIFs", "Search stickers")[tab], color = TextHint, fontSize = 14.sp)
@@ -160,7 +157,7 @@ fun ExpressionPanel(startTab: Int = 0, onEmoji: (String) -> Unit, onGif: (Uri) -
                 }
                 if (query.isEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     val off = if (recents.isNotEmpty()) 1 else 0
-                    if (off == 1) Icon(Icons.Outlined.Schedule, "Recents", tint = TextSecond, modifier = Modifier.size(34.dp).clip(CircleShape).clickable { scope.launch { grid.scrollToItem(0) } }.padding(6.dp))
+                    if (off == 1) Icon(Ms.Schedule, "Recents", tint = TextSecond, modifier = Modifier.size(34.dp).clip(CircleShape).clickable { scope.launch { grid.scrollToItem(0) } }.padding(6.dp))
                     CatIcons.forEachIndexed { i, ic ->
                         Icon(ic, null, tint = TextSecond, modifier = Modifier.size(34.dp).clip(CircleShape).clickable { scope.launch { headerIdx.getOrNull(i + off)?.let { grid.scrollToItem(it) } } }.padding(6.dp))
                     }
@@ -174,7 +171,7 @@ fun ExpressionPanel(startTab: Int = 0, onEmoji: (String) -> Unit, onGif: (Uri) -
                 val shown = gifs?.filter { q.isBlank() || it.second.contains(q.trim(), true) }
                 if (shown.isNullOrEmpty()) Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Outlined.Gif, null, tint = TextHint, modifier = Modifier.size(48.dp))
+                        Icon(Ms.Gif, null, tint = TextHint, modifier = Modifier.size(48.dp))
                         Spacer(Modifier.height(8.dp))
                         Text(if (gifs == null) "Loading…" else "No GIFs on this phone yet. GIFs you save, and GIFs from your keyboard, show up here.", color = TextHint, fontSize = 14.sp)
                         if (!photoOk) TextButton({ askPhotos() }) { Text("Allow photo access", color = Brand) }
@@ -220,12 +217,12 @@ fun GalleryPanel(onCamera: () -> Unit, onFolders: () -> Unit, onPicked: (List<Ur
             LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item {
                     Column(Modifier.aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(TileBg).clickable(onClick = onCamera), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        Icon(Icons.Outlined.PhotoCamera, null, tint = TextPrimary, modifier = Modifier.size(30.dp)); Spacer(Modifier.height(6.dp)); Text("Camera", color = TextPrimary, fontSize = 13.sp)
+                        Icon(Ms.PhotoCamera, null, tint = TextPrimary, modifier = Modifier.size(30.dp)); Spacer(Modifier.height(6.dp)); Text("Camera", color = TextPrimary, fontSize = 13.sp)
                     }
                 }
                 item {
                     Column(Modifier.aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(TileBg).clickable(onClick = onFolders), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        Icon(Icons.Outlined.Folder, null, tint = TextPrimary, modifier = Modifier.size(30.dp)); Spacer(Modifier.height(6.dp)); Text("Folders", color = TextPrimary, fontSize = 13.sp)
+                        Icon(Ms.Folder, null, tint = TextPrimary, modifier = Modifier.size(30.dp)); Spacer(Modifier.height(6.dp)); Text("Folders", color = TextPrimary, fontSize = 13.sp)
                     }
                 }
                 photos.forEach { u ->

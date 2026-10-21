@@ -1,6 +1,5 @@
 package com.heimish.messages
 
-import androidx.compose.material.icons.automirrored.filled.Reply
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -44,10 +43,6 @@ import androidx.compose.foundation.content.hasMediaType
 import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -107,7 +102,7 @@ fun SwipeToReplyBubble(m: Message, reactTick: Int, onReply: () -> Unit, onLongCl
     }) {
         if (abs(offsetX) > 20f) {
             Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = if (m.incoming) Alignment.CenterStart else Alignment.CenterEnd) {
-                Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
+                Icon(Ms.Reply, null, tint = Brand.copy(alpha = (abs(offsetX) / threshold).coerceAtMost(1f)), modifier = Modifier.size(24.dp))
             }
         }
         Box(Modifier.absoluteOffset { IntOffset(offsetX.roundToInt(), 0) }) { // follows the finger in Hebrew/RTL too
@@ -185,7 +180,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
     val sending = m.sending
     var warnUrl by remember { mutableStateOf<String?>(null) }
     warnUrl?.let { u ->
-        AlertDialog(onDismissRequest = { warnUrl = null }, icon = { Icon(Icons.Default.GppMaybe, null, tint = Red) },
+        AlertDialog(onDismissRequest = { warnUrl = null }, icon = { Icon(Ms.GppMaybe, null, tint = Red) },
             title = { Text("Open this link?") },
             text = { Text("This link came from a number that isn't in your contacts and looks suspicious:\n\n$u") },
             confirmButton = { TextButton({ warnUrl = null; runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) } }) { Text("Open anyway") } },
@@ -216,7 +211,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                         val mime = m.mediaMime ?: "image/"
                         when {
                             mime.startsWith("video/") -> Box(Modifier.fillMaxWidth().height(180.dp).background(Color.Black), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.PlayCircle, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                                Icon(Ms.PlayCircleFill, null, tint = Color.White, modifier = Modifier.size(48.dp))
                             }
                             mime.startsWith("audio/") -> VoiceNoteBubble(m, m.imageUri, isIn, outText, outSub, onLongClick)
                             else -> AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 240.dp).clickable { viewing = true }.clip(
@@ -253,7 +248,7 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                                     .background(previewBg)
                                     .clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.padding(10.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Language, null, tint = if (isIn) TextSecond else outSub, modifier = Modifier.size(16.dp))
+                                        Icon(Ms.Language, null, tint = if (isIn) TextSecond else outSub, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
                                         Text(domain, fontSize = 12.sp, color = if (isIn) TextSecond else outSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
@@ -267,13 +262,13 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         if (failed) {
-                            Icon(Icons.Default.ErrorOutline, "Failed", tint = Color(0xFFD93025), modifier = Modifier.size(13.dp))
+                            Icon(Ms.Error, "Failed", tint = Color(0xFFD93025), modifier = Modifier.size(13.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Not sent · tap to retry", fontSize = 11.sp, color = Color(0xFFD93025), fontWeight = FontWeight.Medium)
                             Spacer(Modifier.width(6.dp))
                         }
                         if (starred) {
-                            Icon(Icons.Default.Star, null, tint = Amber, modifier = Modifier.size(12.dp))
+                            Icon(Ms.StarFill, null, tint = Amber, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.width(3.dp))
                         }
                         Text(msgTime(m.date), fontSize = 11.sp, color = TextHint)
@@ -281,9 +276,9 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                             Spacer(Modifier.width(3.dp))
                             Icon(
                                 when {
-                                    sending -> Icons.Default.Schedule
-                                    m.delivered -> Icons.Default.DoneAll
-                                    else -> Icons.Default.Check
+                                    sending -> Ms.Schedule
+                                    m.delivered -> Ms.DoneAll
+                                    else -> Ms.Check
                                 },
                                 when { sending -> "Sending…"; m.delivered -> "Delivered"; else -> "Sent" },
                                 tint = TextHint, modifier = Modifier.size(13.dp))

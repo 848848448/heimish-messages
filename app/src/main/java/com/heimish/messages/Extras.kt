@@ -1,6 +1,5 @@
 package com.heimish.messages
 
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -21,16 +20,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -169,7 +164,7 @@ fun LockScreen(onUnlock: () -> Unit) {
     }
     LaunchedEffect(Unit) { ask() }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
+        Icon(Ms.LockFill, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
         Spacer(Modifier.height(16.dp))
         Text("Message is locked", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(20.dp))
@@ -189,8 +184,8 @@ fun SpamScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         // Blocked chats show here too (they were hidden everywhere with no way to unblock them)
         list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }.filter { it.threadId in ids || BlockedStore.isBlocked(ctx, it.address) }
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("Spam & blocked", fontSize = 22.sp) }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { pad ->
-        if (list.isEmpty()) EmptyState(Icons.Outlined.Shield, "No spam or blocked chats", "Chats you block or mark as spam show up here", Modifier.padding(pad))
+    Scaffold(topBar = { TopAppBar(title = { Text("Spam & blocked", fontSize = 22.sp) }, navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }) }) { pad ->
+        if (list.isEmpty()) EmptyState(Ms.Shield, "No spam or blocked chats", "Chats you block or mark as spam show up here", Modifier.padding(pad))
         else LazyColumn(Modifier.padding(pad)) {
             items(list, key = { it.threadId }) { c ->
                 Row(Modifier.fillMaxWidth().clickable { onOpen(c) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -232,7 +227,7 @@ fun ExtraScreen(key: String, onBack: () -> Unit) {
         }
     }
     Scaffold(containerColor = Bg, topBar = { LargeTopAppBar(colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = Bg, scrolledContainerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-        title = { Text(title) }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { pad ->
+        title = { Text(title) }, navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }) }) { pad ->
         Column(Modifier.padding(pad)) {
             when (key) {
                 "spam" -> {
@@ -403,7 +398,7 @@ const val WHATS_NEW = """New
 @Composable
 fun WhatsNewScreen(info: UpdateInfo?, onBack: () -> Unit) {
     val notes = if (info != null && info.notes.isNotBlank() && !info.notes.startsWith("Install app-debug")) info.notes else WHATS_NEW
-    Scaffold(topBar = { TopAppBar(title = { Text(if (info != null) "Update to build ${info.build}" else "What's new", fontWeight = FontWeight.SemiBold) }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) },
+    Scaffold(topBar = { TopAppBar(title = { Text(if (info != null) "Update to build ${info.build}" else "What's new", fontWeight = FontWeight.SemiBold) }, navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }) },
         bottomBar = { if (info != null) Column(Modifier.padding(bottom = 12.dp)) { UpdateCard(info, null) } }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 20.dp)) {
             items(notes.lines().filter { it.isNotBlank() }) { l ->
@@ -441,7 +436,7 @@ fun PhotoViewer(uri: Uri, onClose: () -> Unit, title: String = "", date: Long = 
                 .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { chrome = !chrome },
                 contentScale = androidx.compose.ui.layout.ContentScale.FillWidth)
             if (chrome) Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp).align(Alignment.TopCenter), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClose) { Icon(Icons.Default.Close, "Close", tint = white) }
+                IconButton(onClose) { Icon(Ms.Close, "Close", tint = white) }
                 Column(Modifier.weight(1f).padding(start = 4.dp)) {
                     if (title.isNotEmpty()) Text(title, color = white, fontSize = 17.sp, maxLines = 1)
                     if (date > 0) Text(java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.getDefault()).format(java.util.Date(date)), color = white.copy(.75f), fontSize = 13.sp)
@@ -453,8 +448,8 @@ fun PhotoViewer(uri: Uri, onClose: () -> Unit, title: String = "", date: Long = 
                         ctx.contentResolver.openInputStream(uri)!!.use { i -> ctx.contentResolver.openOutputStream(out)!!.use { o -> i.copyTo(o) } }
                         Toast.makeText(ctx, "Saved to Pictures", Toast.LENGTH_SHORT).show()
                     }.onFailure { Toast.makeText(ctx, "Could not save", Toast.LENGTH_SHORT).show() }
-                }) { Icon(Icons.Outlined.FileDownload, "Save", tint = white) }
-                if (onDelete != null) IconButton({ onDelete(); onClose() }) { Icon(Icons.Outlined.Delete, "Delete", tint = white) }
+                }) { Icon(Ms.Download, "Save", tint = white) }
+                if (onDelete != null) IconButton({ onDelete(); onClose() }) { Icon(Ms.Delete, "Delete", tint = white) }
                 IconButton({
                     runCatching {
                         val f = java.io.File(ctx.cacheDir, "share_" + System.currentTimeMillis() + ".jpg")
@@ -462,7 +457,7 @@ fun PhotoViewer(uri: Uri, onClose: () -> Unit, title: String = "", date: Long = 
                         val u = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f)
                         ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("image/*").putExtra(Intent.EXTRA_STREAM, u).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share"))
                     }.onFailure { Toast.makeText(ctx, "Could not share", Toast.LENGTH_SHORT).show() }
-                }) { Icon(Icons.Outlined.Share, "Share", tint = white) }
+                }) { Icon(Ms.Share, "Share", tint = white) }
             }
             if (chrome && reactKey != null) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 14.dp).align(Alignment.BottomCenter),
                 horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
@@ -496,7 +491,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = Chrome) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 24.dp)) {
-                Row(Modifier.padding(4.dp)) { IconButton(onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) } }
+                Row(Modifier.padding(4.dp)) { IconButton(onClose) { Icon(Ms.ArrowBack, "Back", tint = TextPrimary) } }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Avatar(c.displayName, c.address, 120.dp, 48.sp)
                     Spacer(Modifier.height(14.dp))
@@ -512,16 +507,16 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (!isGroup) {
-                        Pill(Icons.Outlined.Call, "Call", Modifier.weight(1f)) { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address))) }
-                        Pill(Icons.Outlined.Videocam, "Video", Modifier.weight(1f)) { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address)).putExtra("android.telecom.extra.START_CALL_WITH_VIDEO_STATE", 3)) } }
-                        if (unsaved) Pill(Icons.Outlined.PersonAdd, "Add contact", Modifier.weight(1f)) { runCatching { ctx.startActivity(Intent(Intent.ACTION_INSERT, android.provider.ContactsContract.Contacts.CONTENT_URI).putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, c.address)) } }
-                        else Pill(Icons.Outlined.AccountCircle, "Contact info", Modifier.weight(1f)) { runCatching {
+                        Pill(Ms.Call, "Call", Modifier.weight(1f)) { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address))) }
+                        Pill(Ms.Videocam, "Video", Modifier.weight(1f)) { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address)).putExtra("android.telecom.extra.START_CALL_WITH_VIDEO_STATE", 3)) } }
+                        if (unsaved) Pill(Ms.PersonAdd, "Add contact", Modifier.weight(1f)) { runCatching { ctx.startActivity(Intent(Intent.ACTION_INSERT, android.provider.ContactsContract.Contacts.CONTENT_URI).putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, c.address)) } }
+                        else Pill(Ms.AccountCircle, "Contact info", Modifier.weight(1f)) { runCatching {
                             val lu = Uri.withAppendedPath(android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(c.address))
                             ctx.contentResolver.query(lu, arrayOf(android.provider.ContactsContract.PhoneLookup._ID, android.provider.ContactsContract.PhoneLookup.LOOKUP_KEY), null, null, null)?.use { cu ->
                                 if (cu.moveToFirst()) ctx.startActivity(Intent(Intent.ACTION_VIEW, android.provider.ContactsContract.Contacts.getLookupUri(cu.getLong(0), cu.getString(1))))
                             } } }
                     }
-                    Pill(Icons.Outlined.Search, "Search", Modifier.weight(1f)) { onSearch() }
+                    Pill(Ms.Search, "Search", Modifier.weight(1f)) { onSearch() }
                 }
                 @Composable fun Card(content: @Composable ColumnScope.() -> Unit) =
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(24.dp)).background(Surf), content = content)
@@ -537,21 +532,21 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                     if (photos.isNotEmpty()) {
                         Row(Modifier.fillMaxWidth().clickable { media = true }.padding(start = 20.dp, end = 12.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Images", fontSize = 16.sp, color = TextPrimary, modifier = Modifier.weight(1f))
-                            Text("${photos.size}", fontSize = 14.sp, color = TextSecond); Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = TextSecond)
+                            Text("${photos.size}", fontSize = 14.sp, color = TextSecond); Icon(Ms.ChevronRight, null, tint = TextSecond)
                         }
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             photos.take(12).forEach { m -> coil.compose.AsyncImage(m.imageUri, null, Modifier.size(width = 92.dp, height = 120.dp).clip(RoundedCornerShape(16.dp)).clickable { viewing = m.imageUri }, contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
                         }
                     }
-                    Row2(Icons.Outlined.PermMedia, "Videos, links, & more") { media = true }
+                    Row2(Ms.PermMedia, "Videos, links, & more") { media = true }
                 }
                 Card {
-                    Row2(Icons.Outlined.Palette, "Change colors") { onTheme() }
-                    Row2(Icons.Outlined.Notifications, "Notifications", if (muted) "Off" else "On", trailing = { Switch(!muted, { muted = !it; if (muted) Mute.setFor(ctx, c.threadId, 0) else Mute.clear(ctx, c.threadId) }) }) {
+                    Row2(Ms.Palette, "Change colors") { onTheme() }
+                    Row2(Ms.Notifications, "Notifications", if (muted) "Off" else "On", trailing = { Switch(!muted, { muted = !it; if (muted) Mute.setFor(ctx, c.threadId, 0) else Mute.clear(ctx, c.threadId) }) }) {
                         muted = !muted; if (muted) Mute.setFor(ctx, c.threadId, 0) else Mute.clear(ctx, c.threadId)
                     }
-                    Row2(Icons.Outlined.Block, "Block & report spam", color = Red) { BlockedStore.block(ctx, c.address); Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show() }
-                    Row2(Icons.Outlined.Delete, "Delete conversation", color = Red) { confirmDel = true }
+                    Row2(Ms.Block, "Block & report spam", color = Red) { BlockedStore.block(ctx, c.address); Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show() }
+                    Row2(Ms.Delete, "Delete conversation", color = Red) { confirmDel = true }
                 }
                 if (c.address.contains(";")) Card {
                     val members = c.address.split(";").filter { it.isNotBlank() }

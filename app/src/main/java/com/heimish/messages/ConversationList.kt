@@ -1,6 +1,5 @@
 package com.heimish.messages
 
-import androidx.compose.material.icons.automirrored.outlined.Chat
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -41,10 +40,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -185,23 +180,23 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             },
             text = {
                 Column {
-                    MenuBtn(Icons.Default.PushPin, if (pinned) "Unpin" else "Pin to top") {
+                    MenuBtn(Ms.PushPin, if (pinned) "Unpin" else "Pin to top") {
                         PinStore.toggle(ctx, c.threadId); tick++; ctxConv = null
                     }
-                    MenuBtn(Icons.Default.CheckCircle, "Select") { sel = setOf(c.threadId); ctxConv = null }
-                    MenuBtn(Icons.Default.Archive, "Archive") {
+                    MenuBtn(Ms.CheckCircleFill, "Select") { sel = setOf(c.threadId); ctxConv = null }
+                    MenuBtn(Ms.Archive, "Archive") {
                         act("archive", c); ctxConv = null
                     }
-                    MenuBtn(if (c.unread) Icons.Default.Drafts else Icons.Default.MarkEmailUnread,
+                    MenuBtn(if (c.unread) Ms.Drafts else Ms.MarkEmailUnread,
                         if (c.unread) "Mark as read" else "Mark as unread") {
                         scope.launch { withContext(Dispatchers.IO) { if (c.unread) SmsRepository.markThreadRead(ctx, c.threadId) else SmsRepository.markThreadUnread(ctx, c.threadId) }; refresh() }
                         ctxConv = null
                     }
-                    MenuBtn(Icons.Default.Block, "Block ${c.displayName}", Red) {
+                    MenuBtn(Ms.Block, "Block ${c.displayName}", Red) {
                         BlockedStore.block(ctx, c.address)
                         Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); tick++; ctxConv = null
                     }
-                    MenuBtn(Icons.Default.Delete, "Delete", Red) {
+                    MenuBtn(Ms.Delete, "Delete", Red) {
                         act("delete", c); ctxConv = null
                     }
                 }
@@ -217,33 +212,33 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, actionIconContentColor = TextSecond),
                 title = { Text("Messages", fontWeight = FontWeight.Normal, fontSize = 22.sp) },
                 actions = {
-                    IconButton(onSearch) { Icon(Icons.Outlined.Search, "Search", tint = TextPrimary) }
+                    IconButton(onSearch) { Icon(Ms.Search, "Search", tint = TextPrimary) }
                     Box {
                         Box(Modifier.padding(end = 10.dp, start = 2.dp).size(36.dp).clip(CircleShape).background(Tonal).clickable { showMenu = true }, contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.Person, "Account menu", tint = OnTonal, modifier = Modifier.size(22.dp))
+                            Icon(Ms.PersonFill, "Account menu", tint = OnTonal, modifier = Modifier.size(22.dp))
                         }
                         if (showMenu) AccountMenu(listOf(
-                            listOf(MenuEntry(Icons.Outlined.Archive, "Archived") { showMenu = false; onArchived() },
-                                MenuEntry(Icons.Outlined.Delete, "Trash") { showMenu = false; onTrash() },
-                                MenuEntry(Icons.Outlined.Block, "Spam & blocked") { showMenu = false; onSpam() }),
-                            listOf(MenuEntry(Icons.Outlined.StarOutline, "Starred") { showMenu = false; onStarred() },
-                                MenuEntry(Icons.Outlined.Schedule, "Scheduled") { showMenu = false; onScheduled() },
-                                MenuEntry(Icons.Outlined.MarkChatRead, "Mark all as read") {
+                            listOf(MenuEntry(Ms.Archive, "Archived") { showMenu = false; onArchived() },
+                                MenuEntry(Ms.Delete, "Trash") { showMenu = false; onTrash() },
+                                MenuEntry(Ms.Block, "Spam & blocked") { showMenu = false; onSpam() }),
+                            listOf(MenuEntry(Ms.Star, "Starred") { showMenu = false; onStarred() },
+                                MenuEntry(Ms.Schedule, "Scheduled") { showMenu = false; onScheduled() },
+                                MenuEntry(Ms.MarkChatRead, "Mark all as read") {
                                     showMenu = false
                                     scope.launch(Dispatchers.IO) { list.filter { it.unread }.forEach { SmsRepository.markThreadRead(ctx, it.threadId) } }
                                     refresh()
                                 }),
-                            listOf(MenuEntry(Icons.Outlined.Settings, "Messages settings") { showMenu = false; onSettings() },
-                                MenuEntry(Icons.Outlined.AdminPanelSettings, "Admin panel") { showMenu = false; onAdmin() })
+                            listOf(MenuEntry(Ms.Settings, "Messages settings") { showMenu = false; onSettings() },
+                                MenuEntry(Ms.AdminPanelSettings, "Admin panel") { showMenu = false; onAdmin() })
                         )) { showMenu = false }
                     }
                 }
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onNew, containerColor = FabColor, contentColor = OnFabColor, shape = RoundedCornerShape(18.dp),
+            ExtendedFloatingActionButton(onClick = onNew, containerColor = FabColor, contentColor = OnFabColor, shape = RoundedCornerShape(20.dp),
                 expanded = fabExtended, modifier = Modifier.height(60.dp),
-                icon = { Icon(Icons.AutoMirrored.Outlined.Chat, "New chat", modifier = Modifier.size(24.dp)) }, text = { Text("Start chat", fontWeight = FontWeight.Medium, fontSize = 16.sp) })
+                icon = { Icon(Ms.Chat, "New chat", modifier = Modifier.size(24.dp)) }, text = { Text("Start chat", fontWeight = FontWeight.Medium, fontSize = 16.sp) })
         }
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg).padding(top = 8.dp)) {
@@ -252,8 +247,8 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 value = search, onValueChange = { search = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 placeholder = { Text("Search conversations", color = TextHint, fontSize = 15.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, null, tint = TextHint) },
-                trailingIcon = { if (search.isNotEmpty()) IconButton({ search = "" }) { Icon(Icons.Default.Close, null, tint = TextHint) } },
+                leadingIcon = { Icon(Ms.Search, null, tint = TextHint) },
+                trailingIcon = { if (search.isNotEmpty()) IconButton({ search = "" }) { Icon(Ms.Close, null, tint = TextHint) } },
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
                 colors = TextFieldDefaults.colors(
@@ -269,28 +264,28 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                     val chipBorder by animateColorAsState(if (on) Tonal else DivLt, label = "chipBorder")
                     Row(Modifier.height(34.dp).clip(RoundedCornerShape(10.dp)).background(chipBg)
                         .border(1.dp, chipBorder, RoundedCornerShape(10.dp)).clickable { cat = c }.animateContentSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (on) { Icon(Icons.Default.Check, null, tint = OnTonal, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
+                        if (on) { Icon(Ms.Check, null, tint = OnTonal, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
                         Text(c, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (on) OnTonal else TextSecond)
                     }
                 }
             }
             if (sel.isNotEmpty()) Row(Modifier.fillMaxWidth().background(Tonal).padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ sel = emptySet() }) { Icon(Icons.Default.Close, "Cancel", tint = OnTonal) }
+                IconButton({ sel = emptySet() }) { Icon(Ms.Close, "Cancel", tint = OnTonal) }
                 Text("${sel.size} selected", Modifier.weight(1f), color = OnTonal, fontWeight = FontWeight.SemiBold)
-                IconButton({ sel.forEach { PinStore.toggle(ctx, it) }; sel = emptySet(); tick++ }) { Icon(Icons.Default.PushPin, "Pin", tint = OnTonal) }
-                IconButton({ val ids = sel; scope.launch { withContext(Dispatchers.IO) { ids.forEach { SmsRepository.markThreadRead(ctx, it) } }; refresh() }; sel = emptySet() }) { Icon(Icons.Default.DoneAll, "Mark read", tint = OnTonal) }
-                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("archive", it) }; sel = emptySet() }) { Icon(Icons.Default.Archive, "Archive", tint = OnTonal) }
-                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("delete", it) }; sel = emptySet() }) { Icon(Icons.Default.Delete, "Delete", tint = OnTonal) }
+                IconButton({ sel.forEach { PinStore.toggle(ctx, it) }; sel = emptySet(); tick++ }) { Icon(Ms.PushPin, "Pin", tint = OnTonal) }
+                IconButton({ val ids = sel; scope.launch { withContext(Dispatchers.IO) { ids.forEach { SmsRepository.markThreadRead(ctx, it) } }; refresh() }; sel = emptySet() }) { Icon(Ms.DoneAll, "Mark read", tint = OnTonal) }
+                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("archive", it) }; sel = emptySet() }) { Icon(Ms.Archive, "Archive", tint = OnTonal) }
+                IconButton({ val ids = sel; list.filter { it.threadId in ids }.forEach { act("delete", it) }; sel = emptySet() }) { Icon(Ms.Delete, "Delete", tint = OnTonal) }
             }
             if (latestKnown > BuildConfig.BUILD_NUMBER) Text("Message ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER} · " + (if (latestKnown > BuildConfig.BUILD_NUMBER) "update available" else if (latestKnown > 0) "up to date" else "checking for updates…"),
                 Modifier.padding(horizontal = 20.dp, vertical = 2.dp), fontSize = 11.sp, color = if (latestKnown > BuildConfig.BUILD_NUMBER) Brand else TextHint)
             update?.let { u -> UpdateCard(u, { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null }, { onWhatsNew(u) }) }
             Spacer(Modifier.height(6.dp))
             if (filtered.isEmpty() && hits.isEmpty() && loaded) {
-                if (search.isBlank()) EmptyState(if (cat == "All") Icons.Outlined.Forum else Icons.Outlined.FilterList,
+                if (search.isBlank()) EmptyState(if (cat == "All") Ms.Forum else Ms.FilterList,
                     if (cat == "All") "No conversations yet" else "Nothing in $cat",
                     if (cat == "All") "Tap Start chat to send your first message" else "Chats that fit this filter show up here")
-                else EmptyState(Icons.Outlined.SearchOff, "No results for \"$search\"", "Try a name, a number or a word from a message")
+                else EmptyState(Ms.SearchOff, "No results for \"$search\"", "Try a name, a number or a word from a message")
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
@@ -349,7 +344,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
         if (offsetX > 20f && rightAction != "none") {
             Box(Modifier.fillMaxSize().absolutePadding(left = 24.dp), contentAlignment = androidx.compose.ui.AbsoluteAlignment.CenterLeft) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(when (rightAction) { "delete" -> Icons.Default.Delete; "archive" -> Icons.Default.Archive; else -> if (c.unread) Icons.Default.DoneAll else Icons.Default.MarkChatUnread }, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Icon(when (rightAction) { "delete" -> Ms.Delete; "archive" -> Ms.Archive; else -> if (c.unread) Ms.DoneAll else Ms.MarkChatUnread }, null, tint = Color.White, modifier = Modifier.size(24.dp))
                     Text(rightLabel, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
             }
@@ -357,7 +352,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
         if (offsetX < -20f && swipeAction != "none") {
             Box(Modifier.fillMaxSize().absolutePadding(right = 24.dp), contentAlignment = androidx.compose.ui.AbsoluteAlignment.CenterRight) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(when (swipeAction) { "delete" -> Icons.Default.Delete; "read" -> Icons.Default.DoneAll; else -> Icons.Default.Archive }, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Icon(when (swipeAction) { "delete" -> Ms.Delete; "read" -> Ms.DoneAll; else -> Ms.Archive }, null, tint = Color.White, modifier = Modifier.size(24.dp))
                     Text(actionLabel, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
             }
@@ -400,7 +395,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (pinned) { Icon(Icons.Default.PushPin, "Pinned", tint = TextHint, modifier = Modifier.size(13.dp)); Spacer(Modifier.width(4.dp)) }
+                    if (pinned) { Icon(Ms.PushPinFill, "Pinned", tint = TextHint, modifier = Modifier.size(13.dp)); Spacer(Modifier.width(4.dp)) }
                     Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 17.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary)
                     Spacer(Modifier.width(8.dp))
@@ -437,11 +432,11 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } },
             title = { Text("Archived", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (list.isEmpty()) {
-            EmptyState(Icons.Outlined.Archive, "No archived conversations", "Swipe a chat or long-press it to archive it", Modifier.padding(pad))
+            EmptyState(Ms.Archive, "No archived conversations", "Swipe a chat or long-press it to archive it", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(list, key = { it.threadId }) { conv ->
                 Row(Modifier.animateItem().fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -488,11 +483,11 @@ fun StarredScreen(onBack: () -> Unit) {
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } },
             title = { Text("Starred messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (starred.isEmpty()) {
-            EmptyState(Icons.Outlined.StarOutline, "No starred messages", "Long-press a message and tap Star", Modifier.padding(pad))
+            EmptyState(Ms.Star, "No starred messages", "Long-press a message and tap Star", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(starred) { (conv, m) ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -502,7 +497,7 @@ fun StarredScreen(onBack: () -> Unit) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(conv.displayName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                             Spacer(Modifier.width(6.dp))
-                            Icon(Icons.Default.Star, null, tint = Amber, modifier = Modifier.size(13.dp))
+                            Icon(Ms.StarFill, null, tint = Amber, modifier = Modifier.size(13.dp))
                             Spacer(Modifier.weight(1f))
                             Text(shortTime(m.date), fontSize = 11.sp, color = TextHint)
                         }
@@ -528,16 +523,16 @@ fun ScheduledScreen(onBack: () -> Unit) {
 
     Scaffold(containerColor = Bg,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } },
             title = { Text("Scheduled messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (items2.isEmpty()) {
-            EmptyState(Icons.Outlined.Schedule, "Nothing scheduled", "In a chat: menu → Schedule send", Modifier.padding(pad))
+            EmptyState(Ms.Schedule, "Nothing scheduled", "In a chat: menu → Schedule send", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(items2, key = { it.id }) { sm ->
                 Row(Modifier.animateItem().fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SearchBg).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(40.dp).clip(CircleShape).background(Tonal), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Schedule, null, tint = OnTonal, modifier = Modifier.size(20.dp))
+                        Icon(Ms.Schedule, null, tint = OnTonal, modifier = Modifier.size(20.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -586,7 +581,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
 
     Scaffold(containerColor = Chrome,
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } },
             title = { Text("New chat", fontWeight = FontWeight.Normal, fontSize = 22.sp) }) }
     ) { pad ->
         Column(Modifier.padding(pad)) {
@@ -603,7 +598,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 FilledTonalButton(onClick = { isGroup = !isGroup }, shape = RoundedCornerShape(50), modifier = Modifier.fillMaxWidth().height(52.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = Tonal, contentColor = OnTonal)) {
-                    Icon(if (isGroup) Icons.Default.GroupRemove else Icons.Default.GroupAdd, null, Modifier.size(20.dp))
+                    Icon(if (isGroup) Ms.GroupRemove else Ms.GroupAdd, null, Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (isGroup) "Cancel group" else "Create group")
                 }
@@ -612,7 +607,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                 FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     selected.forEach { (name, num) ->
                         InputChip(selected = true, onClick = { selected = selected.filter { it.second != num } }, label = { Text(name, fontSize = 13.sp) },
-                            trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
+                            trailingIcon = { Icon(Ms.Close, null, Modifier.size(16.dp)) },
                             colors = InputChipDefaults.inputChipColors(selectedContainerColor = Tonal, selectedLabelColor = OnTonal, selectedTrailingIconColor = OnTonal))
                     }
                     if (selected.size >= 2) {
@@ -645,7 +640,7 @@ fun NewConvScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
                             Avatar(name, number, 52.dp, 20.sp)
                             Spacer(Modifier.width(16.dp))
                             Column(Modifier.weight(1f)) { Text(name, fontSize = 17.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(number, fontSize = 14.sp, color = TextSecond, maxLines = 1) }
-                            if (isGroup && selected.any { it.second == number }) Icon(Icons.Default.CheckCircle, null, tint = Brand)
+                            if (isGroup && selected.any { it.second == number }) Icon(Ms.CheckCircleFill, null, tint = Brand)
                         }
                     }
                 }

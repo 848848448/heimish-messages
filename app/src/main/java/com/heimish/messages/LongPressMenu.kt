@@ -9,8 +9,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -80,7 +78,7 @@ fun LongPressOverlay(
                                 contentAlignment = Alignment.Center) { Text(e, fontSize = 27.sp) }
                         }
                         Box(Modifier.size(46.dp).clip(CircleShape).clickable { moreEmoji = !moreEmoji }, contentAlignment = Alignment.Center) {
-                            Icon(Icons.Outlined.AddReaction, "More reactions", tint = TextSecond, modifier = Modifier.size(26.dp))
+                            Icon(Ms.AddReaction, "More reactions", tint = TextSecond, modifier = Modifier.size(26.dp))
                         }
                     }
                 }
