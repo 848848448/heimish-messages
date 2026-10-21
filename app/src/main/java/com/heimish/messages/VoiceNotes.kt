@@ -32,16 +32,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -313,7 +303,7 @@ fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subCo
         Box(Modifier.size(42.dp).clip(CircleShape).background(accent.copy(alpha = 0.14f)).clickable { toggle() }, contentAlignment = Alignment.Center) {
             if (isCurrent && VoicePlayer.preparing) CircularProgressIndicator(Modifier.size(22.dp), color = accent, strokeWidth = 2.dp)
             else androidx.compose.animation.Crossfade(isPlaying, animationSpec = tween(150), label = "playPause") { pl ->
-                Icon(if (pl) Icons.Default.Pause else Icons.Default.PlayArrow, if (pl) "Pause" else "Play", tint = accent, modifier = Modifier.size(28.dp))
+                Icon(if (pl) Ms.PauseFill else Ms.PlayArrowFill, if (pl) "Pause" else "Play", tint = accent, modifier = Modifier.size(28.dp))
             }
         }
         Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
@@ -366,11 +356,11 @@ fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subCo
                     Avatar(name, addr, 42.dp, 16.sp)
                 } else {
                     Box(Modifier.size(42.dp).clip(CircleShape).background(subColor.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Mic, null, tint = textColor, modifier = Modifier.size(22.dp))
+                        Icon(Ms.Mic, null, tint = textColor, modifier = Modifier.size(22.dp))
                     }
                 }
                 Box(Modifier.align(Alignment.BottomStart).size(18.dp).clip(CircleShape).background(if (!played && isIn) unplayedDot else Brand), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Mic, null, tint = if (!played && isIn) Color.White else OnBrand, modifier = Modifier.size(12.dp))
+                    Icon(Ms.Mic, null, tint = if (!played && isIn) Color.White else OnBrand, modifier = Modifier.size(12.dp))
                 }
             }
         }
@@ -462,9 +452,9 @@ fun RecordingBar(rec: VoiceRecState, onTrash: () -> Unit, modifier: Modifier = M
     val blink by rememberInfiniteTransition(label = "rec").animateFloat(1f, 0.15f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "dot")
     Row(modifier.heightIn(min = 52.dp).clip(RoundedCornerShape(26.dp)).background(SearchBg).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         if (rec.mode == RecMode.LOCKED) {
-            IconButton(onClick = onTrash, Modifier.size(44.dp)) { Icon(Icons.Default.Delete, "Delete recording", tint = Red, modifier = Modifier.size(24.dp)) }
+            IconButton(onClick = onTrash, Modifier.size(44.dp)) { Icon(Ms.Delete, "Delete recording", tint = Red, modifier = Modifier.size(24.dp)) }
         } else Spacer(Modifier.width(10.dp))
-        Icon(Icons.Default.Mic, null, tint = Color(0xFFE53935), modifier = Modifier.size(22.dp).alpha(blink))
+        Icon(Ms.MicFill, null, tint = Color(0xFFE53935), modifier = Modifier.size(22.dp).alpha(blink))
         Spacer(Modifier.width(6.dp))
         Text(fmtVoice(rec.elapsedMs), color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.width(10.dp))
@@ -475,7 +465,7 @@ fun RecordingBar(rec: VoiceRecState, onTrash: () -> Unit, modifier: Modifier = M
             val pull = with(d) { (-rec.dragX).toDp() }
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                 Row(Modifier.offset(x = -pull).alpha((1f - pull.value / 140f).coerceIn(0.15f, 1f)), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = TextHint, modifier = Modifier.size(20.dp))
+                    Icon(Ms.ChevronLeft, null, tint = TextHint, modifier = Modifier.size(20.dp))
                     Text("Slide to cancel", color = TextHint, fontSize = 14.sp)
                     Spacer(Modifier.width(8.dp))
                 }
@@ -533,8 +523,8 @@ fun MicSendButton(
             // lock hint above the mic, rises with the finger
             val up = with(density) { (-rec.dragY).toDp() }
             Column(Modifier.offset(y = -(64.dp) - up / 3).clip(RoundedCornerShape(20.dp)).background(SearchBg).padding(horizontal = 8.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(if (up > 60.dp) Icons.Default.Lock else Icons.Default.LockOpen, "Slide up to lock", tint = TextSecond, modifier = Modifier.size(20.dp))
-                Icon(Icons.Default.KeyboardArrowUp, null, tint = TextHint, modifier = Modifier.size(18.dp))
+                Icon(if (up > 60.dp) Ms.LockFill else Ms.LockOpen, "Slide up to lock", tint = TextSecond, modifier = Modifier.size(20.dp))
+                Icon(Ms.KeyboardArrowUp, null, tint = TextHint, modifier = Modifier.size(18.dp))
             }
         }
         Box(
@@ -606,7 +596,7 @@ fun MicSendButton(
                     (androidx.compose.animation.scaleIn(tween(160), initialScale = 0.6f) + androidx.compose.animation.fadeIn(tween(160))) togetherWith
                         (androidx.compose.animation.scaleOut(tween(120), targetScale = 0.6f) + androidx.compose.animation.fadeOut(tween(120)))
                 }, label = "micIcon") { send ->
-                    Icon(if (send) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                    Icon(if (send) Ms.SendFill else Ms.Mic,
                         if (send) "Send" else "Voice note (hold to record)",
                         tint = btnFg,
                         modifier = Modifier.size(24.dp))
