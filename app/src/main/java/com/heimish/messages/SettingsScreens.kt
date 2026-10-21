@@ -420,7 +420,12 @@ fun AdminScreen(onBack: () -> Unit) {
                 val conn = url.openConnection() as java.net.HttpURLConnection
                 conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
                 conn.connectTimeout = 10000; conn.readTimeout = 10000
-                val r = conn.inputStream.bufferedReader().readText(); conn.disconnect()
+                val code = conn.responseCode
+                val r = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText().orEmpty(); conn.disconnect()
+                if (code !in 200..299) {
+                    val msg = runCatching { org.json.JSONObject(r).optString("error") }.getOrNull().orEmpty()
+                    throw java.io.IOException("HTTP $code" + if (msg.isNotBlank()) " — $msg" else "")
+                }
                 val json = org.json.JSONObject(r)
                 val arr = json.optJSONArray("contacts")
                 val lines = mutableListOf<String>()
