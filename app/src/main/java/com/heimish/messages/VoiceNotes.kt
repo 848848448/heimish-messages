@@ -21,6 +21,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -309,9 +310,11 @@ fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subCo
 
     Row(Modifier.width(268.dp).padding(start = 6.dp, end = 10.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         // play / pause
-        Box(Modifier.size(40.dp).clip(CircleShape).clickable { toggle() }, contentAlignment = Alignment.Center) {
+        Box(Modifier.size(42.dp).clip(CircleShape).background(accent.copy(alpha = 0.14f)).clickable { toggle() }, contentAlignment = Alignment.Center) {
             if (isCurrent && VoicePlayer.preparing) CircularProgressIndicator(Modifier.size(22.dp), color = accent, strokeWidth = 2.dp)
-            else Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (isPlaying) "Pause" else "Play", tint = accent, modifier = Modifier.size(32.dp))
+            else androidx.compose.animation.Crossfade(isPlaying, animationSpec = tween(150), label = "playPause") { pl ->
+                Icon(if (pl) Icons.Default.Pause else Icons.Default.PlayArrow, if (pl) "Pause" else "Play", tint = accent, modifier = Modifier.size(28.dp))
+            }
         }
         Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
             val bars = info?.bars ?: placeholderBars
@@ -367,7 +370,7 @@ fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subCo
                     }
                 }
                 Box(Modifier.align(Alignment.BottomStart).size(18.dp).clip(CircleShape).background(if (!played && isIn) unplayedDot else Brand), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Mic, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                    Icon(Icons.Default.Mic, null, tint = if (!played && isIn) Color.White else OnBrand, modifier = Modifier.size(12.dp))
                 }
             }
         }
@@ -586,18 +589,28 @@ fun MicSendButton(
             contentAlignment = Alignment.Center
         ) {
             // only the drawing follows the finger; the touch area stays put so the drag math stays simple
+            val btnScale by androidx.compose.animation.core.animateFloatAsState(if (holding) 1.4f else 1f,
+                androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f), label = "micScale")
+            val btnBg by androidx.compose.animation.animateColorAsState(if (showSend || holding) Brand else SearchBg, tween(180), label = "micBg")
+            val btnFg by androidx.compose.animation.animateColorAsState(if (showSend || holding) OnBrand else TextPrimary, tween(180), label = "micFg")
             Box(
                 Modifier
                     .offset { if (holding) IntOffset((rec.dragX * 0.5f).roundToInt(), (rec.dragY * 0.5f).roundToInt()) else IntOffset.Zero } // offset{} mirrors itself in RTL
-                    .scale(if (holding) 1.35f else 1f)
+                    .scale(btnScale)
                     .fillMaxSize().clip(CircleShape)
-                    .background(if (showSend || holding) Brand else SearchBg),
+                    .background(btnBg),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(if (showSend) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
-                    if (showSend) "Send" else "Voice note (hold to record)",
-                    tint = if (showSend || holding) OnBrand else TextPrimary,
-                    modifier = Modifier.size(24.dp))
+                // Mic ⇄ Send swap with a quick scale + fade, like WhatsApp / Google Messages
+                androidx.compose.animation.AnimatedContent(showSend, transitionSpec = {
+                    (androidx.compose.animation.scaleIn(tween(160), initialScale = 0.6f) + androidx.compose.animation.fadeIn(tween(160))) togetherWith
+                        (androidx.compose.animation.scaleOut(tween(120), targetScale = 0.6f) + androidx.compose.animation.fadeOut(tween(120)))
+                }, label = "micIcon") { send ->
+                    Icon(if (send) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                        if (send) "Send" else "Voice note (hold to record)",
+                        tint = btnFg,
+                        modifier = Modifier.size(24.dp))
+                }
             }
         }
     }
