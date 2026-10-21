@@ -1,2 +1,3 @@
-New
-- A picture message that is still downloading looks like Google Messages now: a photo tile with a spinning circle, no text. If it can't download, a round retry button shows on it. When the picture arrives it takes the tile's place
+Fixed
+- Picture and group messages on Verizon (and other carriers that work the same way) now download. The download address was missing its last part, so the carrier answered "not found" every time
+- Picture messages that were stuck on "downloading" download by themselves after this update

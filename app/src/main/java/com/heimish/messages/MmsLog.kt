@@ -143,8 +143,17 @@ object MmsLog {
         runCatching {
             val tm = app.getSystemService(TelephonyManager::class.java)
             @Suppress("MissingPermission")
-            if (Build.VERSION.SDK_INT >= 26) sb.append("\nmobile data on=").append(tm?.isDataEnabled)
-            sb.append(" operator=").append(tm?.networkOperatorName).append(" sim=").append(tm?.simOperatorName)
+            val data = if (Build.VERSION.SDK_INT >= 26) runCatching { tm?.isDataEnabled?.toString() ?: "unknown" }.getOrElse { "unknown (${it.javaClass.simpleName})" } else "n/a"
+            val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+            val caps = runCatching { cm?.getNetworkCapabilities(cm.activeNetwork) }.getOrNull()
+            val net = when {
+                caps == null -> "none"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+                else -> "other"
+            }
+            sb.append("\nmobile data on=").append(data).append(" active network=").append(net)
+            sb.append(" operator=").append(runCatching { tm?.networkOperatorName }.getOrNull()).append(" sim=").append(runCatching { tm?.simOperatorName }.getOrNull())
         }
         runCatching { sb.append("\nsaved SIM choice=").append(app.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getInt("sim_sub", -1)) }
         runCatching { sb.append("\n").append(MmsIncoming.queueSummary(app)) }
