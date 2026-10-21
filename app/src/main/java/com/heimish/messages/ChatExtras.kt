@@ -40,10 +40,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -129,14 +125,14 @@ fun MessageDetailsDialog(m: Message, name: String, address: String, onClose: () 
         Surface(Modifier.fillMaxSize(), color = Chrome) {
             Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).navigationBarsPadding()) {
                 Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
+                    IconButton(onClose) { Icon(Ms.ArrowBack, "Back", tint = TextPrimary) }
                     Text("Message details", fontSize = 22.sp, color = TextPrimary, modifier = Modifier.padding(start = 4.dp))
                 }
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) { MessageBubble(m, 0, onLongClick = {}, showMeta = false) }
                 Column(Modifier.fillMaxWidth().padding(16.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).background(Surf).padding(vertical = 6.dp)) {
                     rows.forEach { (k, v) ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(when (k) { "Type" -> Icons.Default.Sms; "From", "To" -> Icons.Default.Person; "Sent", "Received" -> Icons.Default.Schedule; "Status" -> Icons.Default.DoneAll; "Length" -> Icons.Default.Notes; else -> Icons.Default.SimCard },
+                            Icon(when (k) { "Type" -> Ms.Sms; "From", "To" -> Ms.Person; "Sent", "Received" -> Ms.Schedule; "Status" -> Ms.DoneAll; "Length" -> Ms.Notes; else -> Ms.SimCard },
                                 null, tint = TextSecond, modifier = Modifier.size(22.dp))
                             Spacer(Modifier.width(18.dp))
                             Column { Text(k, fontSize = 13.sp, color = TextSecond); Text(v, fontSize = 16.sp, color = TextPrimary) }
