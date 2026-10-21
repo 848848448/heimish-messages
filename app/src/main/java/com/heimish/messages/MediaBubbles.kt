@@ -149,3 +149,35 @@ fun VideoPlayerDialog(uri: Uri, mime: String?, onClose: () -> Unit) {
         }
     }
 }
+
+/** "אברהם, מרדכי, Joe" — first names of a group's members (the number when there's no contact). */
+fun groupFirstNames(ctx: android.content.Context, members: List<String>): String =
+    members.joinToString(", ") { a ->
+        val n = runCatching { SmsRepository.getContactName(ctx, a) }.getOrNull()?.trim().orEmpty()
+        if (n.isEmpty()) a else n.split(' ', '\u00A0').firstOrNull { it.isNotBlank() } ?: n
+    }
+
+/** Google Messages style group picture: two overlapping member photos, or up to four in a 2×2 grid. */
+@Composable
+fun GroupAvatar(members: List<String>, size: androidx.compose.ui.unit.Dp) {
+    val ctx = LocalContext.current
+    val shown = members.take(4)
+    fun nameOf(a: String) = runCatching { SmsRepository.getContactName(ctx, a) }.getOrNull() ?: a
+    Box(Modifier.size(size)) {
+        if (shown.size == 2) {
+            val s = size * 0.68f
+            Box(Modifier.align(Alignment.TopStart)) { Avatar(nameOf(shown[0]), shown[0], s, 11.sp, tapToView = false) }
+            Box(Modifier.align(Alignment.BottomEnd).clip(CircleShape).background(Chrome).padding(1.5.dp)) { Avatar(nameOf(shown[1]), shown[1], s - 3.dp, 11.sp, tapToView = false) }
+        } else {
+            val s = size / 2 - 1.dp
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                for (row in 0 until 2) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    for (col in 0 until 2) {
+                        val a = shown.getOrNull(row * 2 + col)
+                        if (a != null) Avatar(nameOf(a), a, s, 9.sp, tapToView = false) else Spacer(Modifier.size(s))
+                    }
+                }
+            }
+        }
+    }
+}
