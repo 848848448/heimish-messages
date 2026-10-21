@@ -74,7 +74,7 @@ object SmsRepository {
     private fun cachedContactName(ctx: Context, number: String): String? {
         if (number.isBlank()) return null
         synchronized(contactCache) {
-            if (System.currentTimeMillis() - contactCacheTime > 120_000) {
+            if (System.currentTimeMillis() - contactCacheTime > 600_000) {
                 contactCache.clear()
                 contactCacheTime = System.currentTimeMillis()
             }
@@ -293,12 +293,14 @@ object SmsRepository {
             val iId   = c.getColumnIndex("_id")
             val iDate = c.getColumnIndex("date")
             val iBox  = c.getColumnIndex("msg_box")
-            while (c.moveToNext()) {
-                val mmsId    = c.getLong(iId)
-                val date     = c.getLong(iDate) * 1000L
-                val incoming = c.getInt(iBox) == 1
-                val parts = mmsParts(ctx, mmsId)
-                val mmsAddr = mmsSenderAddress(ctx, mmsId)
+            val rows = ArrayList<Triple<Long, Long, Int>>()
+            while (c.moveToNext()) rows.add(Triple(c.getLong(iId), c.getLong(iDate) * 1000L, c.getInt(iBox)))
+            // Parts and senders for every MMS in one query each (was two queries per MMS: a group chat with 300 MMS
+            // took 600 provider round trips before the chat could show), plus a memory cache (MMS content never changes).
+            val info = mmsInfo(ctx, rows.map { it.first })
+            for ((mmsId, date, box) in rows) {
+                val incoming = box == 1
+                val (parts, mmsAddr) = info[mmsId] ?: (mmsParts(ctx, mmsId) to mmsSenderAddress(ctx, mmsId))
                 out.add(Message(
                     id       = mmsId + 1_000_000L,
                     body     = parts.text,
@@ -308,7 +310,7 @@ object SmsRepository {
                     imageUri = parts.mediaUri,
                     address  = mmsAddr,
                     mediaMime = parts.mediaMime,
-                    type     = c.getInt(iBox)
+                    type     = box
                 ))
             }
         }
@@ -749,6 +751,51 @@ object SmsRepository {
 
     data class MmsParts(val text: String, val mediaUri: Uri?, val mediaMime: String?)
 
+    private val mmsCache = android.util.LruCache<Long, Pair<MmsParts, String?>>(3000)
+
+    /** Parts + sender for many MMS at once (batched IN queries), cached in memory. Missing ids fall back to per-message reads. */
+    private fun mmsInfo(ctx: Context, ids: List<Long>): Map<Long, Pair<MmsParts, String?>> {
+        val res = HashMap<Long, Pair<MmsParts, String?>>()
+        val miss = ArrayList<Long>()
+        for (id in ids) { val h = mmsCache.get(id); if (h != null) res[id] = h else miss.add(id) }
+        if (miss.isEmpty()) return res
+        val text = HashMap<Long, String>(); val media = HashMap<Long, Pair<Uri, String>>(); val addr = HashMap<Long, String>()
+        val seenParts = HashSet<Long>()
+        runCatching {
+            for (chunk in miss.chunked(400)) {
+                val inList = chunk.joinToString(",")
+                ctx.contentResolver.query(Uri.parse("content://mms/part"), arrayOf("_id", "mid", "ct", "text", "cl", "name"), "mid IN ($inList)", null, null)?.use { c ->
+                    val iId = c.getColumnIndex("_id"); val iMid = c.getColumnIndex("mid"); val iCt = c.getColumnIndex("ct")
+                    val iText = c.getColumnIndex("text"); val iCl = c.getColumnIndex("cl"); val iName = c.getColumnIndex("name")
+                    while (c.moveToNext()) {
+                        val mid = c.getLong(iMid); val partId = c.getLong(iId); val ct = c.getString(iCt) ?: ""
+                        seenParts.add(mid)
+                        val nm = (if (iCl >= 0) c.getString(iCl) else null) ?: (if (iName >= 0) c.getString(iName) else null)
+                        val aud = audioMimeFor(ct, nm)
+                        when {
+                            ct == "text/plain" -> text[mid] = c.getString(iText) ?: ""
+                            aud != null -> media[mid] = Uri.parse("content://mms/part/$partId") to aud
+                            ct.startsWith("image/") || ct.startsWith("video/") -> media[mid] = Uri.parse("content://mms/part/$partId") to ct
+                        }
+                    }
+                }
+                runCatching {
+                    ctx.contentResolver.query(Uri.parse("content://mms/addr"), arrayOf("msg_id", "address", "type"), "type=137 AND msg_id IN ($inList)", null, null)?.use { c ->
+                        val iMid = c.getColumnIndex("msg_id"); val iA = c.getColumnIndex("address")
+                        while (c.moveToNext()) { val mid = c.getLong(iMid); if (!addr.containsKey(mid)) c.getString(iA)?.let { addr[mid] = it } }
+                    }
+                }
+            }
+        }.onFailure { return res } // provider without the batched form: callers read each MMS on its own
+        for (id in miss) {
+            if (id !in seenParts) continue // not downloaded yet / unknown: read it the old way, don't cache
+            val m = media[id]
+            val v = MmsParts(text[id] ?: "", m?.first, m?.second) to (addr[id] ?: mmsSenderAddress(ctx, id))
+            res[id] = v; mmsCache.put(id, v)
+        }
+        return res
+    }
+
     private fun mmsParts(ctx: Context, mmsId: Long): MmsParts {
         var text = ""
         var mediaUri: Uri? = null
@@ -813,6 +860,11 @@ object SmsRepository {
 
         fun getContactName(ctx: Context, address: String): String? {
             return cachedContactName(ctx, address)
+        }
+
+        /** Cached name without touching the contacts provider (safe on the main thread): null = not looked up yet. */
+        fun peekContactName(address: String): Pair<String?, Unit>? = synchronized(contactCache) {
+            if (contactCache.containsKey(address)) contactCache[address] to Unit else null
         }
 
 
