@@ -15,6 +15,9 @@ object Permissions {
         add(Manifest.permission.RECEIVE_MMS)
         add(Manifest.permission.READ_CONTACTS)
         add(Manifest.permission.READ_PHONE_STATE) // dual-SIM picker needs it to list the SIMs
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            add(Manifest.permission.READ_PHONE_NUMBERS) // this phone's own number for Admin → Users (same group: no extra dialog)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }

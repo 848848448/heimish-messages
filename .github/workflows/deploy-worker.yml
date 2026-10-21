@@ -73,4 +73,6 @@ jobs:
             echo
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$WORKER_URL/contacts?q=a")
             echo "Unauthenticated search answered HTTP $code (expect 401)"
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$WORKER_URL/admin/installs")
+            echo "Unauthenticated installs list answered HTTP $code (expect 401)"
           fi
