@@ -84,15 +84,10 @@ fun TrashScreen(onBack: () -> Unit) {
                 Icon(Icons.Outlined.Info, null, tint = TextSecond, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(12.dp))
                 Text("Conversations stay in the trash for 30 days before they're deleted forever", color = TextSecond, fontSize = 14.sp)
             }
-            if (list.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Outlined.Delete, null, tint = TextHint, modifier = Modifier.size(64.dp)); Spacer(Modifier.height(10.dp))
-                    Text("Nothing in the trash", color = TextHint, fontSize = 15.sp)
-                }
-            } else LazyColumn {
+            if (list.isEmpty()) EmptyState(Icons.Outlined.DeleteOutline, "Nothing in the trash", "Deleted conversations wait here for 30 days") else LazyColumn {
                 items(list, key = { it.threadId }) { c ->
                     val left = (((trash[c.threadId] ?: 0L) + TrashStore.KEEP_MS - System.currentTimeMillis()) / 86_400_000L).coerceAtLeast(0)
-                    Row(Modifier.fillMaxWidth().clickable { pick = c }.padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.animateItem().fillMaxWidth().clickable { pick = c }.padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
                         Avatar(c.displayName, c.address, 54.dp, 20.sp); Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
                             Row { Text(c.displayName, color = TextPrimary, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)); Text(shortTime(c.date), color = TextSecond, fontSize = 13.sp) }

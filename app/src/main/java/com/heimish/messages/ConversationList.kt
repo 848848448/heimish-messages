@@ -1,5 +1,6 @@
 package com.heimish.messages
 
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -102,7 +103,19 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
     var tick by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val fabExtended by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    // "Start chat" shrinks to a round button while scrolling down and grows back when scrolling up (Google Messages)
+    var fabExtended by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        var prevI = listState.firstVisibleItemIndex; var prevO = listState.firstVisibleItemScrollOffset
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }.collect { (i, o) ->
+            when {
+                i == 0 && o < 8 -> fabExtended = true
+                i > prevI || (i == prevI && o > prevO + 6) -> fabExtended = false
+                i < prevI || (i == prevI && o < prevO - 6) -> fabExtended = true
+            }
+            prevI = i; prevO = o
+        }
+    }
 
     fun refresh() { scope.launch { list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }; ConvCache.list = list; loaded = true } }
     val providerTick = rememberProviderTick()
@@ -230,7 +243,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         floatingActionButton = {
             ExtendedFloatingActionButton(onClick = onNew, containerColor = FabColor, contentColor = OnFabColor, shape = RoundedCornerShape(18.dp),
                 expanded = fabExtended, modifier = Modifier.height(60.dp),
-                icon = { Icon(Icons.Outlined.Chat, "New chat", modifier = Modifier.size(24.dp)) }, text = { Text("Start chat", fontWeight = FontWeight.Medium, fontSize = 16.sp) })
+                icon = { Icon(Icons.AutoMirrored.Outlined.Chat, "New chat", modifier = Modifier.size(24.dp)) }, text = { Text("Start chat", fontWeight = FontWeight.Medium, fontSize = 16.sp) })
         }
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg).padding(top = 8.dp)) {
@@ -252,8 +265,10 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 (listOf("All", "Unread", "Personal", "Transactions", "Promos", "Unknown") + LabelStore.allLabels(ctx)).forEach { c ->
                     val on = cat == c
-                    Row(Modifier.height(34.dp).clip(RoundedCornerShape(10.dp)).background(if (on) Tonal else Color.Transparent)
-                        .border(1.dp, if (on) Tonal else DivLt, RoundedCornerShape(10.dp)).clickable { cat = c }.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val chipBg by animateColorAsState(if (on) Tonal else Color.Transparent, label = "chipBg")
+                    val chipBorder by animateColorAsState(if (on) Tonal else DivLt, label = "chipBorder")
+                    Row(Modifier.height(34.dp).clip(RoundedCornerShape(10.dp)).background(chipBg)
+                        .border(1.dp, chipBorder, RoundedCornerShape(10.dp)).clickable { cat = c }.animateContentSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (on) { Icon(Icons.Default.Check, null, tint = OnTonal, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
                         Text(c, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (on) OnTonal else TextSecond)
                     }
@@ -272,17 +287,10 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             update?.let { u -> UpdateCard(u, { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).edit().putInt("upd_dismissed", u.build).apply(); update = null }, { onWhatsNew(u) }) }
             Spacer(Modifier.height(6.dp))
             if (filtered.isEmpty() && hits.isEmpty() && loaded) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Outlined.Forum, null, tint = TextHint.copy(.6f), modifier = Modifier.size(72.dp))
-                        Spacer(Modifier.height(14.dp))
-                        Text(if (search.isBlank()) "No conversations yet" else "No results for \"$search\"", color = TextHint, fontSize = 15.sp)
-                        if (search.isBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text("Tap Start chat to send your first message", color = TextHint.copy(.8f), fontSize = 13.sp)
-                        }
-                    }
-                }
+                if (search.isBlank()) EmptyState(if (cat == "All") Icons.Outlined.Forum else Icons.Outlined.FilterList,
+                    if (cat == "All") "No conversations yet" else "Nothing in $cat",
+                    if (cat == "All") "Tap Start chat to send your first message" else "Chats that fit this filter show up here")
+                else EmptyState(Icons.Outlined.SearchOff, "No results for \"$search\"", "Try a name, a number or a word from a message")
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
@@ -291,7 +299,8 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 ) {
                     items(filtered, key = { it.threadId }) { conv ->
                         fun toggleSel(x: Conversation) { sel = if (x.threadId in sel) sel - x.threadId else sel + x.threadId }
-                        Box(Modifier.background(if (conv.threadId in sel) Tonal else Color.Transparent)) {
+                        val selBg by animateColorAsState(if (conv.threadId in sel) Tonal else Color.Transparent, label = "selBg")
+                        Box(Modifier.animateItem().background(selBg)) {
                         SwipeableConvRow(conv, PinStore.isPinned(ctx, conv.threadId), { if (sel.isNotEmpty()) toggleSel(it) else onOpen(it) }, onRefresh = { refresh(); tick++ }, onLongPress = { if (sel.isNotEmpty()) toggleSel(it) else ctxConv = it }, onAction = { k, cc -> act(k, cc) })
                         }
                     }
@@ -377,7 +386,9 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                                     else -> { val wasUnread = c.unread; scope.launch(Dispatchers.IO) { if (wasUnread) SmsRepository.markThreadRead(ctx, c.threadId) else SmsRepository.markThreadUnread(ctx, c.threadId); withContext(Dispatchers.Main) { onRefresh() } } }
                                 }
                             }
-                            offsetX = 0f
+                            // Spring back into place instead of jumping
+                            val from = offsetX
+                            scope.launch { runCatching { androidx.compose.animation.core.animate(from, 0f, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 500f)) { v, _ -> offsetX = v } }.onFailure { offsetX = 0f } }
                         },
                         onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(if (swipeAction == "none") 0f else -200f, if (rightAction == "none") 0f else 200f) }
                     )
@@ -405,6 +416,10 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal,
                         modifier = Modifier.weight(1f))
+                    // Unread badge, like Google Messages
+                    AnimatedVisibility(c.unread, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
+                        Box(Modifier.padding(start = 10.dp).size(10.dp).clip(CircleShape).background(Brand))
+                    }
                 }
             }
         }
@@ -426,16 +441,10 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
             title = { Text("Archived", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (list.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Archive, null, tint = TextHint.copy(.6f), modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(12.dp))
-                    Text("No archived conversations", color = TextHint, fontSize = 15.sp)
-                }
-            }
+            EmptyState(Icons.Outlined.Archive, "No archived conversations", "Swipe a chat or long-press it to archive it", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(list, key = { it.threadId }) { conv ->
-                Row(Modifier.fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.animateItem().fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(conv.displayName, conv.address, 54.dp, 20.sp)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
@@ -483,15 +492,7 @@ fun StarredScreen(onBack: () -> Unit) {
             title = { Text("Starred messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (starred.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Star, null, tint = TextHint.copy(.6f), modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(12.dp))
-                    Text("No starred messages", color = TextHint, fontSize = 15.sp)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Long-press a message and tap Star", color = TextHint.copy(.8f), fontSize = 13.sp)
-                }
-            }
+            EmptyState(Icons.Outlined.StarOutline, "No starred messages", "Long-press a message and tap Star", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(starred) { (conv, m) ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -531,18 +532,10 @@ fun ScheduledScreen(onBack: () -> Unit) {
             title = { Text("Scheduled messages", fontWeight = FontWeight.SemiBold) }) }
     ) { pad ->
         if (items2.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Schedule, null, tint = TextHint.copy(.6f), modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(12.dp))
-                    Text("Nothing scheduled", color = TextHint, fontSize = 15.sp)
-                    Spacer(Modifier.height(4.dp))
-                    Text("In a chat: menu → Schedule send", color = TextHint.copy(.8f), fontSize = 13.sp)
-                }
-            }
+            EmptyState(Icons.Outlined.Schedule, "Nothing scheduled", "In a chat: menu → Schedule send", Modifier.padding(pad))
         } else LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(items2, key = { it.id }) { sm ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SearchBg).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.animateItem().fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SearchBg).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(40.dp).clip(CircleShape).background(Tonal), contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.Schedule, null, tint = OnTonal, modifier = Modifier.size(20.dp))
                     }

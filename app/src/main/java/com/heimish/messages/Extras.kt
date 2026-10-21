@@ -1,5 +1,6 @@
 package com.heimish.messages
 
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -189,7 +190,7 @@ fun SpamScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         list = withContext(Dispatchers.IO) { SmsRepository.loadConversations(ctx) }.filter { it.threadId in ids || BlockedStore.isBlocked(ctx, it.address) }
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Spam & blocked", fontSize = 22.sp) }, navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }) }) { pad ->
-        if (list.isEmpty()) Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { Text("No spam or blocked chats", color = MaterialTheme.colorScheme.outline) }
+        if (list.isEmpty()) EmptyState(Icons.Outlined.Shield, "No spam or blocked chats", "Chats you block or mark as spam show up here", Modifier.padding(pad))
         else LazyColumn(Modifier.padding(pad)) {
             items(list, key = { it.threadId }) { c ->
                 Row(Modifier.fillMaxWidth().clickable { onOpen(c) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -536,7 +537,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                     if (photos.isNotEmpty()) {
                         Row(Modifier.fillMaxWidth().clickable { media = true }.padding(start = 20.dp, end = 12.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Images", fontSize = 16.sp, color = TextPrimary, modifier = Modifier.weight(1f))
-                            Text("${photos.size}", fontSize = 14.sp, color = TextSecond); Icon(Icons.Default.ChevronRight, null, tint = TextSecond)
+                            Text("${photos.size}", fontSize = 14.sp, color = TextSecond); Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = TextSecond)
                         }
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             photos.take(12).forEach { m -> coil.compose.AsyncImage(m.imageUri, null, Modifier.size(width = 92.dp, height = 120.dp).clip(RoundedCornerShape(16.dp)).clickable { viewing = m.imageUri }, contentScale = androidx.compose.ui.layout.ContentScale.Crop) }

@@ -1,5 +1,7 @@
 package com.heimish.messages
 
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -109,7 +111,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
                         Text("Message", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = OnTonal)
                         Text("Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER}", fontSize = 13.sp, color = OnTonal.copy(alpha = .75f))
                     }
-                    Icon(Icons.Default.ChevronRight, null, tint = OnTonal)
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = OnTonal)
                 }
             }
             item { SettingsHeader("Personalize") }
@@ -127,7 +129,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
             } }
             item { SettingsHeader("Messages") }
             item { SettGroup {
-                SettRow(Icons.Default.Reply, "Quick replies", "Edit your canned replies", Color(0xFF188038)) { onSub("x_quick") }
+                SettRow(Icons.AutoMirrored.Filled.Reply, "Quick replies", "Edit your canned replies", Color(0xFF188038)) { onSub("x_quick") }
                 SettRow(Icons.Default.Link, "Automatic previews", "Web link previews", Color(0xFF1A73E8)) { onSub("previews") }
                 SettRow(Icons.Default.SwipeRight, "Swipe actions", "What swiping a chat does", Color(0xFF9334E6)) { onSub("swipe") }
                 SettRow(Icons.Default.SimCard, "SIM card & group texts", "Choose SIM, group MMS", Color(0xFF00897B)) { onSub("x_sim") }
@@ -385,7 +387,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) { Text(title, fontSize = 16.sp, color = TextPrimary); Spacer(Modifier.height(2.dp)); Text(sub, fontSize = 13.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        Icon(Icons.Default.ChevronRight, null, tint = TextHint, modifier = Modifier.size(20.dp))
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = TextHint, modifier = Modifier.size(20.dp))
     }
 }
 

@@ -189,9 +189,9 @@ private fun SearchResults(ctx: android.content.Context, convs: List<Conversation
                     }
                 }
                 if (convMatches.isEmpty() && msgMatches.isEmpty() && contactMatches.isEmpty() && (filter != null || hits.isEmpty())) item {
-                    Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
-                        Text(if (needMsgs && recent.isEmpty()) "Searching…" else "No results", color = TextHint, fontSize = 15.sp)
-                    }
+                    if (needMsgs && recent.isEmpty()) Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(32.dp), color = Brand, strokeWidth = 3.dp)
+                    } else EmptyState(Icons.Outlined.SearchOff, "No results", "Try another word, or a different filter", Modifier.padding(top = 48.dp))
                 }
             }
 }

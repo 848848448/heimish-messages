@@ -1,5 +1,7 @@
 package com.heimish.messages
 
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.outlined.Reply
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -57,6 +59,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,8 +110,14 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     var themeVer by remember { mutableIntStateOf(0) }
     val chatPal = remember(themeVer) { ChatThemeStore.palette(ctx, conversation.threadId) }
     val chatWall = remember(themeVer) { ChatThemeStore.wallpaper(ctx, conversation.threadId) }
-    if (ThemeState.chat != chatPal) ThemeState.chat = chatPal
+    val screenActive = LocalScreenActive.current
+    val openedAt = remember { System.currentTimeMillis() }
+    val appearedKeys = remember { HashSet<String>() }
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    if (screenActive && ThemeState.chat != chatPal) ThemeState.chat = chatPal
     val chatPalNow by rememberUpdatedState(chatPal)
+    // Leaving the chat: hand the colors back as soon as the exit animation starts, not when it ends
+    LaunchedEffect(screenActive) { if (!screenActive && ThemeState.chat == chatPalNow) ThemeState.chat = null }
     // Only clear the chat colors if they are still ours (opening another chat must not lose its colors)
     DisposableEffect(Unit) { onDispose { if (ThemeState.chat == chatPalNow) ThemeState.chat = null } }
     var moreOpen by remember { mutableStateOf(false) }
@@ -481,7 +490,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     showMenu = false
                                     val et = android.widget.EditText(ctx); et.setText(LabelStore.get(ctx, conversation.threadId) ?: ""); et.hint = "Label (empty to remove)"
                                     android.app.AlertDialog.Builder(ctx).setTitle("Label this chat").setView(et).setPositiveButton("Save") { _, _ -> LabelStore.set(ctx, conversation.threadId, et.text.toString()); Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show() }.setNegativeButton("Cancel", null).show()
-                                }, leadingIcon = { Icon(Icons.Default.Label, null, tint = TextSecond) })
+                                }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Block & report spam", color = TextPrimary) }, {
                                     showMenu = false; BlockedStore.block(ctx, address)
                                     Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
@@ -572,13 +581,15 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                 }
                             )
                             IconButton({ emojiTab = 0; showEmoji = !showEmoji; showAttach = false; showGallery = false; if (showEmoji) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.EmojiEmotions, "Emoji", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
-                            if (draft.isEmpty()) IconButton({ showGallery = !showGallery; showAttach = false; showEmoji = false; if (showGallery) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.AddPhotoAlternate, "Photo", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
+                            AnimatedVisibility(draft.isEmpty(), enter = fadeIn(androidx.compose.animation.core.tween(150)) + expandHorizontally(androidx.compose.animation.core.tween(180)), exit = fadeOut(androidx.compose.animation.core.tween(100)) + shrinkHorizontally(androidx.compose.animation.core.tween(180))) {
+                                IconButton({ showGallery = !showGallery; showAttach = false; showEmoji = false; if (showGallery) keyboard?.hide() }, Modifier.size(48.dp)) { Icon(Icons.Outlined.AddPhotoAlternate, "Photo", tint = TextPrimary, modifier = Modifier.size(24.dp)) }
+                            }
                         }
                         Spacer(Modifier.width(8.dp))
                         val hasCont = draft.isNotBlank() || pendingMediaUri != null
                         MicSendButton(hasCont, rec, onSendText = { doSend() }, onNeedPermission = { audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) }, onVoiceDone = { f -> sendVoice(f) })
                     }
-                    AnimatedVisibility(showAttach, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    AnimatedVisibility(showAttach, enter = PanelEnter, exit = PanelExit) {
                         PlusPanel(listOf(
                             Triple(Icons.Outlined.PhotoLibrary, "Gallery") { imagePicker.launch("image/*") },
                             Triple(Icons.Outlined.Gif, "GIFs") { showAttach = false; emojiTab = 1; showEmoji = true },
@@ -592,11 +603,11 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                             Triple(Icons.Outlined.Mic, "Voice") { showAttach = false; if (rec.hasPermission()) { if (rec.start()) rec.mode = RecMode.LOCKED } else audioPerm.launch(android.Manifest.permission.RECORD_AUDIO) },
                         ))
                     }
-                    AnimatedVisibility(showGallery, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    AnimatedVisibility(showGallery, enter = PanelEnter, exit = PanelExit) {
                         GalleryPanel(onCamera = { startCamera() }, onFolders = { showGallery = false; imagePicker.launch("image/*") },
                             onPicked = { l -> pendingMediaUri = l.first(); pendingMediaType = "image"; extraMedia = l.drop(1); showGallery = false })
                     }
-                    AnimatedVisibility(showEmoji, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    AnimatedVisibility(showEmoji, enter = PanelEnter, exit = PanelExit) {
                         ExpressionPanel(emojiTab, onEmoji = { draft += it },
                             onGif = { u -> pendingMediaUri = u; pendingMediaType = "image"; extraMedia = emptyList(); showEmoji = false },
                             onSticker = { s -> showEmoji = false; sendText(s) })
@@ -632,7 +643,15 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 itemsIndexed(dayMsgs, key = { _, m -> msgKey(m) }) { i, m ->
                     val sameAsPrev = i > 0 && dayMsgs[i - 1].incoming == m.incoming
                     val mk = msgKey(m)
-                    Column(Modifier.onGloballyPositioned { bubbleYs[mk] = it.positionInRoot().y }
+                    // Send / receive animation: a message that arrives while the chat is open rises in from its side, once
+                    val appear = remember(mk) { androidx.compose.animation.core.Animatable(if (m.date >= openedAt - 1500 && mk !in appearedKeys) 0f else 1f) }
+                    LaunchedEffect(mk) {
+                        if (appear.value < 1f) { appearedKeys.add(mk); runCatching { appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.72f, stiffness = 420f)) }; if (appear.value != 1f) runCatching { appear.snapTo(1f) } }
+                    }
+                    val pivotX = if (m.incoming != isRtl) 0f else 1f
+                    Column(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = androidx.compose.animation.core.tween(160))
+                        .graphicsLayer { val p = appear.value; if (p < 1f) { alpha = p.coerceIn(0f, 1f); translationY = (1f - p) * 22.dp.toPx(); scaleX = 0.9f + 0.1f * p; scaleY = 0.9f + 0.1f * p; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(pivotX, 1f) } }
+                        .onGloballyPositioned { bubbleYs[mk] = it.positionInRoot().y }
                         .then(if (mk in selected) Modifier.clip(RoundedCornerShape(12.dp)).background(Brand.copy(alpha = .18f)) else Modifier)) {
                         if (i > 0) Spacer(Modifier.height(if (sameAsPrev) 2.dp else 10.dp))
                         // Group chats: who wrote it, above the first bubble of each run (like Google Messages)
@@ -685,6 +704,16 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 }
             }
         }
+        // Jump to the newest message when scrolled up (Google Messages' round arrow button)
+        val farFromBottom by remember { derivedStateOf { val li = listState.layoutInfo; li.totalItemsCount > 0 && li.totalItemsCount - 1 - (li.visibleItemsInfo.lastOrNull()?.index ?: 0) > 4 } }
+        AnimatedVisibility(farFromBottom, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 14.dp),
+            enter = scaleIn(initialScale = 0.6f) + fadeIn(), exit = scaleOut(targetScale = 0.6f) + fadeOut()) {
+            SmallFloatingActionButton(onClick = { scope.launch { runCatching { listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0), 100000) } } },
+                shape = CircleShape, containerColor = MenuSurf, contentColor = TextPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp, pressedElevation = 4.dp)) {
+                Icon(Icons.Default.KeyboardArrowDown, "Jump to newest", modifier = Modifier.size(24.dp))
+            }
+        }
         }
     }
 
@@ -697,7 +726,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 scope.launch(Dispatchers.IO) { SmsRepository.resend(ctx, m, address); withContext(Dispatchers.Main) { reload() } }
                 ctxMsg = null
             })
-            add(LongPressAction(Icons.Outlined.Reply, "Reply") { replyTo = m; ctxMsg = null })
+            add(LongPressAction(Icons.AutoMirrored.Outlined.Reply, "Reply") { replyTo = m; ctxMsg = null })
             add(LongPressAction(Icons.Outlined.Shortcut, "Forward") {
                 ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, m.body) }, "Forward"))
                 ctxMsg = null
@@ -733,3 +762,12 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
     }
 }
+
+
+/** Bottom panels (+, gallery, emoji/GIF) slide up from the compose bar with a soft spring, and tuck away quickly. */
+internal val PanelEnter: EnterTransition =
+    expandVertically(androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 520f), expandFrom = Alignment.Top) +
+        fadeIn(androidx.compose.animation.core.tween(180))
+internal val PanelExit: ExitTransition =
+    shrinkVertically(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing), shrinkTowards = Alignment.Top) +
+        fadeOut(androidx.compose.animation.core.tween(120))

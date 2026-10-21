@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -48,7 +49,7 @@ fun LongPressOverlay(
     BackHandler(onBack = onDismiss)
     var appear by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { appear = true }
-    val a by animateFloatAsState(if (appear) 1f else 0f, tween(160), label = "lp")
+    val a by animateFloatAsState(if (appear) 1f else 0f, tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "lp")
     var moreEmoji by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val pad = with(density) { 24.dp.roundToPx() }
@@ -70,9 +71,12 @@ fun LongPressOverlay(
                 Surface(shape = RoundedCornerShape(32.dp), color = MenuSurf, shadowElevation = 3.dp, tonalElevation = 0.dp,
                     modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
                     Row(Modifier.padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        QuickReactions.forEach { e ->
+                        QuickReactions.forEachIndexed { qi, e ->
                             val on = currentReaction == e
-                            Box(Modifier.size(46.dp).clip(CircleShape).background(if (on) Tonal else Color.Transparent).clickable { onReact(e) },
+                            // Reactions pop in one after another with a little bounce
+                            val pop = remember { androidx.compose.animation.core.Animatable(0.4f) }
+                            LaunchedEffect(Unit) { kotlinx.coroutines.delay(30L * qi); runCatching { pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 600f)) } }
+                            Box(Modifier.size(46.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }.clip(CircleShape).background(if (on) Tonal else Color.Transparent).clickable { onReact(e) },
                                 contentAlignment = Alignment.Center) { Text(e, fontSize = 27.sp) }
                         }
                         Box(Modifier.size(46.dp).clip(CircleShape).clickable { moreEmoji = !moreEmoji }, contentAlignment = Alignment.Center) {

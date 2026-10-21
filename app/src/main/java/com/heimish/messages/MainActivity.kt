@@ -262,7 +262,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             onRequest = { permL.launch(Permissions.ALL) },
             onGranted = { hasPerms = true }
         )
-        else -> when (val s = screen) {
+        else -> ScreenTransition(screen, stack.size) { s -> when (s) {
             Screen.List     -> ConvListScreen({ go(Screen.Chat(it)) }, { go(Screen.NewConv) }, { go(Screen.Settings) }, { go(Screen.Admin) }, { go(Screen.Archived) }, { go(Screen.Starred) }, { go(Screen.Scheduled) }, { go(Screen.Spam) }, { go(Screen.WhatsNew(it)) }, { go(Screen.Trash) }, { go(Screen.Search) })
             is Screen.WhatsNew -> UpdateScreen(s.info, s.autoInstall) { back() }
             Screen.Trash    -> TrashScreen { back() }
@@ -277,9 +277,41 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
             Screen.Archived -> ArchivedScreen({ go(Screen.Chat(it)) }) { back() }
             Screen.Starred  -> StarredScreen { back() }
             Screen.Scheduled -> ScheduledScreen { back() }
-        }
+        } }
     }
 }
+
+/**
+ * Material "shared axis X" screen transition: a short slide plus fade, forward when a screen is pushed and
+ * backward when one is popped. Follows the layout direction, so it slides the right way in Yiddish (RTL).
+ * Only the transition is animated; which screen shows and the back stack are unchanged.
+ */
+@Composable
+private fun ScreenTransition(screen: Screen, depth: Int, content: @Composable (Screen) -> Unit) {
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    var lastDepth by remember { mutableIntStateOf(depth) }
+    val forward = depth >= lastDepth
+    SideEffect { lastDepth = depth }
+    AnimatedContent(
+        targetState = screen,
+        transitionSpec = {
+            val dir = (if (forward) 1 else -1) * (if (rtl) -1 else 1)
+            val enter = slideInHorizontally(androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { w -> dir * w / 8 } +
+                fadeIn(androidx.compose.animation.core.tween(210, delayMillis = 60))
+            val exit = slideOutHorizontally(androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { w -> -dir * w / 8 } +
+                fadeOut(androidx.compose.animation.core.tween(90))
+            (enter togetherWith exit).using(SizeTransform(clip = false))
+        },
+        contentKey = { s -> if (s is Screen.Chat) "chat_" + s.conv.threadId else s.toString() },
+        label = "screen"
+    ) { s ->
+        val active = transition.targetState == EnterExitState.Visible
+        CompositionLocalProvider(LocalScreenActive provides active) { Box(Modifier.fillMaxSize().background(Bg)) { content(s) } }
+    }
+}
+
+/** False while a screen is animating away, so it stops applying screen-wide state (like a chat's colors). */
+val LocalScreenActive = staticCompositionLocalOf { true }
 
 // ━━━━━━━━━━━━━━━━ SETUP SCREENS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @Composable fun SetupScreen(onReq: () -> Unit) {
@@ -338,14 +370,16 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
             value = u
         }
     }
-    Box(Modifier.size(size).clip(CircleShape).background(avatarColor(address)), contentAlignment = Alignment.Center) {
+    val seed = address.ifBlank { name }
+    Box(Modifier.size(size).clip(CircleShape).background(avatarBg(seed)), contentAlignment = Alignment.Center) {
         if (photo != null) {
             AsyncImage(photo, name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
             val ch = name.firstOrNull()
-            if (address.contains(";")) Icon(Icons.Filled.Group, null, tint = Color.White, modifier = Modifier.size(size * 0.56f))
-            else if (ch != null && ch.isLetter()) Text(initial(name), color = Color.White, fontWeight = FontWeight.Medium, fontSize = fontSize)
-            else Icon(Icons.Filled.Person, null, tint = Color.White, modifier = Modifier.size(size * 0.56f))
+            val fg = avatarFg(seed)
+            if (address.contains(";")) Icon(Icons.Filled.Group, null, tint = fg, modifier = Modifier.size(size * 0.54f))
+            else if (ch != null && ch.isLetter()) Text(initial(name), color = fg, fontWeight = FontWeight.Medium, fontSize = fontSize)
+            else Icon(Icons.Filled.Person, null, tint = fg, modifier = Modifier.size(size * 0.54f))
         }
     }
 }
@@ -407,7 +441,7 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?, onDetails: (() -> Uni
     Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(24.dp))
         .clickable { if (onDetails != null && st !is UpdState.Downloading && st !is UpdState.Ready && st != UpdState.Installing) onDetails() else go() },
         shape = RoundedCornerShape(24.dp), color = Tonal) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(Modifier.animateContentSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(40.dp).clip(CircleShape).background(Brand), contentAlignment = Alignment.Center) {
                     Icon(if (st is UpdState.Ready) Icons.Default.InstallMobile else Icons.Default.SystemUpdate, null, tint = OnBrand, modifier = Modifier.size(22.dp))
@@ -427,7 +461,8 @@ fun UpdateCard(info: UpdateInfo, onDismiss: (() -> Unit)?, onDetails: (() -> Uni
             }
             if (st is UpdState.Downloading) {
                 Spacer(Modifier.height(10.dp))
-                LinearProgressIndicator(progress = { st.progress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)), color = Brand, trackColor = Bg.copy(alpha = .5f))
+                val smooth by androidx.compose.animation.core.animateFloatAsState(st.progress.coerceIn(0f, 1f), androidx.compose.animation.core.tween(400), label = "updProgress")
+                LinearProgressIndicator(progress = { smooth }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)), color = Brand, trackColor = Bg.copy(alpha = .5f))
             } else if (st == UpdState.Installing) {
                 Spacer(Modifier.height(10.dp))
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)), color = Brand, trackColor = Bg.copy(alpha = .5f))
@@ -541,7 +576,7 @@ fun UpdateButton(info: UpdateInfo) {
                 else -> UpdateManager.startDownload(ctx, info)
             }
         }, contentAlignment = Alignment.Center) {
-        if (progress != null) Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0.02f, 1f)).align(Alignment.CenterStart).background(Brand))
+        val smooth by androidx.compose.animation.core.animateFloatAsState((progress ?: 0f).coerceIn(0.02f, 1f), androidx.compose.animation.core.tween(400), label = "btnProgress")
         val label = when (st) {
             is UpdState.Downloading -> "Downloading… ${(st.progress * 100).toInt()}%" + (if (st.totalBytes > 0) "  ·  ${UpdateManager.mb(st.doneBytes)} / ${UpdateManager.mb(st.totalBytes)}" else "")
             is UpdState.Ready -> "Install now"
@@ -549,7 +584,17 @@ fun UpdateButton(info: UpdateInfo) {
             is UpdState.Error -> "Try again"
             else -> "Download and install" + (if (info.sizeBytes > 0) "  ·  ${UpdateManager.mb(info.sizeBytes)}" else "")
         }
-        Text(label, color = OnBrand, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        if (progress == null) Text(label, color = OnBrand, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        else BoxWithConstraints(Modifier.fillMaxSize()) {
+            // Progress fills the pill; the label stays readable on both the empty and the filled part
+            val fullW = maxWidth
+            Text(label, color = OnTonal, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.align(Alignment.Center))
+            Box(Modifier.fillMaxHeight().width(fullW * smooth).align(Alignment.CenterStart).clip(androidx.compose.ui.graphics.RectangleShape).background(Brand)) {
+                Box(Modifier.wrapContentWidth(Alignment.Start, unbounded = true).requiredWidth(fullW).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Text(label, color = OnBrand, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                }
+            }
+        }
     }
     (st as? UpdState.Error)?.let { Text(it.message, color = Red, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
 }
