@@ -72,6 +72,21 @@ class MmsPduTest {
         assertEquals("http://mms.example.net/mms/wapenc?location=12125550199_abc&rid=027", m.contentLocation)
     }
 
+    /** Verizon: the Content-Location ends in "message-id=" and the Transaction-ID must be appended (AOSP enabledTransID). */
+    @Test fun verizonLocationGetsTransactionId() {
+        val hex = "8c829834443241314630433745394233008d92891680393137353535303132332f545950453d504c4d4e0086818a808e03023a5c88058103093a8083687474703a2f2f36332e35392e3134302e38322f736572766c6574732f6d6d733f6d6573736167652d69643d00"
+        val pdu = ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+        val m = MmsPdu.parse(pdu)
+        assertEquals("http://63.59.140.82/servlets/mms?message-id=", m.contentLocation)
+        assertEquals("4D2A1F0C7E9B3", m.transactionId)
+        assertEquals("http://63.59.140.82/servlets/mms?message-id=4D2A1F0C7E9B3",
+            MmsIncoming.fullLocation(null, m.contentLocation!!, m.transactionId, -1))
+        // Already complete or no transaction id: unchanged
+        assertEquals("http://mmsc.example.com/mms/abc?x=1", MmsIncoming.fullLocation(null, "http://mmsc.example.com/mms/abc?x=1", "T1", -1))
+        assertEquals("http://h/mms?message-id=", MmsIncoming.fullLocation(null, "http://h/mms?message-id=", null, -1))
+        assertEquals("http://h/mms?message-id=T1", MmsIncoming.fullLocation(null, "http://h/mms?message-id=T1", "T1", -1))
+    }
+
     @Test fun parsesGroupRetrieveConfWithParts() {
         val yiddish = "גוט מארגן 👋"
         val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 1, 2, 3, 4, 0xFF.toByte(), 0xD9.toByte())
