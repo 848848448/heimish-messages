@@ -145,7 +145,7 @@ object UpdateManager {
         val n = NotificationCompat.Builder(ctx, CH_AVAILABLE)
             .setSmallIcon(R.drawable.ms_download_done)
             .setContentTitle("Update ready to install")
-            .setContentText("Message ${BuildConfig.VERSION_NAME} build ${i.build}")
+            .setContentText("Message 3.6.${i.build}")
             .setStyle(NotificationCompat.BigTextStyle().bigText(notesSummary(i.notes).ifBlank { "Build ${i.build} is ready" }))
             .setContentIntent(openAppIntent(ctx, true))
             .addAction(R.drawable.ms_download_done, "Install", openAppIntent(ctx, true))

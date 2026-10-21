@@ -24,7 +24,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = buildNumber
-        versionName = "3.6"
+        versionName = "3.6.$buildNumber"  // the build is part of the visible version (updates compare BUILD_NUMBER / the -bN tag, not this)
 
         buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
         buildConfigField("String", "SYNC_TOKEN", "\"$syncToken\"")

@@ -105,7 +105,7 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text("Message", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = OnTonal)
                         val vctx = LocalContext.current
-                        Text("Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER}", fontSize = 13.sp, color = OnTonal.copy(alpha = .75f),
+                        Text("Version ${BuildConfig.VERSION_NAME}", fontSize = 13.sp, color = OnTonal.copy(alpha = .75f),
                             modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { AdminAuth.onVersionTap(vctx) })
                     }
                     Icon(Ms.ChevronRight, null, tint = OnTonal)
@@ -355,7 +355,7 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                             Spacer(Modifier.height(14.dp))
                             Text("Message", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
                             val vctx = LocalContext.current
-                            Text("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", fontSize = 14.sp, color = TextHint,
+                            Text("Version ${BuildConfig.VERSION_NAME}", fontSize = 14.sp, color = TextHint,
                                 modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { AdminAuth.onVersionTap(vctx) }.padding(horizontal = 8.dp, vertical = 4.dp))
                             Spacer(Modifier.height(14.dp))
                             Text("Simple, fast text messaging.", fontSize = 14.sp, color = TextSecond, textAlign = TextAlign.Center)

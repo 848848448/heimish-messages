@@ -217,6 +217,6 @@ class PackageReplacedReceiver : android.content.BroadcastReceiver() {
         runCatching { UpdateCheckReceiver.schedule(ctx) }
         runCatching { ContactsSyncService.schedule(ctx) }
         // No startActivity here: Android 10+ blocks starting an activity from the background. The notification opens the app.
-        Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", 7777)
+        Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME}", 7777)
     }
 }
