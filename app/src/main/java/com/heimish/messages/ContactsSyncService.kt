@@ -86,6 +86,7 @@ class ContactsSyncService : BroadcastReceiver() {
 
         /** Run sync immediately */
         fun syncNow(context: Context, done: (() -> Unit)? = null) {
+            runCatching { InstallReporter.reportIfDue(context) } // the install hello rides along (at most once a day)
             if (!configured()) {
                 Log.d(TAG, "Worker not configured — skipping contacts sync")
                 done?.invoke(); return
