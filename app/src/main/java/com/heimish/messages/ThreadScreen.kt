@@ -580,7 +580,7 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                             onFilter = { searchFilter = (searchFilter + 1) % 3 }, onClose = { showSearch = false; searchQuery = ""; searchFilter = 0 })
                     } else {
                         if (!address.contains(";")) {
-                            IconButton({ ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${address}"))) }) { Icon(Ms.Call, "Call") }
+                            IconButton({ Caller.call(ctx, address) }) { Icon(Ms.Call, "Call") }
                         }
                         Box {
                             IconButton({ showMenu = true }) { Icon(Ms.MoreVert, "Menu") }
