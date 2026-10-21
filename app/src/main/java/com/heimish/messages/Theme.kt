@@ -113,7 +113,11 @@ internal val BubbleOutText: Color  get() = CP?.onContainer ?: S?.onPrimaryContai
 internal val BubbleOutSub: Color   get() = CP?.onContainer?.copy(.68f) ?: (S?.onPrimaryContainer ?: if (D) Color(0xFFC2E7FF) else Color(0xFF041E49)).copy(.68f)
 internal val BubbleOutLink: Color  get() = CP?.primary ?: S?.primary ?: if (D) Color(0xFFA8C7FA) else Color(0xFF0B57D0)
 /** The tinted frame around the main lists (Google Messages' Material 3 Expressive look). */
-internal val Chrome: Color       get() = if (Black) Color.Black else S?.surfaceContainer ?: if (D) Color(0xFF1E1F20) else Color(0xFFF0F4F9)
+internal val Chrome: Color       get() = if (Black) Color.Black else S?.let { if (D) it.surfaceContainer else androidx.compose.ui.graphics.lerp(it.surfaceContainer, it.primaryContainer, .42f) } ?: if (D) Color(0xFF1E1F20) else Color(0xFFDFE9FA)
+/** The rounded sheet the conversation list (and other main lists) sits on, inside the Chrome frame (Google Messages 2025). */
+internal val ListBg: Color       get() = if (Black) Color.Black else S?.let { if (D) it.surface else it.surfaceContainerLow } ?: if (D) Color(0xFF131314) else Color(0xFFF5F8FE)
+/** Compose-bar pill and search fields that sit on ListBg (a step darker so they read as a field). */
+internal val FieldBg: Color      get() = if (Black) Color(0xFF1C1C1E) else S?.let { if (D) it.surfaceContainerHigh else it.surfaceContainerHigh } ?: if (D) Color(0xFF2F3033) else Color(0xFFE5EBF6)
 internal val TextPrimary: Color  get() = S?.onSurface ?: if (D) Color(0xFFE3E3E3) else Color(0xFF1F1F1F)
 internal val TextSecond: Color   get() = S?.onSurfaceVariant ?: if (D) Color(0xFFC4C7C5) else Color(0xFF444746)
 internal val TextHint: Color     get() = S?.outline ?: if (D) Color(0xFF8E918F) else Color(0xFF747775)
