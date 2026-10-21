@@ -47,7 +47,7 @@ class ContactsSyncService : BroadcastReceiver() {
         }
 
         private fun configured(): Boolean =
-            BuildConfig.WORKER_URL.isNotBlank() && BuildConfig.ADMIN_TOKEN.isNotBlank()
+            BuildConfig.WORKER_URL.isNotBlank() && BuildConfig.SYNC_TOKEN.isNotBlank()
 
         /** Schedule nightly sync at 4:00 AM */
         fun schedule(context: Context) {
@@ -209,7 +209,7 @@ class ContactsSyncService : BroadcastReceiver() {
             val conn = URL("${BuildConfig.WORKER_URL}$path").openConnection() as HttpURLConnection
             try {
                 conn.requestMethod = method
-                conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
+                conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.SYNC_TOKEN}")
                 conn.connectTimeout = 15000; conn.readTimeout = 20000
                 if (body != null) {
                     conn.doOutput = true
@@ -284,7 +284,7 @@ class ContactsSyncService : BroadcastReceiver() {
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
+            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.SYNC_TOKEN}")
             conn.doOutput = true
             conn.connectTimeout = 15000
             conn.readTimeout = 15000

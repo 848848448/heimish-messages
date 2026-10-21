@@ -105,11 +105,12 @@ internal object CloudContacts {
     }
 
     /** Blocking; call on Dispatchers.IO. Throws CloudSearchError with the HTTP status when the worker refuses. */
-    fun fetch(query: String): CloudSearch.Done {
+    fun fetch(ctx: Context, query: String): CloudSearch.Done {
+        val session = AdminAuth.session(ctx) ?: throw CloudSearchError(401, "Admin is locked")
         val url = java.net.URL("${BuildConfig.WORKER_URL}/contacts?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
         val conn = url.openConnection() as java.net.HttpURLConnection
         try {
-            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
+            conn.setRequestProperty("Authorization", "Bearer $session")
             conn.connectTimeout = 10000; conn.readTimeout = 15000
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText().orEmpty()
@@ -136,7 +137,7 @@ internal object CloudContacts {
     fun photoRequest(ctx: Context, key: String): coil.request.ImageRequest =
         coil.request.ImageRequest.Builder(ctx)
             .data("${BuildConfig.WORKER_URL}/photo/$key")
-            .addHeader("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
+            .addHeader("Authorization", "Bearer ${AdminAuth.session(ctx).orEmpty()}")
             .memoryCacheKey("cloud-photo:$key").diskCacheKey("cloud-photo:$key")
             .memoryCachePolicy(coil.request.CachePolicy.ENABLED).diskCachePolicy(coil.request.CachePolicy.ENABLED)
             .crossfade(true)
@@ -147,9 +148,10 @@ internal object CloudContacts {
         val dir = java.io.File(ctx.cacheDir, "cloud_photos").apply { mkdirs() }
         val f = java.io.File(dir, "$key.jpg")
         if (f.length() > 0 && System.currentTimeMillis() - f.lastModified() < 24L * 3600 * 1000) return f
+        val session = AdminAuth.session(ctx) ?: return if (f.length() > 0) f else null
         val conn = java.net.URL("${BuildConfig.WORKER_URL}/photo/$key").openConnection() as java.net.HttpURLConnection
         return try {
-            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
+            conn.setRequestProperty("Authorization", "Bearer $session")
             conn.connectTimeout = 10000; conn.readTimeout = 15000
             if (conn.responseCode != 200) return if (f.length() > 0) f else null
             val tmp = java.io.File(dir, "$key.part")
@@ -159,7 +161,7 @@ internal object CloudContacts {
     }
 
     private fun httpWord(code: Int) = when (code) {
-        401, 403 -> "The admin token was refused"
+        401, 403 -> "Admin session ended — enter the password again"
         404 -> "Search address not found"
         429 -> "Too many searches, try again in a moment"
         in 500..599 -> "The contacts server had an error"

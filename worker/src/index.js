@@ -1,7 +1,11 @@
 /**
  * Heimish Messages — Contacts Sync Worker
  * Stores contacts in R2, searchable via API, plus each contact's photo thumbnail (photos/<key>/<device>.jpg).
- * ADMIN_TOKEN is a Cloudflare secret (set on every deploy by deploy-worker.yml).
+ * Two keys (both Cloudflare secrets, set on every deploy by deploy-worker.yml):
+ *  - ADMIN_TOKEN: the SYNC key. Every APK carries it, so it is public: it may only upload
+ *    (POST /contacts/sync, PUT/DELETE /photo/:device/:key). Any read with it is 403.
+ *  - ADMIN_PASSWORD: the owner's password. POST /admin/login trades it for a 30-day signed session;
+ *    every read (search, photos, devices, deleting a device) needs that session.
  */
 const MAX_CONTACTS = 20000;
 const MAX_BODY = 5 * 1024 * 1024;
@@ -20,23 +24,45 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
 
-    // Health check — public, says whether the worker is configured (never the token).
+    // Health check — public. Says whether the sync key and the admin password are set (never their values).
     if (path === '/ping' || path === '/') {
-      return json({ ok: true, configured: !!env.ADMIN_TOKEN, bucket: !!env.CONTACTS_BUCKET, time: new Date().toISOString() }, 200, CORS);
+      return json({ ok: true, configured: !!env.ADMIN_TOKEN, admin: !!env.ADMIN_PASSWORD, bucket: !!env.CONTACTS_BUCKET, time: new Date().toISOString() }, 200, CORS);
     }
 
-    if (!env.ADMIN_TOKEN) {
-      return json({ error: 'Server not configured: ADMIN_TOKEN secret is missing' }, 503, CORS);
-    }
     if (!env.CONTACTS_BUCKET) {
       return json({ error: 'Server not configured: R2 bucket binding is missing' }, 503, CORS);
     }
-    const auth = request.headers.get('Authorization') || '';
-    if (!safeEqual(auth, 'Bearer ' + env.ADMIN_TOKEN)) {
-      return json({ error: 'Unauthorized' }, 401, CORS);
-    }
 
     try {
+      // POST /admin/login {password} → {token, exp}. The password lives only in the ADMIN_PASSWORD secret.
+      if (path === '/admin/login' && request.method === 'POST') {
+        return await login(request, env, CORS);
+      }
+
+      // Who is calling: 'admin' (a valid password session), 'sync' (the sync key every APK carries), or nobody.
+      const who = await authenticate(request, env);
+      const SYNC_ROUTE = (path === '/contacts/sync' && request.method === 'POST') ||
+        (/^\/photo\/[^/]+\/[^/]+$/.test(path) && (request.method === 'PUT' || request.method === 'DELETE'));
+      if (who.role === 'none') {
+        if (SYNC_ROUTE && !env.ADMIN_TOKEN && !env.ADMIN_PASSWORD) return json({ error: 'Server not configured: ADMIN_TOKEN secret is missing' }, 503, CORS);
+        return json({ error: who.error || 'Unauthorized', code: who.code || 'unauthorized' }, 401, CORS);
+      }
+      if (who.role === 'sync' && !SYNC_ROUTE) {
+        return json({ error: 'This key can only sync. Admin needs the password.', code: 'sync_only' }, 403, CORS);
+      }
+
+      // GET /admin/session — is this session still good, and until when
+      if (path === '/admin/session' && request.method === 'GET') {
+        return json({ ok: true, exp: who.exp }, 200, CORS);
+      }
+
+      // POST /admin/logout-all — new salt: every session everywhere stops working
+      if (path === '/admin/logout-all' && request.method === 'POST') {
+        await env.CONTACTS_BUCKET.put(SALT_KEY, randomHex(32));
+        saltCache = null;
+        return json({ ok: true }, 200, CORS);
+      }
+
       // GET /contacts?q=search&device=deviceId
       if (path === '/contacts' && request.method === 'GET') {
         const q = (url.searchParams.get('q') || '').toLowerCase().trim();
@@ -228,6 +254,127 @@ async function readDevice(env, key) {
     return []; // one corrupt device file must not break search for all devices
   }
 }
+
+// ━━━━━━━━━━━━━━━━ ADMIN AUTH ━━━━━━━━━━━━━━━━
+// Sessions: "hs1.<payload>.<sig>", sig = HMAC-SHA256 with a key derived from ADMIN_PASSWORD + a random salt kept in R2.
+// Changing the password (or POST /admin/logout-all, which rotates the salt) invalidates every session.
+const SESSION_DAYS = 30;
+const SALT_KEY = 'auth/salt';
+const FAIL_PREFIX = 'auth/fail/';
+const FAILS_PER_LOCK = 5;            // 5 wrong passwords from one IP → locked
+const LOCK_BASE_MS = 15 * 60 * 1000; // 15 min, doubling with every further 5, up to a day
+const LOCK_MAX_MS = 24 * 3600 * 1000;
+const FAIL_DELAY_MS = 750;
+let saltCache = null; // { salt, at }
+
+async function login(request, env, CORS) {
+  if (!env.ADMIN_PASSWORD) return json({ error: 'admin password not set' }, 503, CORS);
+  const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+  const failKey = FAIL_PREFIX + (await sha256hex('ip|' + ip)).slice(0, 32) + '.json';
+  const now = Date.now();
+  let rec = { n: 0, lockUntil: 0, last: 0 };
+  const obj = await env.CONTACTS_BUCKET.get(failKey);
+  if (obj) { try { rec = { ...rec, ...JSON.parse(await obj.text()) }; } catch (_) {} }
+  if (rec.last && now - rec.last > LOCK_MAX_MS && rec.lockUntil < now) rec = { n: 0, lockUntil: 0, last: 0 };
+  if (rec.lockUntil > now) {
+    const secs = Math.ceil((rec.lockUntil - now) / 1000);
+    return json({ error: 'Too many wrong passwords. Try again in ' + Math.ceil(secs / 60) + ' min.', code: 'locked', retryAfter: secs }, 429, { ...CORS, 'Retry-After': String(secs) });
+  }
+  let body = null;
+  try { body = await request.json(); } catch (_) {}
+  const password = body && typeof body.password === 'string' ? body.password : '';
+  if (!password || password.length > 512) return json({ error: 'Password required', code: 'bad_request' }, 400, CORS);
+
+  if (!(await passwordEqual(password, env.ADMIN_PASSWORD))) {
+    rec.n += 1; rec.last = now;
+    if (rec.n % FAILS_PER_LOCK === 0) rec.lockUntil = now + Math.min(LOCK_MAX_MS, LOCK_BASE_MS * Math.pow(2, rec.n / FAILS_PER_LOCK - 1));
+    await env.CONTACTS_BUCKET.put(failKey, JSON.stringify(rec));
+    await sleep(FAIL_DELAY_MS);
+    if (rec.lockUntil > now) {
+      const secs = Math.ceil((rec.lockUntil - now) / 1000);
+      return json({ error: 'Too many wrong passwords. Try again in ' + Math.ceil(secs / 60) + ' min.', code: 'locked', retryAfter: secs }, 429, { ...CORS, 'Retry-After': String(secs) });
+    }
+    return json({ error: 'Wrong password', code: 'wrong_password', triesLeft: FAILS_PER_LOCK - (rec.n % FAILS_PER_LOCK) }, 401, CORS);
+  }
+  if (obj) await env.CONTACTS_BUCKET.delete(failKey);
+  const exp = now + SESSION_DAYS * 24 * 3600 * 1000;
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ v: 1, r: 'admin', iat: now, exp })));
+  const key = await sessionKey(env);
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('hs1.' + payload)));
+  return json({ ok: true, token: 'hs1.' + payload + '.' + b64url(sig), exp }, 200, CORS);
+}
+
+async function authenticate(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  if (!auth.startsWith('Bearer ')) return { role: 'none' };
+  const tok = auth.slice(7).trim();
+  if (tok.startsWith('hs1.')) {
+    if (!env.ADMIN_PASSWORD) return { role: 'none', error: 'admin password not set', code: 'admin_password_not_set' };
+    const parts = tok.split('.');
+    if (parts.length !== 3) return { role: 'none', error: 'Bad session', code: 'bad_session' };
+    let sig;
+    try { sig = unb64url(parts[2]); } catch (_) { return { role: 'none', error: 'Bad session', code: 'bad_session' }; }
+    const key = await sessionKey(env);
+    const good = await crypto.subtle.verify('HMAC', key, sig, new TextEncoder().encode('hs1.' + parts[1]));
+    if (!good) return { role: 'none', error: 'Session no longer valid. Sign in again.', code: 'bad_session' };
+    let p;
+    try { p = JSON.parse(new TextDecoder().decode(unb64url(parts[1]))); } catch (_) { return { role: 'none', error: 'Bad session', code: 'bad_session' }; }
+    if (!p || p.r !== 'admin' || typeof p.exp !== 'number' || p.exp < Date.now()) return { role: 'none', error: 'Session expired. Sign in again.', code: 'session_expired' };
+    return { role: 'admin', exp: p.exp };
+  }
+  if (env.ADMIN_TOKEN && safeEqual(tok, env.ADMIN_TOKEN)) return { role: 'sync' };
+  return { role: 'none' };
+}
+
+async function sessionKey(env) {
+  const salt = await getSalt(env);
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.ADMIN_PASSWORD), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const raw = await crypto.subtle.sign('HMAC', base, new TextEncoder().encode('heimish-admin-session-v1|' + salt));
+  return crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+async function getSalt(env) {
+  if (saltCache && Date.now() - saltCache.at < 60000) return saltCache.salt;
+  let salt = '';
+  const obj = await env.CONTACTS_BUCKET.get(SALT_KEY);
+  if (obj) salt = (await obj.text()).trim();
+  if (!salt) { salt = randomHex(32); await env.CONTACTS_BUCKET.put(SALT_KEY, salt); }
+  saltCache = { salt, at: Date.now() };
+  return salt;
+}
+
+/** Constant-time: compares SHA-256 digests, so neither the length nor the content leaks through timing. */
+async function passwordEqual(a, b) {
+  const [x, y] = await Promise.all([a, b].map(s => crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))));
+  const u = new Uint8Array(x), v = new Uint8Array(y);
+  let r = 0;
+  for (let i = 0; i < u.length; i++) r |= u[i] ^ v[i];
+  return r === 0;
+}
+
+async function sha256hex(s) {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
+  return [...d].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function randomHex(n) {
+  const a = new Uint8Array(n); crypto.getRandomValues(a);
+  return [...a].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function b64url(bytes) {
+  let s = ''; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function unb64url(s) {
+  const t = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
+  const bin = atob(t); const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function safeEqual(a, b) {
   if (a.length !== b.length) return false;

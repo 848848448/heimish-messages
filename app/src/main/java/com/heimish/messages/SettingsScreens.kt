@@ -103,7 +103,9 @@ fun SettingsScreen(onSub: (String) -> Unit, onBack: () -> Unit) {
                     Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Message", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = OnTonal)
-                        Text("Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER}", fontSize = 13.sp, color = OnTonal.copy(alpha = .75f))
+                        val vctx = LocalContext.current
+                        Text("Version ${BuildConfig.VERSION_NAME} · build ${BuildConfig.BUILD_NUMBER}", fontSize = 13.sp, color = OnTonal.copy(alpha = .75f),
+                            modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { AdminAuth.onVersionTap(vctx) })
                     }
                     Icon(Ms.ChevronRight, null, tint = OnTonal)
                 }
@@ -351,7 +353,9 @@ fun SettingSubScreen(key: String, onThemeChange: (String) -> Unit, onBack: () ->
                             }
                             Spacer(Modifier.height(14.dp))
                             Text("Message", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
-                            Text("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", fontSize = 14.sp, color = TextHint)
+                            val vctx = LocalContext.current
+                            Text("Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", fontSize = 14.sp, color = TextHint,
+                                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { AdminAuth.onVersionTap(vctx) }.padding(horizontal = 8.dp, vertical = 4.dp))
                             Spacer(Modifier.height(14.dp))
                             Text("Simple, fast text messaging.", fontSize = 14.sp, color = TextSecond, textAlign = TextAlign.Center)
                             Spacer(Modifier.height(20.dp))
@@ -413,20 +417,33 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
     var retry by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val configured = BuildConfig.WORKER_URL.isNotBlank() && BuildConfig.ADMIN_TOKEN.isNotBlank()
+    val configured = BuildConfig.WORKER_URL.isNotBlank()
+    // Admin needs the owner's password (checked by the worker); the session it returns is what searches and loads photos.
+    var signedIn by remember { mutableStateOf(AdminAuth.hasSession(ctx)) }
+    var loginNote by remember { mutableStateOf<String?>(null) }
 
     // Debounced search: waits 250 ms after the last keystroke; a newer keystroke cancels the older request.
-    LaunchedEffect(q, retry) {
+    LaunchedEffect(q, retry, signedIn) {
         AdminSearchMemory.q = q
         val t = q.trim()
+        if (!signedIn) { loading = false; return@LaunchedEffect }
         if (t.isEmpty() || !configured) { loading = false; result = CloudSearch.Idle; AdminSearchMemory.last = CloudSearch.Idle; return@LaunchedEffect }
         val cur = result
         if (cur is CloudSearch.Done && cur.query == t) { loading = false; return@LaunchedEffect }
         delay(250)
         loading = true
-        val r = try { withContext(Dispatchers.IO) { CloudContacts.fetch(t) } }
+        val r = try { withContext(Dispatchers.IO) { CloudContacts.fetch(ctx, t) } }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: CloudSearchError) { CloudSearch.Failed(t, e.code, e.message ?: "") }
+            catch (e: CloudSearchError) {
+                if (e.code == 401 || e.code == 403) {
+                    // Session expired, password changed, or signed out everywhere: ask for the password again.
+                    AdminAuth.clearSession(ctx); loading = false
+                    loginNote = "Your admin session ended. Enter the password again."
+                    result = CloudSearch.Idle; AdminSearchMemory.last = CloudSearch.Idle; signedIn = false
+                    return@LaunchedEffect
+                }
+                CloudSearch.Failed(t, e.code, e.message ?: "")
+            }
             catch (e: java.net.UnknownHostException) { CloudSearch.Failed(t, null, "Can't reach the contacts server (no internet?)") }
             catch (e: java.net.SocketTimeoutException) { CloudSearch.Failed(t, null, "The contacts server took too long to answer") }
             catch (e: Exception) { CloudSearch.Failed(t, null, e.message ?: e.javaClass.simpleName) }
@@ -440,15 +457,28 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
             onOpen(Conversation(threadId, number, c.name.ifBlank { CloudContacts.pretty(c.number) }, "", System.currentTimeMillis(), false))
         }
     }
+    fun lockAdmin() {
+        AdminAuth.lock(ctx)
+        Toast.makeText(ctx, "Admin locked and hidden", Toast.LENGTH_SHORT).show()
+        onBack()
+    }
     fun copied(num: String) {
         scope.launch { snackbar.currentSnackbarData?.dismiss(); snackbar.showSnackbar("Copied $num", duration = SnackbarDuration.Short) }
     }
 
     Scaffold(containerColor = Bg, snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary),
-            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) }) }
+            navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) },
+            actions = { IconButton({ lockAdmin() }) { Icon(Ms.Lock, "Lock admin") } }) }
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+            if (configured && !signedIn) {
+                item(key = "login") { AdminLoginCard(loginNote) { loginNote = null; signedIn = true; result = CloudSearch.Idle; retry++ } }
+                item(key = "lock-hidden") {
+                    TextButton({ lockAdmin() }, Modifier.fillMaxWidth()) { Text("Hide Admin again", color = TextSecond) }
+                }
+                return@LazyColumn
+            }
             item(key = "search") {
                 SettingsHeader("Contact search")
                 if (!configured) {
@@ -496,6 +526,14 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
                 if (configured) {
                     Button({ ContactsSyncService.syncNow(ctx); Toast.makeText(ctx, "Syncing…", Toast.LENGTH_SHORT).show() }, colors = ButtonDefaults.buttonColors(Tonal, OnTonal), shape = RoundedCornerShape(50)) { Text("Sync contacts now") }
                 }
+            }
+            item(key = "lock") {
+                SettingsHeader("Security")
+                OutlinedButton({ lockAdmin() }, shape = RoundedCornerShape(50)) {
+                    Icon(Ms.Lock, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Lock admin", color = TextPrimary)
+                }
+                Text("Signs out on this phone and hides Admin from the menu. Tap the version in Settings 7 times to bring it back.", fontSize = 12.sp, color = TextHint, modifier = Modifier.padding(top = 6.dp))
+                Spacer(Modifier.height(16.dp))
             }
         }
     }

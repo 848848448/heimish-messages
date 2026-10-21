@@ -32,9 +32,27 @@ CI deploys this folder automatically on push to `worker/**`
 
 ## API
 
-All endpoints except `/ping` require the header `Authorization: Bearer <ADMIN_TOKEN>`.
-`/ping` is public and reports `configured: true/false` (whether the secret is set).
-A missing secret answers 503 with a clear message.
+Two keys, both Cloudflare secrets pushed by CI from the repository secrets of the same name:
+
+- `ADMIN_TOKEN` is the **sync key**. Every APK carries it, so treat it as public. It may only
+  upload: `POST /contacts/sync`, `PUT`/`DELETE /photo/:deviceId/:key`. Anything else answers 403 `sync_only`.
+- `ADMIN_PASSWORD` is the owner's password. `POST /admin/login {"password"}` returns
+  `{token, exp}`: a 30-day session signed with HMAC-SHA256 under a key derived from the password and a random
+  salt in R2 (`auth/salt`). All reads need `Authorization: Bearer <session>`. Changing the password, or
+  `POST /admin/logout-all` (which rotates the salt), ends every session. 5 wrong passwords from one IP lock it out
+  for 15 min, doubling with each further 5 (max 24 h), and every wrong try waits 0.75 s. Without the secret, login
+  answers 503 `{"error":"admin password not set"}`. `.github/workflows/admin-password-sync.yml` pushes the repo
+  secret to the worker within ~10 min of it being added or changed (run it by hand for an immediate push).
+
+`/ping` is public and reports `configured` (sync key set) and `admin` (password set), never their values.
+
+| Method | Path | Who |
+| ------ | ---- | --- |
+| POST | `/admin/login` | anyone (password) |
+| GET | `/admin/session` | session |
+| POST | `/admin/logout-all` | session |
+| POST | `/contacts/sync`, PUT/DELETE `/photo/:deviceId/:key` | sync key or session |
+| GET, DELETE | `/contacts`, `/devices`, `/contacts/device/:id`, `/photo/:key` | session only |
 
 | Method | Path                        | Purpose                                         |
 | ------ | --------------------------- | ----------------------------------------------- |

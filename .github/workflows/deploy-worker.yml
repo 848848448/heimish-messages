@@ -7,6 +7,10 @@ on:
       - '.github/workflows/deploy-worker.yml'
   workflow_dispatch:
 
+concurrency:
+  group: worker-secrets
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -43,6 +47,22 @@ jobs:
           fi
           printf '%s' "$ADMIN_TOKEN" | wrangler secret put ADMIN_TOKEN --name heimish-contacts
 
+      # The owner's Admin password (repo secret ADMIN_PASSWORD, set by him in GitHub, never in the repo).
+      # Missing = skipped: the worker then answers Admin logins with 503 "admin password not set" and keeps syncing.
+      # admin-password-sync.yml also pushes it within ~10 min of him adding or changing it, no redeploy needed.
+      - name: Set ADMIN_PASSWORD secret on the worker
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          if [ -z "$ADMIN_PASSWORD" ]; then
+            echo "::warning::Repository secret ADMIN_PASSWORD is not set yet; Admin login stays off (503) until it is."
+            exit 0
+          fi
+          printf '%s' "$ADMIN_PASSWORD" | wrangler secret put ADMIN_PASSWORD --name heimish-contacts
+
       - name: Check the live worker
         env:
           WORKER_URL: ${{ vars.HEIMISH_WORKER_URL }}
@@ -50,4 +70,7 @@ jobs:
           sleep 5
           if [ -n "$WORKER_URL" ]; then
             curl -sS --max-time 20 "$WORKER_URL/ping" || echo "::warning::$WORKER_URL/ping did not answer — check the HEIMISH_WORKER_URL repo variable"
+            echo
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$WORKER_URL/contacts?q=a")
+            echo "Unauthenticated search answered HTTP $code (expect 401)"
           fi
