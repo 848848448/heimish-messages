@@ -1,6 +1,7 @@
 package com.heimish.messages
 
 import android.app.DatePickerDialog
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
 import android.content.ClipData
@@ -422,6 +423,35 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
     var signedIn by remember { mutableStateOf(AdminAuth.hasSession(ctx)) }
     var loginNote by remember { mutableStateOf<String?>(null) }
 
+    // Users: every install that reported in (worker GET /admin/installs, admin session only).
+    var usersList by remember { mutableStateOf(AdminUsersMemory.last as? UsersLoad.Done) }
+    var usersErr by remember { mutableStateOf<UsersLoad.Failed?>(null) }
+    var usersLoading by remember { mutableStateOf(false) }
+    var usersReload by remember { mutableStateOf(0) }
+    var uq by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(AdminUsersMemory.q) }
+    var showAllUsers by remember { mutableStateOf(AdminUsersMemory.showAll) }
+    LaunchedEffect(usersReload, signedIn) {
+        if (!signedIn || !configured) { usersLoading = false; return@LaunchedEffect }
+        val cur = usersList
+        if (usersReload == 0 && cur != null && System.currentTimeMillis() - cur.at < 60_000) return@LaunchedEffect
+        usersLoading = true
+        try {
+            val l = withContext(Dispatchers.IO) { AdminUsers.fetch(ctx) }
+            val d = UsersLoad.Done(l, System.currentTimeMillis())
+            usersList = d; AdminUsersMemory.last = d; usersErr = null
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e
+        } catch (e: CloudSearchError) {
+            if (e.code == 401 || e.code == 403) {
+                AdminAuth.clearSession(ctx)
+                loginNote = "Your admin session ended. Enter the password again."
+                usersList = null; AdminUsersMemory.last = UsersLoad.Idle; signedIn = false
+            } else usersErr = UsersLoad.Failed(e.code, e.message ?: "")
+        } catch (e: java.net.UnknownHostException) { usersErr = UsersLoad.Failed(null, "Can't reach the server (no internet?)")
+        } catch (e: java.net.SocketTimeoutException) { usersErr = UsersLoad.Failed(null, "The server took too long to answer")
+        } catch (e: Exception) { usersErr = UsersLoad.Failed(null, e.message ?: e.javaClass.simpleName) }
+        usersLoading = false
+    }
+
     // Debounced search: waits 250 ms after the last keystroke; a newer keystroke cancels the older request.
     LaunchedEffect(q, retry, signedIn) {
         AdminSearchMemory.q = q
@@ -457,6 +487,15 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
             onOpen(Conversation(threadId, number, c.name.ifBlank { CloudContacts.pretty(c.number) }, "", System.currentTimeMillis(), false))
         }
     }
+    fun openNumber(num: String) {
+        scope.launch {
+            val number = CloudContacts.dialable(num)
+            val (threadId, name) = withContext(Dispatchers.IO) {
+                SmsRepository.getOrCreateThreadId(ctx, number) to (runCatching { SmsRepository.getContactName(ctx, number) }.getOrNull())
+            }
+            onOpen(Conversation(threadId, number, name?.takeIf { it.isNotBlank() } ?: CloudContacts.pretty(num), "", System.currentTimeMillis(), false))
+        }
+    }
     fun lockAdmin() {
         AdminAuth.lock(ctx)
         Toast.makeText(ctx, "Admin locked and hidden", Toast.LENGTH_SHORT).show()
@@ -471,13 +510,52 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
             navigationIcon = { IconButton(onBack) { Icon(Ms.ArrowBack, "Back") } }, title = { Text("Admin panel", fontWeight = FontWeight.SemiBold) },
             actions = { IconButton({ lockAdmin() }) { Icon(Ms.Lock, "Lock admin") } }) }
     ) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+        PullToRefreshBox(isRefreshing = usersLoading, onRefresh = {
+            usersReload++
+            if (q.isNotBlank()) { result = CloudSearch.Idle; retry++ }
+        }, modifier = Modifier.padding(pad).fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
             if (configured && !signedIn) {
                 item(key = "login") { AdminLoginCard(loginNote) { loginNote = null; signedIn = true; result = CloudSearch.Idle; retry++ } }
                 item(key = "lock-hidden") {
                     TextButton({ lockAdmin() }, Modifier.fillMaxWidth()) { Text("Hide Admin again", color = TextSecond) }
                 }
                 return@LazyColumn
+            }
+            if (configured) {
+                item(key = "users-head") {
+                    SettingsHeader("Users")
+                    UsersTotals(usersList?.list)
+                    val pv = usersList?.list?.perVersion.orEmpty()
+                    if (pv.isNotEmpty()) Text(pv.joinToString("  ·  ") { (v, n) -> (if (v == "?") "?" else "v" + v.removePrefix("v")) + ": " + n },
+                        fontSize = 12.sp, color = TextHint, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp))
+                    Spacer(Modifier.height(10.dp))
+                    TextField(uq, { uq = it; AdminUsersMemory.q = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search users", color = TextHint) }, singleLine = true, shape = RoundedCornerShape(28.dp),
+                        leadingIcon = { Icon(Ms.Search, null, tint = TextHint) },
+                        trailingIcon = { if (uq.isNotEmpty()) IconButton({ uq = ""; AdminUsersMemory.q = "" }) { Icon(Ms.Close, "Clear", tint = TextHint) } },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        colors = TextFieldDefaults.colors(focusedContainerColor = SearchBg, unfocusedContainerColor = SearchBg, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, cursorColor = Brand))
+                    Spacer(Modifier.height(8.dp))
+                }
+                usersErr?.let { e ->
+                    item(key = "users-error") {
+                        CloudSearchState(Ms.Error, if (e.httpCode != null) "Loading users failed (HTTP ${e.httpCode})" else "Loading users failed", e.message.ifBlank { null }, "Try again") { usersErr = null; usersReload++ }
+                    }
+                }
+                val ul = usersList?.list
+                if (ul != null) {
+                    val filtered = AdminUsers.filter(ul.items, uq) { n -> SmsRepository.peekContactName(n)?.first }
+                    val shown = if (uq.isBlank() && !showAllUsers) filtered.take(8) else filtered
+                    if (filtered.isEmpty()) item(key = "users-empty") { CloudSearchState(if (uq.isBlank()) Ms.Person else Ms.SearchOff, if (uq.isBlank()) "No users yet" else "No matches", null) }
+                    val more = filtered.size > shown.size
+                    itemsIndexed(shown, key = { _, u -> "u:" + u.id }) { idx, u ->
+                        UserRow(u, first = idx == 0, last = idx == shown.lastIndex, onOpen = { openNumber(it) }, onCopied = { copied(it) })
+                    }
+                    if (more) item(key = "users-more") {
+                        TextButton({ showAllUsers = true; AdminUsersMemory.showAll = true }, Modifier.fillMaxWidth()) { Text("Show all ${filtered.size}", color = Brand) }
+                    }
+                }
+                item(key = "users-gap") { Spacer(Modifier.height(8.dp)) }
             }
             item(key = "search") {
                 SettingsHeader("Contact search")
@@ -534,6 +612,7 @@ fun AdminScreen(onOpen: (Conversation) -> Unit = {}, onBack: () -> Unit) {
                 Text("Signs out on this phone and hides Admin from the menu.", fontSize = 12.sp, color = TextHint, modifier = Modifier.padding(top = 6.dp))
                 Spacer(Modifier.height(16.dp))
             }
+        }
         }
     }
 }

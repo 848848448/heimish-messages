@@ -101,6 +101,8 @@ class MainActivity : ComponentActivity() {
         AdminAuth.init(this)
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNowIfStale(this)
+        InstallReporter.reportIfDue(this)
+        askNumbersPermissionOnce()
         UpdateCheckReceiver.schedule(this)
         Thread {
             OtpCleaner.clean(applicationContext)
@@ -137,6 +139,19 @@ class MainActivity : ComponentActivity() {
     // Notification taps, sms: links and shares arrive here while the app is open. Route them
     // in place instead of recreating the whole activity (which flashed and lost your place).
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); IntentRouter.pending = intent }
+    // Admin → Users shows each install's own number. READ_PHONE_NUMBERS is in the Phone group, so when READ_PHONE_STATE is
+    // already granted Android grants it without a dialog. Asked once, only after the first-run permissions are done.
+    private val numbersPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) runCatching { InstallReporter.numbersPermissionChanged(applicationContext) }
+    }
+    private fun askNumbersPermissionOnce() {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 26 && Permissions.granted(this) && InstallReporter.shouldAskNumbersPermission(this)) {
+                InstallReporter.markAskedNumbersPermission(this)
+                numbersPermLauncher.launch(android.Manifest.permission.READ_PHONE_NUMBERS)
+            }
+        }
+    }
     private fun requestDefault() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val rm = getSystemService(RoleManager::class.java)

@@ -1921,7 +1921,21 @@ function showAdmin(){
       +'<div style="font-size:30px;font-weight:700;color:'+(col||'var(--brand)')+'">'+n+'</div>'
       +'<div style="font-size:12px;color:var(--meta);margin-top:2px">'+lb+'</div></div>';
   }
+  var USERS_BTN='background:var(--brand-lt);color:var(--brand);border:none;border-radius:16px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-block';
   var h='<div style="padding:16px 18px">'
+    +'<div style="background:var(--bg);border-radius:16px;padding:16px;margin-bottom:14px">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+    +'<div style="font-size:13px;font-weight:600;color:var(--meta);text-transform:uppercase;letter-spacing:.5px">Users</div>'
+    +'<button id="usr-refresh" style="'+USERS_BTN+'">Refresh</button></div>'
+    +'<div id="usr-totals" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">'
+    +card('–','People')+card('–','Installations')+card('–','Active 7 days')+'</div>'
+    +'<div id="usr-versions" style="font-size:12px;color:var(--meta);margin-bottom:10px"></div>'
+    +'<div class="sw" style="margin-bottom:10px"><svg width="18" height="18" viewBox="0 0 24 24" fill="var(--meta)"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><input id="usr-search" placeholder="Search number, phone model or version"></div>'
+    +'<div id="usr-status" style="font-size:13px;color:var(--meta);margin-bottom:6px"></div>'
+    +'<div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table id="usr-table" style="width:100%;border-collapse:collapse;font-size:14px;color:var(--text)">'
+    +'<thead><tr style="text-align:left;color:var(--meta);font-size:12px"><th style="padding:6px 8px">Phone</th><th style="padding:6px 8px">Model</th><th style="padding:6px 8px">Version</th><th style="padding:6px 8px">Last seen</th><th></th></tr></thead>'
+    +'<tbody id="usr-rows"></tbody></table></div>'
+    +'</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px">'
     +card(installs.length,'Devices')+card(convs.length,'Conversations')
     +card(msgCount,'Messages')+card(groups,'Groups')
@@ -1973,6 +1987,74 @@ function showAdmin(){
         .catch(function(e){if(e)p.querySelector('#adm-status').textContent='Error: '+e.message;});
     },300);
   });
+
+  // ── Users: every install that reported in (GET /admin/installs, admin session only) ──
+  var usrData=null;
+  function usrPhone(n){
+    var s=String(n||''),dg=s.replace(/\D/g,'');
+    if(dg.length===11&&dg[0]==='1')dg=dg.slice(1);
+    if(dg.length===10)return '('+dg.slice(0,3)+') '+dg.slice(3,6)+'-'+dg.slice(6);
+    return s;
+  }
+  function usrAgo(iso){
+    var t=Date.parse(iso||'');if(!t)return '';
+    var m=Math.round((Date.now()-t)/60000);
+    if(m<1)return 'Just now';if(m<60)return m+' min ago';
+    var hh=Math.round(m/60);if(hh<24)return hh+' h ago';
+    var dd=Math.round(hh/24);if(dd<8)return dd+' d ago';
+    return new Date(t).toLocaleDateString();
+  }
+  function usrVer(i){return i.versionName?'v'+i.versionName.replace(/^v/,''):(i.versionCode?'b'+i.versionCode:'');}
+  function usrRender(){
+    var rows=p.querySelector('#usr-rows'),st=p.querySelector('#usr-status');
+    if(!usrData){return;}
+    var q=(p.querySelector('#usr-search').value||'').trim().toLowerCase(),qd=q.replace(/\D/g,'');
+    var list=usrData.installs.filter(function(i){
+      if(!q)return true;
+      var hay=[i.model,i.manufacturer,i.versionName,i.device,'android '+i.androidVersion].join(' ').toLowerCase();
+      if(hay.indexOf(q)>=0)return true;
+      return qd.length>=3&&i.phones.some(function(n){return String(n).replace(/\D/g,'').indexOf(qd)>=0;});
+    });
+    st.style.color='var(--meta)';
+    st.textContent=q?list.length+' of '+usrData.installs.length:(usrData.totals.noNumber?usrData.totals.noNumber+' without a number':'');
+    var cell='padding:9px 8px;border-top:.5px solid var(--div2);vertical-align:middle';
+    rows.innerHTML=list.length?list.map(function(i){
+      var num=i.phones[0]||'';
+      var phones=i.phones.length?i.phones.map(function(n){return '<div dir="ltr" style="unicode-bidi:isolate;white-space:nowrap;font-weight:500">'+esc(usrPhone(n))+'</div>';}).join(''):'<span style="color:var(--meta-lt)">—</span>';
+      var model=esc(((i.manufacturer&&i.model.toLowerCase().indexOf(i.manufacturer.toLowerCase())<0)?i.manufacturer+' ':'')+i.model)+(i.androidVersion?'<div style="font-size:12px;color:var(--meta)">Android '+esc(i.androidVersion)+'</div>':'');
+      var acts=num?'<a href="sms:'+encodeURIComponent(num)+'" style="'+USERS_BTN+'">Message</a> '
+        +'<a href="tel:'+encodeURIComponent(num)+'" style="'+USERS_BTN+'">Call</a> '
+        +'<button data-copy="'+esc(usrPhone(num))+'" style="'+USERS_BTN+'">Copy</button>':'';
+      return '<tr><td style="'+cell+'">'+phones+'</td><td style="'+cell+'">'+model+'</td><td style="'+cell+';white-space:nowrap">'+esc(usrVer(i))+'</td>'
+        +'<td style="'+cell+';white-space:nowrap" title="'+esc(i.lastSeen)+'">'+esc(usrAgo(i.lastSeen))+'</td><td style="'+cell+';white-space:nowrap;text-align:right">'+acts+'</td></tr>';
+    }).join(''):'<tr><td colspan="5" style="padding:14px 8px;color:var(--meta-lt)">'+(q?'No matches':'No installs yet')+'</td></tr>';
+  }
+  function usrLoad(){
+    var st=p.querySelector('#usr-status');
+    st.style.color='var(--meta)';st.textContent='Loading…';
+    fetch(WORKER+'/admin/installs',AUTH)
+      .then(function(r){if(authFail(r))throw null;if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .then(function(j){
+        usrData=j;
+        p.querySelector('#usr-totals').innerHTML=card(j.totals.people,'People')+card(j.totals.installs,'Installations')+card(j.totals.active7d,'Active 7 days');
+        p.querySelector('#usr-versions').textContent=(j.perVersion||[]).map(function(v){return (v.version==='?'?'?':'v'+String(v.version).replace(/^v/,''))+': '+v.count;}).join(' · ');
+        usrRender();
+      })
+      .catch(function(e){
+        if(e===null)return;
+        st.style.color='var(--red)';
+        st.innerHTML=esc('Loading users failed ('+(e&&/^HTTP/.test(e.message)?e.message:'no connection')+')')+' <button id="usr-retry" style="'+USERS_BTN+'">Try again</button>';
+        var b=p.querySelector('#usr-retry');if(b)b.addEventListener('click',usrLoad);
+      });
+  }
+  p.querySelector('#usr-refresh').addEventListener('click',usrLoad);
+  p.querySelector('#usr-search').addEventListener('input',usrRender);
+  p.querySelector('#usr-rows').addEventListener('click',function(ev){
+    var b=ev.target.closest&&ev.target.closest('[data-copy]');if(!b)return;
+    var v=b.getAttribute('data-copy');
+    (navigator.clipboard?navigator.clipboard.writeText(v):Promise.reject()).then(function(){T('Copied '+v);},function(){T(v);});
+  });
+  usrLoad();
 
   // Load total on open
   fetch(WORKER+'/devices',AUTH)
