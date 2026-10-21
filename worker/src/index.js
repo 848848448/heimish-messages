@@ -1,10 +1,11 @@
 /**
  * Heimish Messages — Contacts Sync Worker
- * Stores contacts in R2, searchable via API.
+ * Stores contacts in R2, searchable via API, plus each contact's photo thumbnail (photos/<key>/<device>.jpg).
  * ADMIN_TOKEN is a Cloudflare secret (set on every deploy by deploy-worker.yml).
  */
 const MAX_CONTACTS = 20000;
 const MAX_BODY = 5 * 1024 * 1024;
+const MAX_PHOTO = 100 * 1024; // contact photo thumbnails: reject anything over 100 KB
 
 export default {
   async fetch(request, env) {
@@ -51,6 +52,10 @@ export default {
           lists.forEach((l, i) => { allContacts = allContacts.concat(tag(l, deviceName(keys[i].key))); });
         }
 
+        // Numbers that have a synced photo on any device
+        const withPhoto = new Set();
+        for (const c of allContacts) if (c.photo) { const k = numKey(c.addr || c.phone || ''); if (k) withPhoto.add(k); }
+
         // Deduplicate by phone number (same number with/without +1, spaces, dashes = one)
         const seen = new Set();
         const unique = [];
@@ -58,7 +63,8 @@ export default {
           const key = numKey(c.addr || c.phone || '');
           if (!key || seen.has(key)) continue;
           seen.add(key);
-          unique.push(c);
+          const hasPhoto = withPhoto.has(key);
+          unique.push({ ...c, key, hasPhoto, photoKey: hasPhoto ? key : null });
         }
 
         let results = unique;
@@ -87,7 +93,11 @@ export default {
         const contacts = body.contacts
           .filter(c => c && typeof c === 'object' && (c.addr || c.phone))
           .slice(0, MAX_CONTACTS)
-          .map(c => ({ name: String(c.name || '').slice(0, 200), addr: String(c.addr || c.phone).slice(0, 40) }));
+          .map(c => {
+            const o = { name: String(c.name || '').slice(0, 200), addr: String(c.addr || c.phone).slice(0, 40) };
+            if (c.photo === true) o.photo = true;
+            return o;
+          });
 
         await env.CONTACTS_BUCKET.put('devices/' + deviceId + '.json', JSON.stringify(contacts),
           { httpMetadata: { contentType: 'application/json' } });
@@ -111,6 +121,60 @@ export default {
         return json({ ok: true, deleted: deviceId }, 200, CORS);
       }
 
+      // PUT /photo/:deviceId/:key — one contact's photo thumbnail (JPEG, <= 100 KB)
+      // DELETE /photo/:deviceId/:key — the contact's photo was removed on that phone
+      let m = path.match(/^\/photo\/([^/]+)\/([^/]+)$/);
+      if (m && (request.method === 'PUT' || request.method === 'DELETE')) {
+        const deviceId = cleanId(decodeURIComponent(m[1]));
+        const key = photoKey(decodeURIComponent(m[2]));
+        if (!deviceId) return json({ error: 'Missing device id' }, 400, CORS);
+        if (!key) return json({ error: 'Key must be the last 10 digits of the number' }, 400, CORS);
+        const objKey = 'photos/' + key + '/' + deviceId + '.jpg';
+        if (request.method === 'DELETE') {
+          await env.CONTACTS_BUCKET.delete(objKey);
+          return json({ ok: true, deleted: key }, 200, CORS);
+        }
+        const ct = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+        if (ct !== 'image/jpeg') return json({ error: 'Content-Type must be image/jpeg' }, 415, CORS);
+        const len = Number(request.headers.get('Content-Length') || 0);
+        if (len > MAX_PHOTO) return json({ error: 'Photo too large (max 100 KB)' }, 413, CORS);
+        const buf = await request.arrayBuffer();
+        if (buf.byteLength === 0) return json({ error: 'Empty body' }, 400, CORS);
+        if (buf.byteLength > MAX_PHOTO) return json({ error: 'Photo too large (max 100 KB)' }, 413, CORS);
+        const b = new Uint8Array(buf, 0, 3);
+        if (b[0] !== 0xFF || b[1] !== 0xD8 || b[2] !== 0xFF) return json({ error: 'Not a JPEG' }, 415, CORS);
+        await env.CONTACTS_BUCKET.put(objKey, buf, {
+          httpMetadata: { contentType: 'image/jpeg' },
+          customMetadata: { device: deviceId, at: new Date().toISOString() },
+        });
+        return json({ ok: true, key, device: deviceId, size: buf.byteLength }, 200, CORS);
+      }
+
+      // GET /photo/:key — the newest photo for that number from any device
+      m = path.match(/^\/photo\/([^/]+)$/);
+      if (m && (request.method === 'GET' || request.method === 'HEAD')) {
+        const key = photoKey(decodeURIComponent(m[1]));
+        if (!key) return json({ error: 'Key must be the last 10 digits of the number' }, 400, CORS);
+        const page = await env.CONTACTS_BUCKET.list({ prefix: 'photos/' + key + '/' });
+        const objs = (page.objects || []).slice().sort((a, b) => new Date(b.uploaded) - new Date(a.uploaded));
+        if (!objs.length) return json({ error: 'No photo' }, 404, CORS);
+        const newest = objs[0];
+        const etag = newest.httpEtag || ('"' + (newest.etag || '') + '"');
+        const headers = {
+          ...CORS,
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': 'private, max-age=86400',
+          'ETag': etag,
+          'Last-Modified': new Date(newest.uploaded).toUTCString(),
+        };
+        const inm = request.headers.get('If-None-Match');
+        if (inm && inm.split(',').map(s => s.trim()).includes(etag)) return new Response(null, { status: 304, headers });
+        if (request.method === 'HEAD') return new Response(null, { status: 200, headers: { ...headers, 'Content-Length': String(newest.size) } });
+        const obj = await env.CONTACTS_BUCKET.get(newest.key);
+        if (!obj) return json({ error: 'No photo' }, 404, CORS);
+        return new Response(obj.body, { status: 200, headers });
+      }
+
       return json({ error: 'Not found' }, 404, CORS);
     } catch (e) {
       return json({ error: (e && e.message) || 'Internal error' }, 500, CORS);
@@ -122,6 +186,12 @@ export default {
 function numKey(s) {
   const d = String(s || '').replace(/\D/g, '');
   return d.length > 10 ? d.slice(-10) : d;
+}
+
+/** Photo key: exactly the normalized last-10-digit number (7–10 digits for short local numbers). */
+function photoKey(s) {
+  const k = numKey(s);
+  return /^\d{7,10}$/.test(k) ? k : '';
 }
 
 /** Device ids become R2 key names: keep them to safe characters. */

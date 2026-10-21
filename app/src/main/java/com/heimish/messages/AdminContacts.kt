@@ -8,6 +8,7 @@ import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,11 +34,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 // ━━━━━━━━━━━━━━━━ ADMIN · CONTACT SEARCH (cloud contacts worker) ━━━━━━━━━━━━━━━━
 
 /** One merged search result: the same number from several phones / formats is one row. */
-data class CloudContact(val name: String, val number: String, val key: String, val devices: List<String>)
+data class CloudContact(val name: String, val number: String, val key: String, val devices: List<String>, val hasPhoto: Boolean = false)
 
 sealed class CloudSearch {
     data object Idle : CloudSearch()
@@ -83,7 +85,7 @@ internal object CloudContacts {
     }
 
     /** Merge by number, keep the name that best matches the query, best name match first, then A–Z. */
-    fun merge(raw: List<Triple<String, String, String>>, q: String): List<CloudContact> {
+    fun merge(raw: List<Triple<String, String, String>>, q: String, photoKeys: Set<String> = emptySet()): List<CloudContact> {
         val byKey = LinkedHashMap<String, MutableList<Triple<String, String, String>>>()
         for (t in raw) {
             val k = numKey(t.second); if (k.isEmpty()) continue
@@ -92,7 +94,7 @@ internal object CloudContacts {
         val out = byKey.map { (k, group) ->
             val best = group.filter { it.first.isNotBlank() }.minByOrNull { nameScore(it.first, q) } ?: group.first()
             val number = group.maxByOrNull { if (it.second.trim().startsWith("+")) 1 else 0 }?.second ?: best.second
-            CloudContact(best.first.trim(), number.trim(), k, group.map { it.third }.filter { it.isNotBlank() }.distinct())
+            CloudContact(best.first.trim(), number.trim(), k, group.map { it.third }.filter { it.isNotBlank() }.distinct(), k in photoKeys)
         }
         val qd = q.filter { it.isDigit() }
         return out.sortedWith(compareBy<CloudContact>(
@@ -118,13 +120,42 @@ internal object CloudContacts {
             val json = org.json.JSONObject(body)
             val arr = json.optJSONArray("contacts")
             val raw = mutableListOf<Triple<String, String, String>>()
+            val photoKeys = HashSet<String>()
             if (arr != null) for (i in 0 until arr.length()) {
                 val c = arr.optJSONObject(i) ?: continue
-                raw.add(Triple(c.optString("name"), c.optString("addr").ifBlank { c.optString("phone") }, c.optString("_device")))
+                val addr = c.optString("addr").ifBlank { c.optString("phone") }
+                raw.add(Triple(c.optString("name"), addr, c.optString("_device")))
+                if (c.optBoolean("hasPhoto")) photoKeys.add(c.optString("photoKey").ifBlank { numKey(addr) })
             }
             val results = json.optInt("results", raw.size)
-            return CloudSearch.Done(query, merge(raw, query), json.optInt("total", 0), results > raw.size)
+            return CloudSearch.Done(query, merge(raw, query, photoKeys), json.optInt("total", 0), results > raw.size)
         } finally { conn.disconnect() }
+    }
+
+    /** Coil request for a contact's synced photo: authenticated, memory + disk cached under a stable key. */
+    fun photoRequest(ctx: Context, key: String): coil.request.ImageRequest =
+        coil.request.ImageRequest.Builder(ctx)
+            .data("${BuildConfig.WORKER_URL}/photo/$key")
+            .addHeader("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
+            .memoryCacheKey("cloud-photo:$key").diskCacheKey("cloud-photo:$key")
+            .memoryCachePolicy(coil.request.CachePolicy.ENABLED).diskCachePolicy(coil.request.CachePolicy.ENABLED)
+            .crossfade(true)
+            .build()
+
+    /** Blocking; call on Dispatchers.IO. The synced photo as a local file for the full-screen viewer (kept a day). */
+    fun photoFile(ctx: Context, key: String): java.io.File? {
+        val dir = java.io.File(ctx.cacheDir, "cloud_photos").apply { mkdirs() }
+        val f = java.io.File(dir, "$key.jpg")
+        if (f.length() > 0 && System.currentTimeMillis() - f.lastModified() < 24L * 3600 * 1000) return f
+        val conn = java.net.URL("${BuildConfig.WORKER_URL}/photo/$key").openConnection() as java.net.HttpURLConnection
+        return try {
+            conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.ADMIN_TOKEN}")
+            conn.connectTimeout = 10000; conn.readTimeout = 15000
+            if (conn.responseCode != 200) return if (f.length() > 0) f else null
+            val tmp = java.io.File(dir, "$key.part")
+            conn.inputStream.use { ins -> tmp.outputStream().use { ins.copyTo(it) } }
+            if (tmp.length() > 0 && tmp.renameTo(f)) f else null
+        } catch (_: Exception) { if (f.length() > 0) f else null } finally { conn.disconnect() }
     }
 
     private fun httpWord(code: Int) = when (code) {
@@ -188,7 +219,7 @@ internal fun CloudContactRow(c: CloudContact, query: String, showDevices: Boolea
             .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(c.name.ifBlank { c.number }, c.number, 42.dp, 18.sp)
+        CloudAvatar(c, pretty, 42.dp, 18.sp)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -233,4 +264,46 @@ internal fun CloudSearchState(icon: androidx.compose.ui.graphics.vector.ImageVec
             FilledTonalButton(onAction, colors = ButtonDefaults.filledTonalButtonColors(containerColor = Tonal, contentColor = OnTonal)) { Text(action) }
         }
     }
+}
+
+
+/**
+ * Avatar for a search result: the photo synced from any phone (falls back to this phone's own contact photo,
+ * then the coloured letter). Tapping a photo opens it full screen; tapping elsewhere on the row still opens the chat.
+ */
+@Composable
+internal fun CloudAvatar(c: CloudContact, pretty: String, size: androidx.compose.ui.unit.Dp, fontSize: androidx.compose.ui.unit.TextUnit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // 0 = loading / none, 1 = shown, 2 = failed
+    var state by remember(c.key, c.hasPhoto) { mutableIntStateOf(0) }
+    var viewer by remember { mutableStateOf<Uri?>(null) }
+    var opening by remember { mutableStateOf(false) }
+    val request = remember(c.key) { CloudContacts.photoRequest(ctx, c.key) }
+    Box(
+        Modifier.size(size).clip(CircleShape)
+            .then(if (c.hasPhoto && state == 1) Modifier.clickable(onClickLabel = "View photo") {
+                if (opening) return@clickable
+                opening = true
+                scope.launch {
+                    val f = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { CloudContacts.photoFile(ctx, c.key) }
+                    opening = false
+                    if (f != null) viewer = Uri.fromFile(f)
+                    else android.widget.Toast.makeText(ctx, "Couldn't load the photo", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Underneath: this phone's own photo or the letter (its own tap opens the local photo when there is no synced one)
+        Avatar(c.name.ifBlank { c.number }, c.number, size, fontSize, tapToView = !c.hasPhoto || state == 2)
+        if (c.hasPhoto && state != 2) {
+            coil.compose.AsyncImage(
+                model = request, contentDescription = c.name.ifBlank { pretty },
+                modifier = Modifier.matchParentSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                onSuccess = { state = 1 }, onError = { state = 2 },
+            )
+        }
+        if (opening) CircularProgressIndicator(Modifier.size(size * 0.5f), strokeWidth = 2.dp, color = Color.White)
+    }
+    viewer?.let { PhotoViewer(it, { viewer = null }, title = c.name.ifBlank { pretty }, showForward = false) }
 }
