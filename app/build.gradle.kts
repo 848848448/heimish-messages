@@ -39,9 +39,20 @@ android {
         }
     }
 
+    // The APK CI publishes is the "debug" variant signed with the release key (the updater downloads app-debug.apk,
+    // so the variant name stays). On CI it is built like a release: not debuggable (Compose runs many times slower in a
+    // debuggable app and skips its baseline profiles) and optimized with R8. Same package + same key = normal update.
+    val optimized = System.getenv("CI") == "true" || (localProps.getProperty("optimizedDebug") == "true")
     buildTypes {
+        debug {
+            if (optimized) {
+                isDebuggable = false
+                isMinifyEnabled = true
+                proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            }
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -78,5 +89,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // Installs the baseline profile (src/main/baseline-prof.txt + the Compose libraries' own) on sideloaded installs
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 }
 // v3.4

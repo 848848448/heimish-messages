@@ -1,0 +1,19 @@
+# Baseline profile (hand-written): precompile the app's own code paths used at start-up, the chat list,
+# opening a chat, scrolling messages and the photo viewer. Compose / Coil ship their own profiles.
+HSPLcom/heimish/messages/MainActivity;->**(**)**
+HSPLcom/heimish/messages/MainActivityKt**;->**(**)**
+HSPLcom/heimish/messages/ConversationListKt**;->**(**)**
+HSPLcom/heimish/messages/ThreadScreenKt**;->**(**)**
+HSPLcom/heimish/messages/MessageBubblesKt**;->**(**)**
+HSPLcom/heimish/messages/MediaViewerKt**;->**(**)**
+HSPLcom/heimish/messages/UiHelpersKt**;->**(**)**
+HSPLcom/heimish/messages/ThemeKt**;->**(**)**
+HSPLcom/heimish/messages/SymbolsKt**;->**(**)**
+HSPLcom/heimish/messages/Ms;->**(**)**
+HSPLcom/heimish/messages/SmsRepository;->**(**)**
+HSPLcom/heimish/messages/Stores**;->**(**)**
+HSPLcom/heimish/messages/ThreadCache;->**(**)**
+HSPLcom/heimish/messages/Message;->**(**)**
+HSPLcom/heimish/messages/Conversation;->**(**)**
+HSPLcom/heimish/messages/ViewerItem;->**(**)**
+Lcom/heimish/messages/**;
