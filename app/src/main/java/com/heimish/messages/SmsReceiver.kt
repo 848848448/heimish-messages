@@ -55,7 +55,7 @@ class SmsReceiver : BroadcastReceiver() {
         val sender = SmsRepository.getContactName(context, address) ?: address
 
         Notifications.showMessage(context, sender, body, address, threadId)
-        AutoReply.maybe(context, address)
+        if (Reactions.parse(body) == null) AutoReply.maybe(context, address)
     }
 }
 
