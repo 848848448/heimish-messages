@@ -174,7 +174,7 @@ internal object CloudContacts {
     }
 
     fun call(ctx: Context, number: String) {
-        runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(dialable(number)))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        Caller.call(ctx, dialable(number))
     }
 }
 

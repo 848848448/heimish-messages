@@ -84,6 +84,13 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private val roleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { recreate() }
+    private var callPermResult: ((Boolean) -> Unit)? = null
+    private val callPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> callPermResult?.invoke(ok); callPermResult = null }
+    private val callReq: ((Boolean) -> Unit) -> Unit = { cb -> callPermResult = cb; runCatching { callPermLauncher.launch(android.Manifest.permission.CALL_PHONE) }.onFailure { cb(false) } }
+    override fun onDestroy() {
+        if (Caller.requestPermission === callReq) Caller.requestPermission = null
+        super.onDestroy()
+    }
     // Re-read on every resume: becoming (or stopping being) the default SMS app in system Settings shows at once
     private val defaultApp = mutableStateOf(false)
     override fun onResume() {
@@ -99,6 +106,7 @@ class MainActivity : ComponentActivity() {
             if (Build.VERSION.SDK_INT >= 28) add(coil.decode.ImageDecoderDecoder.Factory()) else add(coil.decode.GifDecoder.Factory())
         }.crossfade(true).build())
         AdminAuth.init(this)
+        Caller.requestPermission = callReq
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNowIfStale(this)
         InstallReporter.reportIfDue(this)
@@ -267,6 +275,8 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     // and its scroll spot stay in the back stack and you come back to it.
     SideEffect { ForwardState.open = { if (stack.last() !is Screen.Forward) stack = stack + Screen.Forward } }
     DisposableEffect(Unit) { onDispose { ForwardState.open = null } }
+    SideEffect { AdminAuth.openScreen = { if (stack.last() !is Screen.Admin) stack = stack + Screen.Admin } }
+    DisposableEffect(Unit) { onDispose { AdminAuth.openScreen = null } }
     /** After a forward is sent (or backed out of): drop the picker / the chat it went to, back to the chat it came from. */
     fun backToForwardSource() {
         val i = stack.indexOfLast { it is Screen.Forward || (it is Screen.Chat && it.fwd) }
