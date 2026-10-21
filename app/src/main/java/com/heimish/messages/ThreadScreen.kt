@@ -98,14 +98,18 @@ import kotlin.math.roundToInt
 // ━━━━━━━━━━━━━━━━ THREAD / CHAT SCREEN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
+fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onForwardSent: (String) -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val prefs = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
     // Last messages seen for this chat show at once (opening a chat again is instant); a fresh read follows
     var msgs by remember { mutableStateOf(ThreadCache.get(conversation.threadId) ?: emptyList()) }
     var draft by remember { mutableStateOf(DraftStore.get(ctx, conversation.threadId)) }
     val draftNow by rememberUpdatedState(draft)
-    DisposableEffect(Unit) { onDispose { DraftStore.set(ctx, conversation.threadId, draftNow) } }
+    // Forwarded content staged here: if you back out without sending, the chat's own draft is kept, not the forwarded text
+    var fwdPrior by remember { mutableStateOf<String?>(null) }
+    var fwdFrom by remember { mutableLongStateOf(-1L) }
+    val fwdPriorNow by rememberUpdatedState(fwdPrior)
+    DisposableEffect(Unit) { onDispose { DraftStore.set(ctx, conversation.threadId, fwdPriorNow ?: draftNow) } }
     var showDetails by remember { mutableStateOf(false) }
     var showTheme by remember { mutableStateOf(false) }
     var themeVer by remember { mutableIntStateOf(0) }
@@ -169,6 +173,17 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                 pendingMediaType = when { mt.startsWith("video") -> "video"; mt.startsWith("audio") -> "audio"; else -> "image" }
             }
             ShareState.clear()
+        }
+        // Forward: the text and every attachment wait in the compose bar, ready to send
+        ForwardState.payload?.takeIf { it.target == conversation.threadId }?.let { p ->
+            ForwardState.clear()
+            fwdPrior = draft; fwdFrom = p.fromThread
+            if (p.text.isNotBlank()) draft = if (draft.isBlank()) p.text else draft + "\n" + p.text
+            p.media.firstOrNull()?.let { f ->
+                pendingMediaUri = f.uri
+                pendingMediaType = when { f.mime.startsWith("video") -> "video"; f.mime.startsWith("audio") -> "audio"; f.mime.startsWith("image") -> "image"; else -> "file" }
+                extraMedia = p.media.drop(1).map { it.uri }
+            }
         }
     }
     var showSearch by remember { mutableStateOf(false) }
@@ -269,14 +284,22 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     DisposableEffect(Unit) { onDispose { keyboard?.hide() } }
 
     fun replyWho(m: Message): String = if (!m.incoming) "You" else if (isGroupChat) (m.address?.let { SmsRepository.getContactName(ctx, it) ?: it } ?: conversation.displayName) else conversation.displayName
+    /** A forwarded message just went out: back to the chat it was forwarded from, which shows "Forwarded to …". */
+    fun forwardWentOut(verb: String = "Forwarded to") {
+        if (fwdPrior == null) return
+        fwdPrior = null
+        val note = verb + " " + conversation.displayName
+        if (forwardTarget && fwdFrom > 0 && fwdFrom != conversation.threadId) { ForwardState.doneNote = fwdFrom to note; onForwardSent(note) }
+    }
     fun doSend() {
         if (sendingNow) return  // a double tap used to send the same message twice
         val body = draft.trim()
         if (pendingMediaUri != null) {
             val uri = pendingMediaUri!!
             val mime = when (pendingMediaType) {
-                "video" -> ctx.contentResolver.getType(uri)?.takeIf { it.startsWith("video/") } ?: "video/mp4"
-                "audio" -> ctx.contentResolver.getType(uri)?.takeIf { it.startsWith("audio/") } ?: "audio/mp4"
+                "video" -> ForwardState.mimeOf(uri) ?: ctx.contentResolver.getType(uri)?.takeIf { it.startsWith("video/") } ?: "video/mp4"
+                "audio" -> ForwardState.mimeOf(uri) ?: ctx.contentResolver.getType(uri)?.takeIf { it.startsWith("audio/") } ?: "audio/mp4"
+                "file" -> ForwardState.mimeOf(uri) ?: ctx.contentResolver.getType(uri)
                 else -> null
             }
             sendingNow = true
@@ -284,10 +307,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             replyTo?.let { ReplyStore.pending(ctx, conversation.threadId, body, it, replyWho(it)) }
             scope.launch(Dispatchers.IO) {
                 val ok = SmsRepository.sendMms(ctx, address, uri, body, mime)
-                if (ok) extras.forEach { u -> SmsRepository.sendMms(ctx, address, u, "", null) }
+                if (ok) extras.forEach { u -> SmsRepository.sendMms(ctx, address, u, "", ForwardState.mimeOf(u)?.takeUnless { it.startsWith("image/") }) }
                 withContext(Dispatchers.Main) {
                     sendingNow = false
-                    if (ok) { draft = ""; pendingMediaUri = null; extraMedia = emptyList(); replyTo = null; SendSound.play(ctx); reload() }
+                    if (ok) { draft = ""; pendingMediaUri = null; extraMedia = emptyList(); replyTo = null; SendSound.play(ctx); reload(); forwardWentOut() }
                     else Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -302,7 +325,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             val ok = if (address.contains(";") && prefs.getBoolean("group_mms_send", true)) (SmsRepository.sendGroupText(ctx, address, text) || SmsRepository.sendSms(ctx, address, text)) else SmsRepository.sendSms(ctx, address, text)
             withContext(Dispatchers.Main) {
                 sendingNow = false
-                if (ok) { SendSound.play(ctx); reload() }
+                if (ok) { SendSound.play(ctx); reload(); forwardWentOut() }
                 else { if (draft.isEmpty()) draft = text; Toast.makeText(ctx, "Send failed", Toast.LENGTH_SHORT).show() }
             }
         }
@@ -318,6 +341,31 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     }
 
     var showQuick by remember { mutableStateOf(false) }
+    /** Forward one or more messages: read their text and every attachment, then open the "Forward message" picker. */
+    var forwarding by remember { mutableStateOf(false) }
+    fun startForward(list: List<Message>) {
+        if (forwarding || list.isEmpty()) return
+        forwarding = true
+        scope.launch {
+            val p = Forwarder.build(ctx, list, conversation.threadId)
+            forwarding = false
+            val open = ForwardState.open
+            when {
+                p == null -> Toast.makeText(ctx, "Nothing to forward", Toast.LENGTH_SHORT).show()
+                open == null -> Toast.makeText(ctx, "Could not forward", Toast.LENGTH_SHORT).show()
+                else -> { ForwardState.payload = p; keyboard?.hide(); open() }
+            }
+        }
+    }
+    // Back from a forward: a short "Forwarded to …" at the bottom of this chat
+    val fwdSnack = remember { SnackbarHostState() }
+    val doneNote = ForwardState.doneNote
+    LaunchedEffect(doneNote, screenActive) {
+        val n = doneNote ?: return@LaunchedEffect
+        if (n.first != conversation.threadId || !screenActive) return@LaunchedEffect
+        ForwardState.doneNote = null
+        fwdSnack.showSnackbar(n.second, duration = SnackbarDuration.Short)
+    }
     if (showTheme) ChatThemeScreen(conversation) { applied -> showTheme = false; if (applied) { themeVer++; reactTick++ } }
     if (showDetails) ChatDetailsDialog(conversation, msgs, { showDetails = false }, onTheme = { showDetails = false; showTheme = true }, onSearch = { showDetails = false; showSearch = true }) { showDetails = false; onBack() }
     var showMedia by remember { mutableStateOf(false) }
@@ -335,10 +383,10 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             val body = draft.trim(); val media = pendingMediaUri; val extras = extraMedia; val type = pendingMediaType
             draft = ""; pendingMediaUri = null; extraMedia = emptyList(); replyTo = null
             scope.launch(Dispatchers.IO) {
-                val mt = media?.let { u -> if (type == "image") null else ctx.contentResolver.getType(u) ?: (if (type == "video") "video/mp4" else "audio/mp4") }
+                val mt = media?.let { u -> if (type == "image") null else ForwardState.mimeOf(u) ?: ctx.contentResolver.getType(u) ?: (if (type == "video") "video/mp4" else "audio/mp4") }
                 ScheduledSendReceiver.schedule(ctx, address, body, at, media, mt)
-                extras.forEachIndexed { i, u -> ScheduledSendReceiver.schedule(ctx, address, "", at + 1000L * (i + 1), u, null) }
-                withContext(Dispatchers.Main) { reactTick++ }
+                extras.forEachIndexed { i, u -> ScheduledSendReceiver.schedule(ctx, address, "", at + 1000L * (i + 1), u, ForwardState.mimeOf(u)?.takeUnless { it.startsWith("image/") }) }
+                withContext(Dispatchers.Main) { reactTick++; forwardWentOut("Scheduled for") }
             }
             Toast.makeText(ctx, "Scheduled for " + TimeMenu.label(at), Toast.LENGTH_LONG).show()
         }
@@ -493,6 +541,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
     LaunchedEffect(currentHit) { currentHit?.let { jumpReq = it to false } }
     Box(Modifier.fillMaxSize()) {
     Scaffold(containerColor = Chrome, modifier = if (ctxMsg != null) Modifier.blur(14.dp) else Modifier,
+        snackbarHost = { SnackbarHost(fwdSnack) { d -> Snackbar(d, shape = RoundedCornerShape(12.dp), containerColor = TextPrimary, contentColor = Bg) } },
         topBar = {
             if (selecting) TopAppBar(colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, navigationIconContentColor = TextPrimary, actionIconContentColor = TextSecond),
                 navigationIcon = { IconButton({ selected = emptySet() }) { Icon(Ms.Close, "Cancel") } },
@@ -503,6 +552,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msgs", chosen.joinToString("\n") { it.body }))
                         Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show(); selected = emptySet()
                     }) { Icon(Ms.ContentCopy, "Copy") }
+                    IconButton({ startForward(chosen); selected = emptySet() }) { Icon(Ms.Forward, "Forward") }
                     IconButton({ chosen.forEach { StarStore.toggle(ctx, msgKey(it)) }; reactTick++; selected = emptySet() }) { Icon(Ms.Star, "Star") }
                     IconButton({
                         scope.launch(Dispatchers.IO) { chosen.forEach { SmsRepository.deleteMessage(ctx, it) }; withContext(Dispatchers.Main) { reload() } }
@@ -603,13 +653,21 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
                                     Icon(Ms.PlayCircleFill, null, tint = Color.White, modifier = Modifier.size(32.dp))
                                 }
                                 else -> Box(Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)).background(Brand), contentAlignment = Alignment.Center) {
-                                    Icon(Ms.MicFill, null, tint = OnBrand, modifier = Modifier.size(32.dp))
+                                    Icon(if (pendingMediaType == "file") Ms.Description else Ms.MicFill, null, tint = OnBrand, modifier = Modifier.size(32.dp))
                                 }
                             }
                             Spacer(Modifier.width(12.dp))
-                            extraMedia.take(3).forEach { u -> Spacer(Modifier.width(6.dp)); MediaThumb(u, isVideoUri(ctx, u), Modifier.size(56.dp).clip(RoundedCornerShape(10.dp))) }
+                            extraMedia.take(3).forEach { u ->
+                                Spacer(Modifier.width(6.dp))
+                                val em = ForwardState.mimeOf(u)
+                                if (em != null && !em.startsWith("image/") && !em.startsWith("video/"))
+                                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(Tonal), contentAlignment = Alignment.Center) {
+                                        Icon(if (em.startsWith("audio/")) Ms.MicFill else Ms.Description, null, tint = OnTonal, modifier = Modifier.size(26.dp))
+                                    }
+                                else MediaThumb(u, em?.startsWith("video/") ?: isVideoUri(ctx, u), Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)))
+                            }
                             Spacer(Modifier.width(8.dp))
-                            Text(when (pendingMediaType) { "image" -> if (extraMedia.isEmpty()) "Photo ready to send" else "${extraMedia.size + 1} ready to send"; "video" -> if (extraMedia.isEmpty()) "Video ready to send" else "${extraMedia.size + 1} ready to send"; else -> "Voice note ready to send" }, fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
+                            Text(if (extraMedia.isNotEmpty()) "${extraMedia.size + 1} ready to send" else when (pendingMediaType) { "image" -> "Photo ready to send"; "video" -> "Video ready to send"; "file" -> "File ready to send"; else -> "Voice note ready to send" }, fontSize = 14.sp, color = TextSecond, modifier = Modifier.weight(1f))
                             IconButton({ pendingMediaUri = null; extraMedia = emptyList() }) { Icon(Ms.Close, "Remove", tint = TextHint) }
                         }
                     }
@@ -878,6 +936,7 @@ fun ThreadScreen(conversation: Conversation, onBack: () -> Unit) {
             onDelete = { scope.launch(Dispatchers.IO) { SmsRepository.deleteMessage(ctx, m); withContext(Dispatchers.Main) { reload() } } },
             onSelect = { selected = setOf(msgKey(m)) },
             onDetails = { detailsMsg = m },
+            onForward = { startForward(listOf(m)) },
             onChanged = { reactTick++ },
             onDismiss = { ctxMsg = null })
     }
