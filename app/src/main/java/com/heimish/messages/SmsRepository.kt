@@ -613,6 +613,23 @@ object SmsRepository {
 
     // ── Mark read ─────────────────────────────────────────────────────────────
 
+    /** Date (ms) of the oldest unread incoming text in this chat, or 0 when nothing is unread. Read before markThreadRead. */
+    fun firstUnreadDate(ctx: Context, threadId: Long): Long {
+        var best = Long.MAX_VALUE
+        runCatching {
+            ctx.contentResolver.query(Telephony.Sms.CONTENT_URI, arrayOf(Telephony.Sms.DATE),
+                Telephony.Sms.THREAD_ID + " = ? AND " + Telephony.Sms.READ + " = 0 AND " + Telephony.Sms.TYPE + " = " + Telephony.Sms.MESSAGE_TYPE_INBOX,
+                arrayOf(threadId.toString()), Telephony.Sms.DATE + " ASC LIMIT 1")?.use { c -> if (c.moveToFirst()) best = minOf(best, c.getLong(0)) }
+        }
+        runCatching {
+            ctx.contentResolver.query(Uri.parse("content://mms"), arrayOf("date"),
+                "thread_id = ? AND read = 0 AND msg_box = 1", arrayOf(threadId.toString()), "date ASC LIMIT 1")?.use { c ->
+                if (c.moveToFirst()) best = minOf(best, c.getLong(0) * 1000L)
+            }
+        }
+        return if (best == Long.MAX_VALUE) 0L else best
+    }
+
     fun markThreadRead(ctx: Context, threadId: Long) {
         runCatching {
             val values = ContentValues().apply { put(Telephony.Sms.READ, 1) }
