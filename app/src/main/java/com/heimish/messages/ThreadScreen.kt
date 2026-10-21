@@ -584,45 +584,53 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                         }
                         Box {
                             IconButton({ showMenu = true }) { Icon(Ms.MoreVert, "Menu") }
+                            // The menu keeps the everyday actions; everything else is in one "More" sheet (it used to be 7 items, 15 expanded)
+                            fun muteAction() {
+                                if (Mute.isMuted(ctx, conversation.threadId)) { Mute.clear(ctx, conversation.threadId); Toast.makeText(ctx, "Unmuted", Toast.LENGTH_SHORT).show() }
+                                else android.app.AlertDialog.Builder(ctx).setTitle("Mute notifications").setItems(arrayOf("1 hour", "8 hours", "24 hours", "Always")) { _, i -> Mute.setFor(ctx, conversation.threadId, longArrayOf(3_600_000L, 28_800_000L, 86_400_000L, 0L)[i]); Toast.makeText(ctx, "Muted", Toast.LENGTH_SHORT).show() }.show()
+                            }
                             DropdownMenu(showMenu, { showMenu = false }, modifier = Modifier.background(Surf), shape = RoundedCornerShape(16.dp)) {
                                 DropdownMenuItem({ Text("Search", color = TextPrimary) }, { showMenu = false; showSearch = true }, leadingIcon = { Icon(Ms.Search, null, tint = TextSecond) })
                                 DropdownMenuItem({ Text("Details", color = TextPrimary) }, { showMenu = false; showDetails = true }, leadingIcon = { Icon(Ms.Info, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Chat theme", color = TextPrimary) }, { showMenu = false; showTheme = true }, leadingIcon = { Icon(Ms.Palette, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Quick replies", color = TextPrimary) }, { showMenu = false; showQuick = true }, leadingIcon = { Icon(Ms.Reply, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Media and links", color = TextPrimary) }, { showMenu = false; showMedia = true }, leadingIcon = { Icon(Ms.PhotoLibrary, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Add to home screen", color = TextPrimary) }, { showMenu = false; pinChatShortcut(ctx, conversation) }, leadingIcon = { Icon(Ms.AddToHomeScreen, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Ms.Schedule, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text(if (Mute.isMuted(ctx, conversation.threadId)) "Unmute" else "Mute notifications", color = TextPrimary) }, {
-                                    showMenu = false
-                                    if (Mute.isMuted(ctx, conversation.threadId)) { Mute.clear(ctx, conversation.threadId); Toast.makeText(ctx, "Unmuted", Toast.LENGTH_SHORT).show() }
-                                    else android.app.AlertDialog.Builder(ctx).setTitle("Mute notifications").setItems(arrayOf("1 hour", "8 hours", "24 hours", "Always")) { _, i -> Mute.setFor(ctx, conversation.threadId, longArrayOf(3_600_000L, 28_800_000L, 86_400_000L, 0L)[i]); Toast.makeText(ctx, "Muted", Toast.LENGTH_SHORT).show() }.show()
-                                }, leadingIcon = { Icon(Ms.NotificationsOff, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Remind me", color = TextPrimary) }, {
-                                    showMenu = false
-                                    android.app.AlertDialog.Builder(ctx).setTitle("Remind me").setItems(arrayOf("In 1 hour", "In 3 hours", "Tomorrow morning")) { _, i ->
-                                        val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0) }
-                                        RemindReceiver.set(ctx, conversation, when (i) { 0 -> System.currentTimeMillis() + 3_600_000L; 1 -> System.currentTimeMillis() + 10_800_000L; else -> cal.timeInMillis })
-                                        Toast.makeText(ctx, "Reminder set", Toast.LENGTH_SHORT).show() }.show()
-                                }, leadingIcon = { Icon(Ms.Notifications, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Export chat", color = TextPrimary) }, { showMenu = false; exportChat(ctx, conversation, msgs) }, leadingIcon = { Icon(Ms.Share, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Notification sound", color = TextPrimary) }, {
-                                    showMenu = false
-                                    toneL.launch(Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_NOTIFICATION).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true))
-                                }, leadingIcon = { Icon(Ms.MusicNote, null, tint = TextSecond) })
-                                if (moreOpen) DropdownMenuItem({ Text("Label", color = TextPrimary) }, {
-                                    showMenu = false
-                                    val et = android.widget.EditText(ctx); et.setText(LabelStore.get(ctx, conversation.threadId) ?: ""); et.hint = "Label (empty to remove)"
-                                    android.app.AlertDialog.Builder(ctx).setTitle("Label this chat").setView(et).setPositiveButton("Save") { _, _ -> LabelStore.set(ctx, conversation.threadId, et.text.toString()); Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show() }.setNegativeButton("Cancel", null).show()
-                                }, leadingIcon = { Icon(Ms.Label, null, tint = TextSecond) })
-                                DropdownMenuItem({ Text("Block & report spam", color = TextPrimary) }, {
-                                    showMenu = false; BlockedStore.block(ctx, address)
-                                    Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack()
-                                }, leadingIcon = { Icon(Ms.Block, null, tint = Red) })
-                                DropdownMenuItem({ Text("Delete conversation", color = TextPrimary) }, {
-                                    showMenu = false; scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }
-                                    Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show(); onBack()
-                                }, leadingIcon = { Icon(Ms.Delete, null, tint = Red) })
-                                DropdownMenuItem({ Text(if (moreOpen) "Less" else "More", color = TextPrimary) }, { moreOpen = !moreOpen }, leadingIcon = { Icon(if (moreOpen) Ms.ExpandLess else Ms.ExpandMore, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("Schedule send", color = TextPrimary) }, { showMenu = false; pickScheduleTime() }, leadingIcon = { Icon(Ms.Schedule, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text(if (Mute.isMuted(ctx, conversation.threadId)) "Unmute" else "Mute notifications", color = TextPrimary) }, { showMenu = false; muteAction() },
+                                    leadingIcon = { Icon(Ms.NotificationsOff, null, tint = TextSecond) })
+                                DropdownMenuItem({ Text("More", color = TextPrimary) }, { showMenu = false; moreOpen = true }, leadingIcon = { Icon(Ms.MoreHoriz, null, tint = TextSecond) })
+                            }
+                            if (moreOpen) {
+                                val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                                fun close(then: () -> Unit) { moreOpen = false; then() }
+                                ModalBottomSheet({ moreOpen = false }, sheetState = sheet, containerColor = Surf) {
+                                    @Composable fun Item(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = TextSecond, onClick: () -> Unit) =
+                                        Row(Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 24.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(icon, null, tint = tint); Spacer(Modifier.width(20.dp)); Text(label, fontSize = 16.sp, color = TextPrimary)
+                                        }
+                                    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+                                        Item(Ms.Palette, "Chat theme") { close { showTheme = true } }
+                                        Item(Ms.PhotoLibrary, "Media and links") { close { showMedia = true } }
+                                        Item(Ms.Reply, "Quick replies") { close { showQuick = true } }
+                                        Item(Ms.Notifications, "Remind me") { close {
+                                            android.app.AlertDialog.Builder(ctx).setTitle("Remind me").setItems(arrayOf("In 1 hour", "In 3 hours", "Tomorrow morning")) { _, i ->
+                                                val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1); set(java.util.Calendar.HOUR_OF_DAY, 9); set(java.util.Calendar.MINUTE, 0) }
+                                                RemindReceiver.set(ctx, conversation, when (i) { 0 -> System.currentTimeMillis() + 3_600_000L; 1 -> System.currentTimeMillis() + 10_800_000L; else -> cal.timeInMillis })
+                                                Toast.makeText(ctx, "Reminder set", Toast.LENGTH_SHORT).show() }.show()
+                                        } }
+                                        Item(Ms.Label, "Label") { close {
+                                            val et = android.widget.EditText(ctx); et.setText(LabelStore.get(ctx, conversation.threadId) ?: "")
+                                            android.app.AlertDialog.Builder(ctx).setTitle("Label this chat").setView(et).setPositiveButton("Save") { _, _ -> LabelStore.set(ctx, conversation.threadId, et.text.toString()); Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show() }.setNegativeButton("Cancel", null).show()
+                                        } }
+                                        Item(Ms.MusicNote, "Notification sound") { close {
+                                            toneL.launch(Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_NOTIFICATION).putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true))
+                                        } }
+                                        Item(Ms.Share, "Export chat") { close { exportChat(ctx, conversation, msgs) } }
+                                        Item(Ms.AddToHomeScreen, "Add to home screen") { close { pinChatShortcut(ctx, conversation) } }
+                                        Item(Ms.Block, "Block & report spam", Red) { close { BlockedStore.block(ctx, address); Toast.makeText(ctx, "Blocked", Toast.LENGTH_SHORT).show(); onBack() } }
+                                        Item(Ms.Delete, "Delete conversation", Red) { close {
+                                            scope.launch(Dispatchers.IO) { SmsRepository.deleteThread(ctx, conversation.threadId) }
+                                            Toast.makeText(ctx, "Deleted", Toast.LENGTH_SHORT).show(); onBack()
+                                        } }
+                                    }
+                                }
                             }
                         }
                     }

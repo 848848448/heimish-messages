@@ -83,6 +83,7 @@ object Ms {
     val MicFill: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ms_mic_fill)
     val Mood: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ms_mood)
     val MoreVert: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ms_more_vert)
+    val MoreHoriz: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ms_more_horiz)
     val MusicNote: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ms_music_note)
     val Notes: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ms_notes)
     val Notifications: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ms_notifications)
