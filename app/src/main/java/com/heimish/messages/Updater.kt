@@ -58,7 +58,9 @@ object Updater {
                 val apk = "$WEB/download/$tag/app-debug.apk"
                 val h = conn(apk); h.requestMethod = "HEAD"
                 val size = if (h.responseCode == 200) h.contentLengthLong.coerceAtLeast(0L) else { errs.add("web: apk HTTP " + h.responseCode); -1L }
-                if (size >= 0) return UpdateInfo(build, tag, apk, "", size)
+                // The API is rate-limited (60/hour per IP, shared behind carrier NAT); the release notes come from the
+                // releases feed then, which has no such limit
+                if (size >= 0) return UpdateInfo(build, tag, apk, aggregateNotes("", useApi = false), size)
             } else errs.add("web: HTTP " + c.responseCode + " " + loc.take(60))
         } catch (e: Exception) { errs.add("web: " + e.javaClass.simpleName + " " + (e.message ?: "")) }
         lastError = errs.joinToString("; ")
@@ -66,7 +68,7 @@ object Updater {
     }
 
     /** Notes of every release newer than the installed build, merged, repeated lines removed. */
-    private fun aggregateNotes(latestBody: String): String {
+    private fun aggregateNotes(latestBody: String, useApi: Boolean = true): String {
         val news = LinkedHashSet<String>(); val fixed = LinkedHashSet<String>()
         fun add(body: String) {
             var sec = news
@@ -80,7 +82,7 @@ object Updater {
             }
         }
         var got = false
-        runCatching {
+        if (useApi) runCatching {
             val c = URL("https://api.github.com/repos/848848448/heimish-messages/releases?per_page=30").openConnection() as HttpURLConnection
             c.connectTimeout = 10_000; c.readTimeout = 15_000
             c.setRequestProperty("Accept", "application/vnd.github+json"); c.setRequestProperty("User-Agent", UA)
@@ -94,11 +96,42 @@ object Updater {
                 }
             }
         }
+        if (!got) runCatching {
+            for ((b, body) in feedReleases()) if (b > BuildConfig.BUILD_NUMBER) { add(body); got = true }
+        }.onFailure { android.util.Log.w("Updater", "releases feed failed", it) }
         if (!got) add(latestBody)
         val sb = StringBuilder()
         if (news.isNotEmpty()) { sb.append("New\n"); news.forEach { sb.append(it).append('\n') } }
         if (fixed.isNotEmpty()) { sb.append("Fixed\n"); fixed.forEach { sb.append(it).append('\n') } }
         return sb.toString()
+    }
+
+    /** (build, notes text) of the newest releases, from github.com's releases Atom feed (not the rate-limited API). */
+    private fun feedReleases(): List<Pair<Int, String>> {
+        val c = conn("$WEB.atom")
+        if (c.responseCode != 200) return emptyList()
+        return parseFeed(c.inputStream.bufferedReader().readText())
+    }
+
+    internal fun parseFeed(xml: String): List<Pair<Int, String>> =
+        Regex("<entry>(.*?)</entry>", RegexOption.DOT_MATCHES_ALL).findAll(xml).mapNotNull { e ->
+            val entry = e.groupValues[1]
+            val tag = Regex("/releases/tag/([^\"<]+)").find(entry)?.groupValues?.get(1) ?: return@mapNotNull null
+            val b = BUILD_RE.find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
+            val content = Regex("<content[^>]*>(.*?)</content>", RegexOption.DOT_MATCHES_ALL).find(entry)?.groupValues?.get(1) ?: ""
+            b to feedHtmlToNotes(content)
+        }.toList()
+
+    private fun unescape(s: String) = s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'")
+        .replace("&#x27;", "'").replace("&nbsp;", " ").replace("&amp;", "&")
+
+    /** The feed's (escaped) HTML back to our "New / Fixed / - line" format. */
+    internal fun feedHtmlToNotes(escaped: String): String {
+        val html = unescape(escaped)
+        val text = html.replace(Regex("(?i)<li[^>]*>"), "\n- ")
+            .replace(Regex("(?i)</?(p|h[1-6]|ul|ol|div)[^>]*>|<br\\s*/?>|</li>"), "\n")
+            .replace(Regex("<[^>]+>"), "")
+        return unescape(text).lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
     }
 
     fun isNewer(info: UpdateInfo) = info.build > BuildConfig.BUILD_NUMBER
@@ -180,8 +213,10 @@ class PackageReplacedReceiver : android.content.BroadcastReceiver() {
         runCatching { AutoBackup.schedule(ctx) }
         // Download picture/group messages that are still waiting (e.g. from before this update)
         Thread { runCatching { MmsIncoming.retryPending(ctx.applicationContext, force = true) } }.start()
-        val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        runCatching { ctx.startActivity(open) }
-        Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", 7777)
+        // The update check and the nightly contacts sync are alarms too; they were only re-armed when the app was opened
+        runCatching { UpdateCheckReceiver.schedule(ctx) }
+        runCatching { ContactsSyncService.schedule(ctx) }
+        // No startActivity here: Android 10+ blocks starting an activity from the background. The notification opens the app.
+        Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME}", 7777)
     }
 }

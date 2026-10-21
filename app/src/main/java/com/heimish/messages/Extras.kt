@@ -72,7 +72,6 @@ object SpamFilter {
 
 // ── One-time codes auto delete ───────────────────────────────────────────────
 object OtpCleaner {
-    private val otpBody = Regex("(?i)(\\b\\d{4,8}\\b.*(code|otp|verification|passcode)|(code|otp|verification|passcode).*\\b\\d{4,8}\\b)")
     fun clean(ctx: Context) {
         if (!prefs(ctx).getBoolean("auto_delete_otp", false)) return
         runCatching {
@@ -80,7 +79,8 @@ object OtpCleaner {
             val ids = ArrayList<Long>()
             ctx.contentResolver.query(Telephony.Sms.Inbox.CONTENT_URI, arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY),
                 Telephony.Sms.DATE + " < ?", arrayOf(cutoff.toString()), null)?.use { c ->
-                while (c.moveToNext()) if (otpBody.containsMatchIn(c.getString(1) ?: "") && (c.getString(1) ?: "").length < 200) ids.add(c.getLong(0))
+                // Same detector as "copy code" (needs a code word, skips years, amounts, times); the old regex took any 4-digit run
+                while (c.moveToNext()) { val b = c.getString(1) ?: ""; if (b.length < 200 && Otp.find(b) != null) ids.add(c.getLong(0)) }
             }
             ids.forEach { ctx.contentResolver.delete(Uri.parse("content://sms/$it"), null, null) }
         }
@@ -449,6 +449,8 @@ object AutoReply {
             if (text.isBlank()) return
             val digits = address.filter { it.isDigit() }
             if (address.any { it.isLetter() } || digits.length < 7) return
+            // Answering unknown numbers tells spammers the number is live: by default only saved contacts get it
+            if (p.getBoolean("auto_reply_contacts_only", true) && SmsRepository.getContactName(ctx, address) == null) return
             val k = "ar_last_$digits"; val now = System.currentTimeMillis()
             if (now - p.getLong(k, 0L) < 6 * 3600_000L) return
             p.edit().putLong(k, now).apply()
@@ -485,6 +487,11 @@ fun AutoReplyEditor() {
             Switch(on, { on = it; prefs(ctx).edit().putBoolean("auto_reply_on", it).putString("auto_reply_text", text).apply() })
         }
         OutlinedTextField(text, { text = it; prefs(ctx).edit().putString("auto_reply_text", it).apply() }, Modifier.fillMaxWidth(), label = { Text("Reply text") })
+        var contactsOnly by remember { mutableStateOf(prefs(ctx).getBoolean("auto_reply_contacts_only", true)) }
+        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Only to my contacts", fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Switch(contactsOnly, { contactsOnly = it; prefs(ctx).edit().putBoolean("auto_reply_contacts_only", it).apply() })
+        }
     }
 }
 

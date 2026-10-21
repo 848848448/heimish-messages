@@ -75,8 +75,15 @@ internal object MediaAccess {
         val sel = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN ($img,$vid)"
         val withDur = arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE, MediaStore.Files.FileColumns.MIME_TYPE, "duration")
         val noDur = withDur.copyOf(3)
-        val c = runCatching { ctx.contentResolver.query(files, withDur, sel, null, "${MediaStore.Files.FileColumns.DATE_ADDED} DESC") }.getOrNull()
-            ?: ctx.contentResolver.query(files, noDur, sel, null, "${MediaStore.Files.FileColumns.DATE_ADDED} DESC")
+        // A real LIMIT in the query (it used to read every photo row on the phone and stop after [limit] in code).
+        // Android 11+ refuses "LIMIT" inside the sort string, so there it goes in as a query argument.
+        fun q(proj: Array<out String?>) = if (Build.VERSION.SDK_INT >= 30) ctx.contentResolver.query(files, proj, android.os.Bundle().apply {
+            putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, sel)
+            putStringArray(android.content.ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaStore.Files.FileColumns.DATE_ADDED))
+            putInt(android.content.ContentResolver.QUERY_ARG_SORT_DIRECTION, android.content.ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+            putInt(android.content.ContentResolver.QUERY_ARG_LIMIT, limit)
+        }, null) else ctx.contentResolver.query(files, proj, sel, null, "${MediaStore.Files.FileColumns.DATE_ADDED} DESC LIMIT $limit")
+        val c = runCatching { q(withDur) }.getOrNull() ?: q(noDur)
         c?.use {
             while (it.moveToNext() && out.size < limit) {
                 val id = it.getLong(0); val isVid = it.getInt(1) == vid

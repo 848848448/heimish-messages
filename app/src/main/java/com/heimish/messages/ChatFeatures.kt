@@ -230,7 +230,7 @@ fun ScheduledInChat(sm: ScheduledMessage, onClick: () -> Unit) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, end = 6.dp)) {
             Icon(Ms.Schedule, null, tint = Brand, modifier = Modifier.size(12.dp)); Spacer(Modifier.width(3.dp))
-            Text("Scheduled · " + TimeMenu.label(sm.sendAt), fontSize = 11.sp, color = TextHint)
+            Text((if (sm.failed) "Not sent · " else "Scheduled · ") + TimeMenu.label(sm.sendAt), fontSize = 11.sp, color = if (sm.failed) Red else TextHint)
         }
     }
 }
@@ -265,7 +265,7 @@ fun ScheduledMessageDialog(sm: ScheduledMessage, onDismiss: () -> Unit, onChange
                 }
             }
         },
-        confirmButton = { TextButton({ onDismiss(); Thread { ScheduledSendReceiver.fire(ctx.applicationContext, sm.id); main.post(onChanged) }.start() }) { Text("Send now", color = Brand) } },
+        confirmButton = { TextButton({ onDismiss(); Thread { ScheduledSendReceiver.fire(ctx.applicationContext, sm.id, manual = true); main.post(onChanged) }.start() }) { Text("Send now", color = Brand) } },
         dismissButton = { TextButton(onDismiss) { Text("Close", color = TextSecond) } })
 }
 

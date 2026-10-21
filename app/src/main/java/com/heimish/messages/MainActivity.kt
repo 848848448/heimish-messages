@@ -114,6 +114,7 @@ class MainActivity : ComponentActivity() {
         UpdateCheckReceiver.schedule(this)
         Thread {
             OtpCleaner.clean(applicationContext)
+            CacheJanitor.runIfDue(applicationContext)
             TrashStore.maintainIfDue(applicationContext)
             // Picture/group messages that are not downloaded yet: try again
             runCatching { MmsIncoming.retryPending(applicationContext) }

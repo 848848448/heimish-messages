@@ -386,7 +386,9 @@ object SmsRepository {
 
     private fun cleanupOldPdus(ctx: Context) {
         runCatching {
-            val cutoff = System.currentTimeMillis() - 60 * 60_000L
+            // MmsSentReceiver deletes each file as soon as Android reports the send result. Anything older is a leftover;
+            // 3 days (not 1 hour) so an MMS queued during a long outage still has its file when the phone finally sends it.
+            val cutoff = System.currentTimeMillis() - 3 * 24 * 60 * 60_000L
             ctx.cacheDir.listFiles { f -> f.name.startsWith("mms_send_") && f.lastModified() < cutoff }?.forEach { it.delete() }
         }
     }
