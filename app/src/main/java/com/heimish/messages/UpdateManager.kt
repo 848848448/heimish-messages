@@ -101,7 +101,7 @@ object UpdateManager {
                 }
                 NotificationManagerCompat.from(ctx).cancel(NID_PROGRESS)
                 if (file == null) {
-                    state = UpdState.Error("Download failed. Tap to try again.")
+                    state = UpdState.Error("Download failed")
                     notifyError(ctx)
                     return@launch
                 }
@@ -115,7 +115,7 @@ object UpdateManager {
         val f = (state as? UpdState.Ready)?.file ?: return
         NotificationManagerCompat.from(ctx).cancel(NID_READY)
         state = UpdState.Installing
-        if (!Updater.install(ctx, f)) state = UpdState.Error("Could not start the install. Tap to try again.")
+        if (!Updater.install(ctx, f)) state = UpdState.Error("Could not start the install")
     }
 
     fun progressNotification(ctx: Context, i: UpdateInfo?, pct: Int): android.app.Notification {
@@ -145,8 +145,8 @@ object UpdateManager {
         val n = NotificationCompat.Builder(ctx, CH_AVAILABLE)
             .setSmallIcon(R.drawable.ms_download_done)
             .setContentTitle("Update ready to install")
-            .setContentText("Message ${BuildConfig.VERSION_NAME} build ${i.build} · tap to install")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(notesSummary(i.notes).ifBlank { "Tap to install build ${i.build}" }))
+            .setContentText("Message ${BuildConfig.VERSION_NAME} build ${i.build}")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notesSummary(i.notes).ifBlank { "Build ${i.build} is ready" }))
             .setContentIntent(openAppIntent(ctx, true))
             .addAction(R.drawable.ms_download_done, "Install", openAppIntent(ctx, true))
             .setAutoCancel(true)
@@ -158,7 +158,6 @@ object UpdateManager {
         val n = NotificationCompat.Builder(ctx, CH_AVAILABLE)
             .setSmallIcon(R.drawable.ms_error)
             .setContentTitle("Update download failed")
-            .setContentText("Tap to try again")
             .setContentIntent(openAppIntent(ctx, false))
             .setAutoCancel(true).build()
         try { NotificationManagerCompat.from(ctx).notify(NID_READY, n) } catch (_: SecurityException) {}
@@ -169,8 +168,8 @@ object UpdateManager {
         val n = NotificationCompat.Builder(ctx, CH_AVAILABLE)
             .setSmallIcon(R.drawable.ic_stat_message)
             .setContentTitle("New update available · build ${i.build}")
-            .setContentText(notesSummary(i.notes).ifBlank { "Tap to see what's new" })
-            .setStyle(NotificationCompat.BigTextStyle().bigText(notesSummary(i.notes).ifBlank { "Tap to see what's new" }))
+            .setContentText(notesSummary(i.notes).ifBlank { "See what's new" })
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notesSummary(i.notes).ifBlank { "See what's new" }))
             .setContentIntent(openAppIntent(ctx, false))
             .addAction(R.drawable.ms_download, "Update now", downloadPendingIntent(ctx))
             .setAutoCancel(true)

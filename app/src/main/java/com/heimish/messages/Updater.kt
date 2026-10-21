@@ -180,6 +180,6 @@ class PackageReplacedReceiver : android.content.BroadcastReceiver() {
         runCatching { AutoBackup.schedule(ctx) }
         val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         runCatching { ctx.startActivity(open) }
-        Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER}). Tap to open.", 7777)
+        Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", 7777)
     }
 }
