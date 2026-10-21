@@ -1,6 +1,7 @@
 package com.heimish.messages
 
 import androidx.compose.ui.composed
+import androidx.compose.foundation.text.appendInlineContent
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.app.role.RoleManager
@@ -141,7 +142,10 @@ fun EmptyState(icon: ImageVector, title: String, hint: String? = null, modifier:
         }
     }
 }
-fun initial(name: String): String = (name.firstOrNull()?.uppercaseChar() ?: '#').toString()
+/** First real letter of a name (skips bidi marks, quotes, emoji and punctuation), or '#'. */
+fun initial(name: String): String = (name.firstOrNull { it.isLetter() }?.uppercaseChar() ?: '#').toString()
+/** True when a display name has a letter in it (a saved contact), false for a bare phone number. */
+fun hasLetter(name: String): Boolean = name.any { it.isLetter() }
 fun msgTime(ms: Long): String { if (ms <= 0) return ""; return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ms)) }
 fun shortTime(ms: Long): String {
     if (ms <= 0) return ""
@@ -170,4 +174,58 @@ fun Modifier.pressClick(shape: androidx.compose.ui.graphics.Shape, onClick: () -
     this.graphicsLayer(scaleX = s, scaleY = s)
         .clip(shape)
         .clickable(interactionSource = src, indication = LocalIndication.current, onClick = onClick)
+}
+
+
+// ━━━━━━━━━━━━━━━━ LIST TEXT (Google Messages style) ━━━━━━━━━━━━━━━━
+/** Media markers in previews → which Material Symbol to draw inline instead of an emoji. */
+internal enum class PreviewIcon { NONE, IMAGE, MIC, VIDEO, ATTACH }
+
+/** "📷 Photo" / "🎤 Voice message" / "📎 text" (what the SMS provider and our MMS reader produce) → (symbol, clean text). */
+internal fun splitPreview(s: String): Pair<PreviewIcon, String> {
+    val t = s.trimStart()
+    fun rest(p: String) = t.removePrefix(p).trimStart()
+    return when {
+        t.startsWith("\uD83D\uDCF7") -> PreviewIcon.IMAGE to rest("\uD83D\uDCF7").let { if (it.isBlank() || it == "MMS" || it == "Media") "Photo" else it }
+        t.startsWith("\uD83C\uDFA4") -> PreviewIcon.MIC to rest("\uD83C\uDFA4").ifBlank { "Voice message" }
+        t.startsWith("\uD83C\uDFA5") -> PreviewIcon.VIDEO to rest("\uD83C\uDFA5").ifBlank { "Video" }
+        t.startsWith("\uD83D\uDCF9") -> PreviewIcon.VIDEO to rest("\uD83D\uDCF9").ifBlank { "Video" }
+        t.startsWith("\uD83D\uDCCE") -> PreviewIcon.ATTACH to rest("\uD83D\uDCCE").ifBlank { "Attachment" }
+        else -> PreviewIcon.NONE to s
+    }
+}
+
+/** Left/right alignment that follows the screen while the words themselves follow their own language,
+ *  so a long Yiddish name ellipsizes at its logical end instead of losing its first letter. */
+@Composable
+internal fun listTextStyle(): androidx.compose.ui.text.TextStyle = androidx.compose.ui.text.TextStyle(
+    textDirection = androidx.compose.ui.text.style.TextDirection.Content,
+    textAlign = if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Ltr) TextAlign.Left else TextAlign.Right,
+)
+
+/** One-line preview with an inline, tinted Material Symbol for photos, voice notes, videos and labels (no emoji). */
+@Composable
+internal fun PreviewLine(
+    snippet: String, color: Color, fontSize: androidx.compose.ui.unit.TextUnit, fontWeight: FontWeight,
+    modifier: Modifier = Modifier, prefix: String = "", label: String? = null, iconTint: Color = color,
+) {
+    val (kind, body) = splitPreview(snippet)
+    val icon: ImageVector? = when (kind) { PreviewIcon.IMAGE -> Ms.Image; PreviewIcon.MIC -> Ms.Mic; PreviewIcon.VIDEO -> Ms.Videocam; PreviewIcon.ATTACH -> Ms.AttachFile; PreviewIcon.NONE -> null }
+    val labelIcon = Ms.Label
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        if (label != null) {
+            appendInlineContent("lbl", "[label]"); append(" ")
+            append(label); append("  \u00B7  ")
+        }
+        if (prefix.isNotEmpty()) append(prefix)
+        if (icon != null) { appendInlineContent("ic", "[media]"); append(" ") }
+        append(body.ifBlank { " " })
+    }
+    val ph = androidx.compose.ui.text.Placeholder((fontSize.value * 1.2f).sp, (fontSize.value * 1.2f).sp, androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter)
+    val inline = buildMap {
+        if (icon != null) put("ic", androidx.compose.foundation.text.InlineTextContent(ph) { Icon(icon, null, tint = iconTint, modifier = Modifier.fillMaxSize()) })
+        if (label != null) put("lbl", androidx.compose.foundation.text.InlineTextContent(ph) { Icon(labelIcon, null, tint = iconTint, modifier = Modifier.fillMaxSize()) })
+    }
+    Text(text, modifier, color = color, fontSize = fontSize, fontWeight = fontWeight, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        inlineContent = inline, style = listTextStyle())
 }

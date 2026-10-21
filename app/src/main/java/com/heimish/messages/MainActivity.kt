@@ -371,11 +371,12 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
         if (photo != null) {
             AsyncImage(photo, name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
-            val ch = name.firstOrNull()
             val fg = avatarFg(seed)
-            if (address.contains(";")) Icon(Ms.GroupFill, null, tint = fg, modifier = Modifier.size(size * 0.54f))
-            else if (ch != null && ch.isLetter()) Text(initial(name), color = fg, fontWeight = FontWeight.Medium, fontSize = fontSize)
-            else Icon(Ms.PersonFill, null, tint = fg, modifier = Modifier.size(size * 0.54f))
+            // Google Messages: the contact's first letter on a colored circle; a person glyph only for a bare number
+            if (address.contains(";")) Icon(Ms.GroupFill, null, tint = fg, modifier = Modifier.size(size * 0.52f))
+            else if (hasLetter(name)) Text(initial(name), color = fg, fontWeight = FontWeight.Medium, fontSize = fontSize,
+                style = androidx.compose.ui.text.TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)))
+            else Icon(Ms.PersonFill, null, tint = fg, modifier = Modifier.size(size * 0.56f))
         }
     }
 }

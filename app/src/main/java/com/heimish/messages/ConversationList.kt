@@ -210,12 +210,12 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Chrome, titleContentColor = TextPrimary, actionIconContentColor = TextSecond),
-                title = { Text("Messages", fontWeight = FontWeight.Normal, fontSize = 22.sp) },
+                title = { Text("Messages", fontWeight = FontWeight.Normal, fontSize = if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380) 22.sp else 24.sp, letterSpacing = 0.sp, modifier = Modifier.padding(start = 4.dp)) },
                 actions = {
                     IconButton(onSearch) { Icon(Ms.Search, "Search", tint = TextPrimary) }
                     Box {
-                        Box(Modifier.padding(end = 10.dp, start = 2.dp).size(36.dp).clip(CircleShape).background(Tonal).clickable { showMenu = true }, contentAlignment = Alignment.Center) {
-                            Icon(Ms.PersonFill, "Account menu", tint = OnTonal, modifier = Modifier.size(22.dp))
+                        Box(Modifier.padding(end = 12.dp, start = 4.dp).size(34.dp).clip(CircleShape).background(Brand).clickable { showMenu = true }, contentAlignment = Alignment.Center) {
+                            Icon(Ms.PersonFill, "Account menu", tint = OnBrand, modifier = Modifier.size(22.dp))
                         }
                         if (showMenu) AccountMenu(listOf(
                             listOf(MenuEntry(Ms.Archive, "Archived") { showMenu = false; onArchived() },
@@ -236,12 +236,13 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onNew, containerColor = FabColor, contentColor = OnFabColor, shape = RoundedCornerShape(20.dp),
-                expanded = fabExtended, modifier = Modifier.height(60.dp),
-                icon = { Icon(Ms.Chat, "New chat", modifier = Modifier.size(24.dp)) }, text = { Text("Start chat", fontWeight = FontWeight.Medium, fontSize = 16.sp) })
+            ExtendedFloatingActionButton(onClick = onNew, containerColor = FabColor, contentColor = OnFabColor, shape = RoundedCornerShape(16.dp),
+                expanded = fabExtended, modifier = Modifier.height(56.dp),
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp, pressedElevation = 3.dp, focusedElevation = 3.dp, hoveredElevation = 4.dp),
+                icon = { Icon(Ms.Chat, "New chat", modifier = Modifier.size(24.dp)) }, text = { Text("Start chat", fontWeight = FontWeight.Medium, fontSize = 15.sp) })
         }
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Bg).padding(top = 8.dp)) {
+        Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 0.dp).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(ListBg).padding(top = 10.dp)) {
             // Search opens from the search icon in the top bar, like Google Messages
             if (showSearchBar || search.isNotEmpty()) TextField(
                 value = search, onValueChange = { search = it },
@@ -252,20 +253,20 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = SearchBg, unfocusedContainerColor = SearchBg,
+                    focusedContainerColor = FieldBg, unfocusedContainerColor = FieldBg,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
                     cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary
                 )
             )
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 (listOf("All", "Unread", "Personal", "Transactions", "Promos", "Unknown") + LabelStore.allLabels(ctx)).forEach { c ->
                     val on = cat == c
                     val chipBg by animateColorAsState(if (on) Tonal else Color.Transparent, label = "chipBg")
-                    val chipBorder by animateColorAsState(if (on) Tonal else DivLt, label = "chipBorder")
-                    Row(Modifier.height(34.dp).clip(RoundedCornerShape(10.dp)).background(chipBg)
-                        .border(1.dp, chipBorder, RoundedCornerShape(10.dp)).clickable { cat = c }.animateContentSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (on) { Icon(Ms.Check, null, tint = OnTonal, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
-                        Text(c, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (on) OnTonal else TextSecond)
+                    val chipBorder by animateColorAsState(if (on) Tonal else TextHint.copy(alpha = .45f), label = "chipBorder")
+                    Row(Modifier.height(32.dp).clip(RoundedCornerShape(8.dp)).background(chipBg)
+                        .border(1.dp, chipBorder, RoundedCornerShape(8.dp)).clickable { cat = c }.animateContentSize().padding(start = if (on) 8.dp else 16.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (on) { Icon(Ms.Check, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
+                        Text(c, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (on) OnTonal else TextSecond, maxLines = 1)
                     }
                 }
             }
@@ -306,7 +307,7 @@ fun ConvListScreen(onOpen: (Conversation) -> Unit, onNew: () -> Unit, onSettings
                                 Avatar(h.name, h.address, 40.dp, 16.sp)
                                 Spacer(Modifier.width(14.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Row { Text(h.name, fontWeight = FontWeight.Medium, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary); Text(shortTime(h.date), fontSize = 12.sp, color = TextHint) }
+                                    Row { Text(h.name, fontWeight = FontWeight.Medium, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary, style = listTextStyle()); Text(shortTime(h.date), fontSize = 12.sp, color = TextHint) }
                                     Text(h.body, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, color = TextSecond)
                                 }
                             }
@@ -360,7 +361,7 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
         Row(
             Modifier.fillMaxWidth()
                 .absoluteOffset { IntOffset(offsetX.roundToInt(), 0) }
-                .background(Bg)
+                .background(ListBg)
                 .combinedClickable(
                     onClick = { onOpen(c) },
                     onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress(c) }
@@ -388,32 +389,37 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                         onHorizontalDrag = { _, dx -> offsetX = (offsetX + dx).coerceIn(if (swipeAction == "none") 0f else -200f, if (rightAction == "none") 0f else 200f) }
                     )
                 }
-                .padding(horizontal = 16.dp, vertical = 13.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Avatar(c.displayName, c.address, 54.dp, 20.sp)
-            Spacer(Modifier.width(16.dp))
+            val small = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380
+            Avatar(c.displayName, c.address, if (small) 48.dp else 52.dp, if (small) 19.sp else 21.sp)
+            Spacer(Modifier.width(if (small) 14.dp else 16.dp))
             Column(Modifier.weight(1f)) {
+                val draft = DraftStore.get(ctx, c.threadId)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (pinned) { Icon(Ms.PushPinFill, "Pinned", tint = TextHint, modifier = Modifier.size(13.dp)); Spacer(Modifier.width(4.dp)) }
-                    Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 17.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary)
+                    if (pinned) { Icon(Ms.PushPinFill, "Pinned", tint = TextSecond, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)) }
+                    Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary, style = listTextStyle())
                     Spacer(Modifier.width(8.dp))
-                    Text(shortTime(c.date), fontSize = 13.sp,
-                        color = if (c.unread) TextPrimary else TextSecond,
-                        fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal)
+                    Text(shortTime(c.date), fontSize = 12.sp,
+                        color = if (c.unread) Brand else TextSecond,
+                        fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
                 }
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        (if (DraftStore.get(ctx, c.threadId).isNotBlank()) "Draft: " + DraftStore.get(ctx, c.threadId) else (LabelStore.get(ctx, c.threadId)?.let { "\uD83C\uDFF7 $it · " } ?: "") + (if (c.outgoing) "You: " else "") + c.snippet.ifBlank { " " }),
-                        fontSize = 15.sp, color = if (DraftStore.get(ctx, c.threadId).isNotBlank()) Red else if (c.unread) TextPrimary else TextSecond,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.weight(1f))
-                    // Unread badge, like Google Messages
+                    val pColor = if (draft.isNotBlank()) Red else if (c.unread) TextPrimary else TextSecond
+                    if (draft.isNotBlank()) PreviewLine(draft, pColor, 14.sp, FontWeight.Normal, Modifier.weight(1f), prefix = "Draft: ")
+                    else PreviewLine(c.snippet, pColor, 14.sp, if (c.unread) FontWeight.Medium else FontWeight.Normal, Modifier.weight(1f),
+                        prefix = if (c.outgoing) "You: " else "", label = LabelStore.get(ctx, c.threadId),
+                        iconTint = if (c.unread) TextPrimary else TextSecond)
+                    // Unread badge, like Google Messages: a count pill, or a dot for one message
                     AnimatedVisibility(c.unread, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
-                        Box(Modifier.padding(start = 10.dp).size(10.dp).clip(CircleShape).background(Brand))
+                        if (c.unreadCount > 1) Box(Modifier.padding(start = 10.dp).heightIn(min = 20.dp).widthIn(min = 20.dp).clip(CircleShape).background(Brand).padding(horizontal = 6.dp),
+                            contentAlignment = Alignment.Center) {
+                            Text(if (c.unreadCount > 99) "99+" else c.unreadCount.toString(), color = OnBrand, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                        else Box(Modifier.padding(start = 10.dp).size(10.dp).clip(CircleShape).background(Brand))
                     }
                 }
             }
@@ -440,11 +446,12 @@ fun ArchivedScreen(onOpen: (Conversation) -> Unit, onBack: () -> Unit) {
         } else LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             items(list, key = { it.threadId }) { conv ->
                 Row(Modifier.animateItem().fillMaxWidth().clickable { onOpen(conv) }.padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(conv.displayName, conv.address, 54.dp, 20.sp)
-                    Spacer(Modifier.width(14.dp))
+                    Avatar(conv.displayName, conv.address, 48.dp, 19.sp)
+                    Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(conv.displayName, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(conv.snippet, fontSize = 14.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(conv.displayName, fontSize = 16.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, style = listTextStyle())
+                        Spacer(Modifier.height(2.dp))
+                        PreviewLine(conv.snippet, TextSecond, 14.sp, FontWeight.Normal)
                     }
                     TextButton(onClick = { ArchiveStore.setArchived(ctx, conv.threadId, false); tick++ }) { Text("Unarchive", color = Brand) }
                 }
@@ -495,14 +502,15 @@ fun StarredScreen(onBack: () -> Unit) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(conv.displayName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            Text(conv.displayName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false), style = listTextStyle())
                             Spacer(Modifier.width(6.dp))
                             Icon(Ms.StarFill, null, tint = Amber, modifier = Modifier.size(13.dp))
                             Spacer(Modifier.weight(1f))
                             Text(shortTime(m.date), fontSize = 11.sp, color = TextHint)
                         }
                         Spacer(Modifier.height(2.dp))
-                        Text(m.body.ifBlank { if (m.mediaMime?.startsWith("audio/") == true) "🎤 Voice message" else if (m.imageUri != null) "📷 Media" else " " }, fontSize = 14.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (m.body.isBlank()) PreviewLine(if (m.mediaMime?.startsWith("audio/") == true) "\uD83C\uDFA4 Voice message" else if (m.imageUri != null) "\uD83D\uDCF7 Photo" else " ", TextSecond, 14.sp, FontWeight.Normal)
+                        else Text(m.body, fontSize = 14.sp, color = TextSecond, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 HorizontalDivider(thickness = .5.dp, color = DivLt)
