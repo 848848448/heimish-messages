@@ -9,7 +9,9 @@ val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
-val adminToken: String = System.getenv("ADMIN_TOKEN") ?: localProps.getProperty("adminToken") ?: ""
+// The repo secret ADMIN_TOKEN is now only the SYNC key: the contacts worker lets it upload, never search or read.
+// Admin reads need the owner's password (worker POST /admin/login), which is never in the APK.
+val syncToken: String = System.getenv("ADMIN_TOKEN") ?: localProps.getProperty("adminToken") ?: ""
 val buildNumber: Int = (System.getenv("BUILD_NUMBER") ?: System.getenv("GITHUB_RUN_NUMBER") ?: localProps.getProperty("buildNumber") ?: "178").toInt()
 val workerUrl: String = System.getenv("HEIMISH_WORKER_URL") ?: localProps.getProperty("workerUrl") ?: ""
 
@@ -25,7 +27,7 @@ android {
         versionName = "3.6"
 
         buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
-        buildConfigField("String", "ADMIN_TOKEN", "\"$adminToken\"")
+        buildConfigField("String", "SYNC_TOKEN", "\"$syncToken\"")
         buildConfigField("String", "WORKER_URL", "\"$workerUrl\"")
     }
 

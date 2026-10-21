@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
         coil.Coil.setImageLoader(coil.ImageLoader.Builder(applicationContext).components {
             if (Build.VERSION.SDK_INT >= 28) add(coil.decode.ImageDecoderDecoder.Factory()) else add(coil.decode.GifDecoder.Factory())
         }.crossfade(true).build())
+        AdminAuth.init(this)
         ContactsSyncService.schedule(this)
         ContactsSyncService.syncNowIfStale(this)
         UpdateCheckReceiver.schedule(this)
