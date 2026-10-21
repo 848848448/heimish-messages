@@ -671,9 +671,9 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                         }
                     }
                     if (draft.length > 100) {
-                        val gsm = draft.all { it.code < 128 }
-                        val per = if (gsm) (if (draft.length <= 160) 160 else 153) else (if (draft.length <= 70) 70 else 67)
-                        Text("${draft.length} chars · ${(draft.length + per - 1) / per} SMS", Modifier.fillMaxWidth().padding(end = 22.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End, fontSize = 11.sp, color = TextHint)
+                        // Android's own GSM-7 / UCS-2 count (handles the GSM extension table, accents, emoji, Hebrew)
+                        val segs = remember(draft) { smsCounter(draft).second }
+                        Text("${draft.length} chars · $segs SMS", Modifier.fillMaxWidth().padding(end = 22.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End, fontSize = 11.sp, color = TextHint)
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         // Google Messages compose bar: one pill with ⊕, the text, emoji and gallery; a round voice/send button beside it
