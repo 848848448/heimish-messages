@@ -72,7 +72,7 @@ fun PlusPanel(items: List<Triple<ImageVector, String, () -> Unit>>) {
             Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 row.forEach { (icon, label, action) ->
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.padding(horizontal = 5.dp).fillMaxWidth().height(56.dp).clip(RoundedCornerShape(24.dp)).background(TileBg).clickable(onClick = action),
+                        Box(Modifier.padding(horizontal = 5.dp).fillMaxWidth().height(56.dp).pressClick(RoundedCornerShape(24.dp), action).background(TileBg),
                             contentAlignment = Alignment.Center) { Icon(icon, label, tint = TextPrimary, modifier = Modifier.size(26.dp)) }
                         Spacer(Modifier.height(6.dp))
                         Text(label, fontSize = 13.sp, color = TextPrimary, maxLines = 1)
