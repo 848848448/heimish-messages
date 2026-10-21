@@ -716,23 +716,29 @@ object SmsRepository {
     private fun mmsSnippet(ctx: Context, mmsId: Long): String {
         var text = ""
         var hasMedia = false
+        var hasAudio = false
         runCatching {
             ctx.contentResolver.query(
                 Uri.parse("content://mms/$mmsId/part"),
-                arrayOf("ct", "text"), null, null, null
+                arrayOf("ct", "text", "cl", "name"), null, null, null
             )?.use { c ->
                 val iCt   = c.getColumnIndex("ct")
                 val iText = c.getColumnIndex("text")
+                val iCl   = c.getColumnIndex("cl")
+                val iName = c.getColumnIndex("name")
                 while (c.moveToNext()) {
                     val ct = c.getString(iCt) ?: ""
+                    val nm = (if (iCl >= 0) c.getString(iCl) else null) ?: (if (iName >= 0) c.getString(iName) else null)
                     when {
                         ct == "text/plain" -> text = c.getString(iText) ?: ""
-                        ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/") -> hasMedia = true
+                        audioMimeFor(ct, nm) != null -> { hasMedia = true; hasAudio = true }
+                        ct.startsWith("image/") || ct.startsWith("video/") -> hasMedia = true
                     }
                 }
             }
         }
         return when {
+            hasAudio && text.isBlank() -> "🎤 Voice message"
             text.isNotBlank() && hasMedia -> "📎 $text"
             text.isNotBlank() -> text
             hasMedia -> "📷 MMS"
@@ -749,17 +755,25 @@ object SmsRepository {
         runCatching {
             ctx.contentResolver.query(
                 Uri.parse("content://mms/$mmsId/part"),
-                arrayOf("_id", "ct", "text"), null, null, null
+                arrayOf("_id", "ct", "text", "cl", "name"), null, null, null
             )?.use { c ->
                 val iId   = c.getColumnIndex("_id")
                 val iCt   = c.getColumnIndex("ct")
                 val iText = c.getColumnIndex("text")
+                val iCl   = c.getColumnIndex("cl")
+                val iName = c.getColumnIndex("name")
                 while (c.moveToNext()) {
                     val partId = c.getLong(iId)
                     val ct     = c.getString(iCt) ?: ""
+                    val nm     = (if (iCl >= 0) c.getString(iCl) else null) ?: (if (iName >= 0) c.getString(iName) else null)
+                    val aud    = audioMimeFor(ct, nm)
                     when {
                         ct == "text/plain" -> text = c.getString(iText) ?: ""
-                        ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/") -> {
+                        aud != null -> { // voice notes from any app: amr, 3gp, m4a, ogg...
+                            mediaUri = Uri.parse("content://mms/part/$partId")
+                            mediaMime = aud
+                        }
+                        ct.startsWith("image/") || ct.startsWith("video/") -> {
                             mediaUri = Uri.parse("content://mms/part/$partId")
                             mediaMime = ct
                         }

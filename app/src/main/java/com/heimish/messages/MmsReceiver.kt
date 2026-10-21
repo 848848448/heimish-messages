@@ -154,7 +154,7 @@ class MmsReceiver : BroadcastReceiver() {
             if (prefs.getBoolean("notif_allow", true) && !Mute.isMuted(context, threadId)) {
                 Notifications.showMessage(
                     context, name,
-                    body.ifBlank { "📷 MMS" },
+                    body.ifBlank { if (mmsHasAudio(context, mmsId)) "🎤 Voice message" else "📷 MMS" },
                     addr, threadId
                 )
             }
