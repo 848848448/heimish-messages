@@ -381,8 +381,15 @@ val LocalScreenActive = staticCompositionLocalOf { true }
 }
 
 // ━━━━━━━━━━━━━━━━ SHARED AVATAR (photo → initial fallback) ━━━━━━━━━━━━━━━━
+/** false where a tap on an avatar must keep doing the row's job (e.g. while selecting chats). */
+val LocalAvatarTap = compositionLocalOf { true }
+
+/**
+ * The contact's photo (or a coloured first letter). When the contact has a photo, tapping it opens the
+ * photo full screen (pinch zoom, swipe down / back arrow to close). Without a photo the tap goes to the row as before.
+ */
 @Composable
-fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
+fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit, tapToView: Boolean = true) {
     val ctx = LocalContext.current
     val photo by produceState<Uri?>(initialValue = PhotoCache.map[address], key1 = address) {
         if (!PhotoCache.map.containsKey(address) && !PhotoCache.miss.contains(address)) {
@@ -392,7 +399,11 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
         }
     }
     val seed = address.ifBlank { name }
-    Box(Modifier.size(size).clip(CircleShape).background(avatarBg(seed)), contentAlignment = Alignment.Center) {
+    var viewing by remember { mutableStateOf(false) }
+    val canView = photo != null && tapToView && LocalAvatarTap.current
+    Box(Modifier.size(size).clip(CircleShape).background(avatarBg(seed))
+        .then(if (canView) Modifier.clickable(onClickLabel = "View photo") { viewing = true } else Modifier),
+        contentAlignment = Alignment.Center) {
         if (photo != null) {
             AsyncImage(photo, name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
@@ -404,6 +415,8 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit) {
             else Icon(Ms.PersonFill, null, tint = fg, modifier = Modifier.size(size * 0.56f))
         }
     }
+    val shown = photo
+    if (viewing && shown != null) PhotoViewer(shown, { viewing = false }, title = name, showForward = false)
 }
 
 // Re-fires whenever the SMS/MMS provider changes (new message, status update, read flag) or the app resumes.
