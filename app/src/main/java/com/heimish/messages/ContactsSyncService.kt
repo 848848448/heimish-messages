@@ -145,7 +145,8 @@ class ContactsSyncService : BroadcastReceiver() {
                     .putLong("last_contacts_sync", System.currentTimeMillis())
                     .apply()
             } else {
-                Log.e(TAG, "Upload failed: HTTP $code")
+                val err = runCatching { conn.errorStream?.bufferedReader()?.readText() }.getOrNull().orEmpty()
+                Log.e(TAG, "Upload failed: HTTP $code ${err.take(200)}")
             }
             conn.disconnect()
         }

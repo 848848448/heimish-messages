@@ -13,7 +13,8 @@ contacts across all synced devices.
    wrangler r2 bucket create heimish-contacts
    ```
 4. Set the admin token (used as `Authorization: Bearer <token>`) as a secret —
-   it is never committed to this repo:
+   it is never committed to this repo. CI does this on every deploy from the
+   `ADMIN_TOKEN` repository secret, so normally nothing to do by hand:
    ```
    wrangler secret put ADMIN_TOKEN
    ```
@@ -31,7 +32,9 @@ CI deploys this folder automatically on push to `worker/**`
 
 ## API
 
-All endpoints require the header `Authorization: Bearer <ADMIN_TOKEN>`.
+All endpoints except `/ping` require the header `Authorization: Bearer <ADMIN_TOKEN>`.
+`/ping` is public and reports `configured: true/false` (whether the secret is set).
+A missing secret answers 503 with a clear message.
 
 | Method | Path                        | Purpose                                         |
 | ------ | --------------------------- | ----------------------------------------------- |
@@ -39,12 +42,16 @@ All endpoints require the header `Authorization: Bearer <ADMIN_TOKEN>`.
 | POST   | `/contacts/sync`            | Upload a device's contacts: `{ device, contacts:[...] }`. |
 | GET    | `/devices`                  | List synced devices with contact counts.        |
 | DELETE | `/contacts/device/:id`      | Remove one device's contacts.                   |
-| GET    | `/ping`                     | Health check.                                   |
+| GET    | `/ping`                     | Health check (no auth).                         |
 
 CORS is open (`*`) so the web app can call it directly.
 
 ## How it works
 
 - Each device uploads its contacts to R2 at `devices/<deviceId>.json`.
-- Search reads across all device files, deduplicates by phone number, and returns matches.
+- Search reads across all device files, deduplicates by phone number (last 10 digits, so
+  `+1 718…` and `718-…` are one contact), and returns matches. A name query matches names;
+  number matching only happens when the query contains digits.
+- The app's worker address comes from the `HEIMISH_WORKER_URL` repository variable
+  (build.yml); it must be this worker's workers.dev URL.
 - The web Admin Panel (in `docs/index.html`) reads from this worker to search contacts.
