@@ -504,9 +504,11 @@ fun MicSendButton(
     onSendText: () -> Unit,
     onNeedPermission: () -> Unit,
     onVoiceDone: (File) -> Unit,
+    onLongSend: (() -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val view = LocalView.current
+    val longSend by rememberUpdatedState(onLongSend)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val density = LocalDensity.current
     val cancelPx = with(density) { 110.dp.toPx() }
@@ -533,9 +535,19 @@ fun MicSendButton(
                 .pointerInput(rtl) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
-                        if (hasC) { // text waiting: a normal tap sends it
-                            val up = waitForUpOrCancellation(down.id)
-                            if (up) sendText()
+                        if (hasC) { // text waiting: a normal tap sends it; press and hold = schedule send (like Google Messages)
+                            val ls = longSend
+                            if (ls == null) {
+                                val up = waitForUpOrCancellation(down.id)
+                                if (up) sendText()
+                                return@awaitEachGesture
+                            }
+                            var lifted: Boolean? = null
+                            val inTime = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { lifted = waitForUpOrCancellation(down.id); true }
+                            if (inTime == true) { if (lifted == true) sendText(); return@awaitEachGesture }
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            ls()
+                            waitForUpOrCancellation(down.id)  // swallow the release
                             return@awaitEachGesture
                         }
                         if (rec.mode == RecMode.LOCKED) { // locked: this button is Send
