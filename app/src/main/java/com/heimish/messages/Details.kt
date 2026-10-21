@@ -133,8 +133,8 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (!isGroup) {
-                        Pill(Ms.Call, "Call", Modifier.weight(1f)) { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address))) } }
-                        Pill(Ms.Videocam, "Video", Modifier.weight(1f)) { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + c.address)).putExtra("android.telecom.extra.START_CALL_WITH_VIDEO_STATE", 3)) } }
+                        Pill(Ms.Call, "Call", Modifier.weight(1f)) { Caller.call(ctx, c.address) }
+                        Pill(Ms.Videocam, "Video", Modifier.weight(1f)) { Caller.call(ctx, c.address, video = true) }
                         if (saved) Pill(Ms.AccountCircle, "Contact info", Modifier.weight(1f)) { openContact(ctx, c.address) }
                         else Pill(Ms.PersonAdd, "Add contact", Modifier.weight(1f)) { openContact(ctx, c.address) }
                     } else {
@@ -306,7 +306,7 @@ private fun MemberSheet(num: String, members: List<String>, onDone: () -> Unit, 
             @Composable fun Act(icon: ImageVector, label: String, color: Color = TextPrimary, f: () -> Unit) = Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { f() }.padding(vertical = 12.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, tint = if (color == TextPrimary) TextSecond else color); Spacer(Modifier.width(16.dp)); Text(label, fontSize = 16.sp, color = color) }
             Act(Ms.Chat, "Message") { onDone(); openChatWith(ctx, listOf(num)); onLeaveScreen() }
-            Act(Ms.Call, "Call") { runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$num"))) }; onDone() }
+            Act(Ms.Call, "Call") { Caller.call(ctx, num); onDone() }
             Act(if (name == num) Ms.PersonAdd else Ms.AccountCircle, if (name == num) "Add contact" else "View contact") { openContact(ctx, num); onDone() }
             Act(Ms.ContentCopy, "Copy number") { copyText(ctx, num, "Number copied"); onDone() }
             if (members.size > 2) Act(Ms.PersonRemove, "Remove from group") { confirmRemove = true }
