@@ -93,6 +93,8 @@ internal fun sharePhoto(ctx: Context, uri: Uri) {
 
 /** Forward inside the app: the photo waits while you pick who gets it (the same path as sharing into the app). */
 internal fun forwardPhoto(ctx: Context, uri: Uri): Boolean {
+    // The in-app "Forward message" picker; afterwards you land back in this chat at the same spot
+    if (ForwardState.open != null) return startForwardOne(ctx, uri)
     val f = cacheCopy(ctx, uri) ?: run { Toast.makeText(ctx, "Could not forward", Toast.LENGTH_SHORT).show(); return false }
     IntentRouter.pending = Intent(Intent.ACTION_SEND).setType("image/jpeg").putExtra(Intent.EXTRA_STREAM, Uri.fromFile(f))
     return true
