@@ -42,6 +42,9 @@ A missing secret answers 503 with a clear message.
 | POST   | `/contacts/sync`            | Upload a device's contacts: `{ device, contacts:[...] }`. |
 | GET    | `/devices`                  | List synced devices with contact counts.        |
 | DELETE | `/contacts/device/:id`      | Remove one device's contacts.                   |
+| PUT    | `/photo/:deviceId/:key`     | Upload a contact photo (`Content-Type: image/jpeg`, max 100 KB). `key` = last 10 digits of the number. |
+| DELETE | `/photo/:deviceId/:key`     | Remove that device's photo for the number.      |
+| GET    | `/photo/:key`               | The newest photo for the number from any device (`ETag`, `Cache-Control: private, max-age=86400`, 304 on `If-None-Match`). |
 | GET    | `/ping`                     | Health check (no auth).                         |
 
 CORS is open (`*`) so the web app can call it directly.
@@ -52,6 +55,8 @@ CORS is open (`*`) so the web app can call it directly.
 - Search reads across all device files, deduplicates by phone number (last 10 digits, so
   `+1 718…` and `718-…` are one contact), and returns matches. A name query matches names;
   number matching only happens when the query contains digits.
+- Contact photos live at `photos/<key>/<deviceId>.jpg`. A synced contact with `"photo": true`
+  makes search results carry `hasPhoto: true` and `photoKey` (the number's key).
 - The app's worker address comes from the `HEIMISH_WORKER_URL` repository variable
   (build.yml); it must be this worker's workers.dev URL.
 - The web Admin Panel (in `docs/index.html`) reads from this worker to search contacts.
