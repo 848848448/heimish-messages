@@ -249,10 +249,8 @@ fun MessageBubble(m: Message, reactTick: Int, onLongClick: () -> Unit, showMeta:
                     if (m.imageUri != null) {
                         val mime = m.mediaMime ?: "image/"
                         when {
-                            mime.startsWith("video/") -> Box(Modifier.fillMaxWidth().height(180.dp).background(Color.Black), contentAlignment = Alignment.Center) {
-                                Icon(Ms.PlayCircleFill, null, tint = Color.White, modifier = Modifier.size(48.dp))
-                            }
-                            mime.startsWith("audio/") -> VoiceNoteBubble(m, m.imageUri, isIn, outText, outSub, onLongClick)
+                            mime.startsWith("video/") || mime.startsWith("audio/") ->
+                                AvMediaBubble(m, m.imageUri, mime, isIn, outText, outSub, if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), onLongClick)
                             else -> AsyncImage(m.imageUri, "image", Modifier.fillMaxWidth().heightIn(max = 240.dp).clickable { if (openPhoto != null) openPhoto(m) else viewing = true }.clip(
                                 if (m.body.isBlank()) shape else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
                             ), contentScale = ContentScale.Crop)

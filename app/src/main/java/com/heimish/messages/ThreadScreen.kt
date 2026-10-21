@@ -853,8 +853,10 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
             reverseLayout = true,
             contentPadding = PaddingValues(top = 8.dp, bottom = 10.dp)
         ) {
-            if (msgs.isNotEmpty() && msgs.last().incoming) {
-                item(key = "smart_replies", contentType = "smart") { SmartReplyRow(msgs.last()) { sendText(it) } }
+            // quick replies for the newest incoming message (SMS, MMS or group); a reaction text after it doesn't hide them
+            val replyTarget = msgs.lastOrNull { Reactions.parse(it.body) == null }
+            if (replyTarget != null && replyTarget.incoming) {
+                item(key = "smart_replies", contentType = "smart") { SmartReplyRow(replyTarget, msgs) { sendText(it) } }
             }
             // Scheduled messages for this chat, shown in place like Google Messages
             if (!showSearch && mine.isNotEmpty()) {

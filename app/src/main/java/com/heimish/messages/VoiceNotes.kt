@@ -47,6 +47,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -74,9 +75,30 @@ import kotlin.math.sqrt
 /** Formats milliseconds as m:ss. */
 internal fun fmtVoice(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return String.format("%d:%02d", s / 60, s % 60) }
 
+/** What a received part really is (audio, video or image), from its content type with a file-name fallback; null for
+ *  text, layout and anything else. Types are compared case-insensitively and without parameters ("Video/3GPP; name=x"). */
+internal fun mediaMimeFor(ct: String, name: String?): String? {
+    val c = ct.lowercase().substringBefore(';').trim()
+    if (c == "text/plain" || c == "application/smil" || c.startsWith("text/")) return null
+    audioMimeFor(c, name)?.let { return it }
+    if (c.startsWith("image/") || c.startsWith("video/")) return c
+    if (c == "application/octet-stream" || c.isBlank() || c == "application/vnd.oma.drm.message") {
+        val n = (name ?: "").lowercase()
+        return when {
+            n.endsWith(".mp4") || n.endsWith(".m4v") -> "video/mp4"
+            n.endsWith(".mov") -> "video/quicktime"
+            n.endsWith(".jpg") || n.endsWith(".jpeg") -> "image/jpeg"
+            n.endsWith(".png") -> "image/png"
+            n.endsWith(".gif") -> "image/gif"
+            else -> null
+        }
+    }
+    return null
+}
+
 /** MMS audio that other apps send under odd content types (application/ogg, octet-stream with a .amr name...). */
 internal fun audioMimeFor(ct: String, name: String?): String? {
-    val c = ct.lowercase()
+    val c = ct.lowercase().substringBefore(';').trim()
     if (c.startsWith("audio/")) return c
     if (c == "application/ogg") return "audio/ogg"
     val n = (name ?: "").lowercase()
@@ -125,24 +147,28 @@ object VoiceWave {
         return FloatArray(BARS) { x = (x * 6364136223846793005L + 1442695040888963407L); (0.25f + ((x ushr 33) % 1000) / 1000f * 0.75f) }
     }
 
-    fun load(ctx: Context, uri: Uri): Info {
+    fun load(ctx: Context, uri: Uri, mime: String? = null): Info {
         cache.get(uri.toString())?.let { return it }
         var duration = 0L
-        val bars = runCatching { decode(ctx, uri) { d -> duration = d } }.getOrNull()
+        // read from a private copy: the part provider's descriptor isn't always usable by the media framework (0:00, silence)
+        val f = runCatching { MmsMedia.localFile(ctx, uri, mime) }.getOrNull()
+        val bars = runCatching { decode(ctx, uri, f) { d -> duration = d } }.getOrNull()
+        if (duration <= 0L) duration = runCatching { MmsMedia.probe(ctx, uri, mime).durationMs }.getOrDefault(0L)
         if (duration <= 0L) duration = runCatching {
             val r = android.media.MediaMetadataRetriever()
             try { r.setDataSource(ctx, uri); r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L } finally { runCatching { r.release() } }
         }.getOrDefault(0L)
+        if (duration <= 0L) MmsLog.log(ctx, "ERROR voice note unreadable mime=$mime uri=$uri file=${f?.name} ${f?.length() ?: 0} bytes head=${MmsMedia.headHex(f)}")
         val info = Info(bars ?: pseudo(uri.toString().hashCode().toLong()), duration)
-        cache.put(uri.toString(), info)
+        if (duration > 0L) cache.put(uri.toString(), info)
         return info
     }
 
-    private fun decode(ctx: Context, uri: Uri, onDuration: (Long) -> Unit): FloatArray? {
+    private fun decode(ctx: Context, uri: Uri, f: File?, onDuration: (Long) -> Unit): FloatArray? {
         val ex = MediaExtractor()
         var codec: MediaCodec? = null
         try {
-            ex.setDataSource(ctx, uri, null)
+            if (f != null) ex.setDataSource(f.absolutePath) else ex.setDataSource(ctx, uri, null)
             val track = (0 until ex.trackCount).firstOrNull { ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true } ?: return null
             val fmt = ex.getTrackFormat(track)
             val durUs = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) else 0L
@@ -215,7 +241,7 @@ object VoicePlayer {
     private fun applySpeed() { runCatching { mp?.let { it.playbackParams = it.playbackParams.setSpeed(speed) } } }
 
     /** Play (or resume) [uri]; starts at [startFraction] of the note when given. */
-    fun play(ctx: Context, key: String, uri: Uri, startFraction: Float? = null) {
+    fun play(ctx: Context, key: String, uri: Uri, startFraction: Float? = null, mime: String? = null) {
         if (currentKey == key && mp != null && !preparing) {
             startFraction?.let { f -> seekTo(f) }
             runCatching { mp?.start(); applySpeed(); playing = true }
@@ -224,27 +250,44 @@ object VoicePlayer {
         }
         stop()
         currentKey = key; preparing = true
+        val app = ctx.applicationContext
+        val token = ++playToken
+        Thread {
+            val f = runCatching { MmsMedia.localFile(app, uri, mime) }.getOrNull()
+            main.post { if (token == playToken && currentKey == key) start(ctx, key, uri, f, startFraction, mime, token, useFile = f != null) }
+        }.start()
+    }
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var playToken = 0
+
+    private fun start(ctx: Context, key: String, uri: Uri, f: File?, startFraction: Float?, mime: String?, token: Int, useFile: Boolean) {
         val p = MediaPlayer()
         mp = p
+        fun fallbackOrFail(what: Int, extra: Int) {
+            MmsMedia.logPlayError(ctx, "voice", uri, mime, what, extra, f)
+            runCatching { p.release() }
+            if (mp !== p) return
+            mp = null
+            if (useFile) start(ctx, key, uri, f, startFraction, mime, token, useFile = false) // second try: straight from the message store
+            else { stop(); Toast.makeText(ctx, "Can't play this audio", Toast.LENGTH_SHORT).show() }
+        }
         runCatching {
             p.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-            p.setDataSource(ctx.applicationContext, uri)
+            if (useFile && f != null) p.setDataSource(f.absolutePath) else p.setDataSource(ctx.applicationContext, uri)
             p.setOnPreparedListener {
                 if (mp !== p) return@setOnPreparedListener
                 preparing = false
-                startFraction?.let { f -> runCatching { p.seekTo((p.duration * f).toInt()) } }
+                startFraction?.let { fr -> runCatching { p.seekTo((p.duration * fr).toInt()) } }
                 runCatching { p.start(); applySpeed() }
                 playing = true
                 requestFocus(ctx)
                 VoicePlayedStore.markPlayed(ctx, key)
             }
             p.setOnCompletionListener { if (mp === p) { playing = false; runCatching { p.seekTo(0) }; currentKey = null; releaseFocus(); runCatching { p.release() }; mp = null } }
-            p.setOnErrorListener { _, _, _ ->
-                if (mp === p) { stop(); Toast.makeText(ctx, "Can't play this audio", Toast.LENGTH_SHORT).show() }
-                true
-            }
+            p.setOnErrorListener { _, what, extra -> if (mp === p) fallbackOrFail(what, extra); true }
             p.prepareAsync()
-        }.onFailure { stop(); Toast.makeText(ctx, "Can't play this audio", Toast.LENGTH_SHORT).show() }
+        }.onFailure { e -> MmsLog.err(ctx, "voice play setup", e); fallbackOrFail(-1, -1) }
     }
 
     fun pause() { runCatching { mp?.pause() }; playing = false; releaseFocus() }
@@ -252,6 +295,7 @@ object VoicePlayer {
     fun seekTo(f: Float) { mp?.let { p -> runCatching { p.seekTo((p.duration * f.coerceIn(0f, 1f)).toInt()) } } }
 
     fun stop() {
+        playToken++
         val p = mp
         mp = null; playing = false; preparing = false; currentKey = null
         runCatching { p?.stop() }; runCatching { p?.release() }
@@ -271,10 +315,10 @@ object VoicePlayer {
 
 // ── Audio bubble ────────────────────────────────────────────────────────────
 @Composable
-fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subColor: Color, onLongClick: () -> Unit) {
+fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subColor: Color, onLongClick: () -> Unit, mime: String? = m.mediaMime) {
     val ctx = LocalContext.current
     val key = msgKey(m)
-    val info by produceState(VoiceWave.cached(uri), uri) { if (value == null) value = withContext(Dispatchers.Default) { VoiceWave.load(ctx, uri) } }
+    val info by produceState(VoiceWave.cached(uri), uri) { if (value == null) value = withContext(Dispatchers.Default) { VoiceWave.load(ctx, uri, mime) } }
     var played by remember(key) { mutableStateOf(!isIn || VoicePlayedStore.isPlayed(ctx, key)) }
     val isCurrent = VoicePlayer.currentKey == key
     val isPlaying = isCurrent && VoicePlayer.playing
@@ -295,15 +339,16 @@ fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subCo
     val accent = if (isIn) Brand else textColor
     val unplayedDot = Color(0xFF1E88E5)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    fun toggle() { if (isPlaying) VoicePlayer.pause() else VoicePlayer.play(ctx, key, uri) }
-    fun seek(f: Float) { progress = f; if (isCurrent) VoicePlayer.seekTo(f) else VoicePlayer.play(ctx, key, uri, f) }
+    fun toggle() { if (isPlaying) VoicePlayer.pause() else VoicePlayer.play(ctx, key, uri, mime = mime) }
+    fun seek(f: Float) { progress = f; if (isCurrent) VoicePlayer.seekTo(f) else VoicePlayer.play(ctx, key, uri, f, mime) }
 
-    Row(Modifier.width(268.dp).padding(start = 6.dp, end = 10.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.width(260.dp).padding(start = 8.dp, end = 10.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         // play / pause
-        Box(Modifier.size(42.dp).clip(CircleShape).background(accent.copy(alpha = 0.14f)).clickable { toggle() }, contentAlignment = Alignment.Center) {
-            if (isCurrent && VoicePlayer.preparing) CircularProgressIndicator(Modifier.size(22.dp), color = accent, strokeWidth = 2.dp)
+        val onAccent = if (accent.luminance() > 0.5f) Color(0xFF1B1B1F) else Color.White
+        Box(Modifier.size(40.dp).clip(CircleShape).background(accent).clickable { toggle() }, contentAlignment = Alignment.Center) {
+            if (isCurrent && VoicePlayer.preparing) CircularProgressIndicator(Modifier.size(20.dp), color = onAccent, strokeWidth = 2.dp)
             else androidx.compose.animation.Crossfade(isPlaying, animationSpec = tween(150), label = "playPause") { pl ->
-                Icon(if (pl) Ms.PauseFill else Ms.PlayArrowFill, if (pl) "Pause" else "Play", tint = accent, modifier = Modifier.size(28.dp))
+                Icon(if (pl) Ms.PauseFill else Ms.PlayArrowFill, if (pl) "Pause" else "Play", tint = onAccent, modifier = Modifier.size(26.dp))
             }
         }
         Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
@@ -339,30 +384,13 @@ fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subCo
                 drawCircle(thumbColor, 6.dp.toPx(), Offset(tx, mid))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isCurrent || posMs > 0) fmtVoice(posMs) else if (totalMs > 0) fmtVoice(totalMs) else "0:00", color = subColor, fontSize = 11.sp)
+                Text(if (isCurrent || posMs > 0) fmtVoice(posMs) else if (totalMs > 0) fmtVoice(totalMs) else " ", color = subColor, fontSize = 11.sp)
                 if (!played && isIn) { Spacer(Modifier.width(5.dp)); Box(Modifier.size(7.dp).clip(CircleShape).background(unplayedDot)) }
             }
         }
-        // sender photo with a mic badge; while playing it turns into the 1x / 1.5x / 2x button, like WhatsApp
-        Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
-            if (isCurrent) {
-                Box(Modifier.clip(RoundedCornerShape(12.dp)).background(subColor.copy(alpha = 0.25f)).clickable { VoicePlayer.cycleSpeed(ctx) }.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text(when (VoicePlayer.speed) { 1.5f -> "1.5×"; 2f -> "2×"; else -> "1×" }, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
-            } else {
-                if (isIn) {
-                    val addr = m.address ?: ""
-                    val name = remember(addr) { SmsRepository.getContactName(ctx, addr) ?: addr }
-                    Avatar(name, addr, 42.dp, 16.sp)
-                } else {
-                    Box(Modifier.size(42.dp).clip(CircleShape).background(subColor.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
-                        Icon(Ms.Mic, null, tint = textColor, modifier = Modifier.size(22.dp))
-                    }
-                }
-                Box(Modifier.align(Alignment.BottomStart).size(18.dp).clip(CircleShape).background(if (!played && isIn) unplayedDot else Brand), contentAlignment = Alignment.Center) {
-                    Icon(Ms.Mic, null, tint = if (!played && isIn) Color.White else OnBrand, modifier = Modifier.size(12.dp))
-                }
-            }
+        // speed, like Google Messages: always there, one tap cycles 1× / 1.5× / 2×
+        Box(Modifier.padding(start = 2.dp).clip(RoundedCornerShape(50)).background(accent.copy(alpha = 0.14f)).clickable { VoicePlayer.cycleSpeed(ctx) }.padding(horizontal = 9.dp, vertical = 5.dp)) {
+            Text(when (VoicePlayer.speed) { 1.5f -> "1.5×"; 2f -> "2×"; else -> "1×" }, color = accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }

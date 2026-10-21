@@ -29,11 +29,68 @@ object SmartReplies {
 
     fun suggest(last: String): List<String> = analyze(last).replies
 
-    fun analyze(last: String): Result {
+    /** Kinds where the message clearly asks for, or invites, a short reply we can actually offer. Anything else
+     *  (a statement, an open "what/why" question, "ok", a link, a photo) gets no chips at all. */
+    private val CONFIDENT = setOf(
+        Kind.YES_NO, Kind.AVAILABILITY, Kind.LOCATION_WHERE, Kind.LOCATION_HOME, Kind.LOCATION_HERE, Kind.LOCATION_PLACE,
+        Kind.TIME, Kind.HOW_ARE_YOU, Kind.READY, Kind.COMING, Kind.DID, Kind.KNOW, Kind.WANT, Kind.CALL_ME, Kind.REQUEST,
+        Kind.LET_ME_KNOW, Kind.GREETING_SHABBOS, Kind.GREETING_WEEK, Kind.GREETING_YOMTOV, Kind.GREETING_CHODESH,
+        Kind.GREETING_NEW_YEAR, Kind.GREETING_MORNING, Kind.GREETING_NIGHT, Kind.GREETING_EVENING, Kind.GREETING_HELLO,
+        Kind.MAZEL_TOV, Kind.REFUAH, Kind.THANKS, Kind.THANKS_YASHER_KOACH, Kind.SORRY, Kind.ON_MY_WAY, Kind.LATE,
+        Kind.MISSED_CALL, Kind.GOOD_NEWS, Kind.FAVOR_DONE, Kind.BAD_NEWS, Kind.COMPLIMENT
+    )
+
+    private fun isEmojiChip(r: String) = r.none { it.isLetterOrDigit() }
+
+    /**
+     * The chips the chat shows under the newest incoming message: only when a reply clearly fits (a yes/no question,
+     * thanks, a greeting, "where are you", a request…), never filler. A message that is only emoji gets chips only when
+     * the answer is obvious (a 👎 → concern, a 😂 → a laugh back). [chatYiddish] (from the recent messages) picks the
+     * language for an emoji-only message.
+     */
+    fun chips(last: String, chatYiddish: Boolean?): List<String> {
         val raw = last.trim()
-        val heb = raw.count { it in '\u05D0'..'\u05EA' || it in '\u05F0'..'\u05F2' || it in '\uFB1D'..'\uFB4F' }
+        if (raw.isEmpty()) return emptyList()                       // a photo / voice note / video on its own: no chips
+        val r = analyze(raw, chatYiddish)
+        if (r.kind == Kind.EMPTY) return if (r.replies == EMOJI_ONLY) emptyList() else r.replies
+        if (r.kind !in CONFIDENT) return emptyList()
+        val m = Msg(raw)
+        val base = (if (r.yiddish) yiddish(r.kind, m) else english(r.kind)).filter { !(m.question && isThanks(it)) }.distinct().take(MAX)
+        return if (base.isEmpty() || base.all { isEmojiChip(it) }) emptyList() else base
+    }
+
+    /** True when most letters in these texts are Hebrew letters (Yiddish/Hebrew chat); null when there are no letters. */
+    fun isYiddish(texts: List<String>): Boolean? {
+        var heb = 0; var lat = 0
+        for (t in texts) { heb += t.count { isHeb(it) }; lat += t.count { it in 'a'..'z' || it in 'A'..'Z' } }
+        return if (heb + lat == 0) null else heb >= lat
+    }
+
+    private fun isHeb(c: Char) = c in '\u05D0'..'\u05EA' || c in '\u05F0'..'\u05F2' || c in '\uFB1D'..'\uFB4F'
+
+    /** Answers to a message that is only emoji: a 👎 gets concern, a 😂 gets a laugh back, a ❤️ gets love back. */
+    private fun emojiReplies(raw: String, yi: Boolean): List<String> {
+        fun any(vararg e: String) = e.any { raw.contains(it) }
+        return when {
+            any("👎", "😞", "😔", "😢", "😭", "😟", "🙁", "☹", "😕", "😩", "😫", "💔") -> if (yi) listOf("😕", "וואס איז?", "🙏") else listOf("😕", "What's wrong?", "🙏")
+            any("😠", "😡", "🤬") -> if (yi) listOf("😕", "וואס איז געשען?", "🙏") else listOf("😕", "What happened?", "🙏")
+            any("😂", "🤣", "😆", "😹", "😅", "😄", "😁") -> listOf("😂", "🤣", "😄")
+            any("❤", "😍", "🥰", "😘", "💕", "💖", "💗", "💓", "😻", "♥") -> listOf("❤️", "🥰", "😘")
+            any("🙏") -> if (yi) listOf("🙏", "❤️", "נישט קיין פארוואס") else listOf("🙏", "❤️", "You're welcome")
+            any("🎉", "🥳", "🎊", "🍾", "🥂") -> if (yi) listOf("🎉", "מזל טוב!", "🥳") else listOf("🎉", "Congrats!", "🥳")
+            any("🔥", "💪", "👏", "🙌", "😎", "🤩") -> listOf("🔥", "👏", "😎")
+            any("😮", "😯", "😲", "😱", "🤯", "😳") -> if (yi) listOf("😮", "וואו!", "😱") else listOf("😮", "Wow!", "😱")
+            any("👍", "👌", "✅", "🆗", "🤝", "☺", "😊", "🙂") -> if (yi) listOf("👍", "😊", "אקעי") else listOf("👍", "😊", "OK")
+            any("🤔") -> if (yi) listOf("🤔", "וואס מיינסטו?", "😊") else listOf("🤔", "What do you mean?", "😊")
+            else -> EMOJI_ONLY
+        }
+    }
+
+    fun analyze(last: String, chatYiddish: Boolean? = null): Result {
+        val raw = last.trim()
+        val heb = raw.count { isHeb(it) }
         val lat = raw.count { it in 'a'..'z' || it in 'A'..'Z' }
-        val yi = heb > 0 && heb >= lat
+        val yi = if (heb + lat == 0) chatYiddish ?: false else heb > 0 && heb >= lat
         val m = Msg(raw)
         val kind = when {
             m.words.isEmpty() -> Kind.EMPTY
@@ -41,6 +98,7 @@ object SmartReplies {
             else -> if (yi) yiddishKind(m) else englishKind(m)
         }
         if (kind == Kind.CODE) return Result(kind, yi, emptyList())
+        if (kind == Kind.EMPTY && raw.isNotEmpty()) return Result(kind, yi, emojiReplies(raw, yi))
         val base = if (kind == Kind.EMPTY) EMOJI_ONLY else if (yi) yiddish(kind, m) else english(kind)
         val fallback = if (kind == Kind.EMPTY) EMOJI_ONLY else if (yi) YI_GENERIC else EN_GENERIC
         val out = LinkedHashSet<String>()
@@ -401,7 +459,7 @@ object SmartReplies {
         Regex("(?i)[a-z0-9._-]+@[a-z0-9-]+\\.[a-z]{2,}|[a-z0-9-]+\\.(com|org|net|io|co|us)\\b").containsMatchIn(m.raw) ||
         Regex("\\d[\\d\\s().-]{6,}\\d").findAll(m.raw).any { r -> r.value.count { it.isDigit() } >= 7 }
 
-    private val YI_GENERIC = listOf("👍", "אקעי", "איך וועל דיר צוריק רופן")
-    private val EN_GENERIC = listOf("👍", "OK", "I'll call you back")
+    private val YI_GENERIC = listOf("👍", "אקעי", "שיין")
+    private val EN_GENERIC = listOf("👍", "OK", "Sounds good")
     private val EMOJI_ONLY = listOf("👍", "❤️", "😂")
 }

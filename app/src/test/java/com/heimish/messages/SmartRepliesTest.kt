@@ -124,8 +124,8 @@ class SmartRepliesTest {
     @Test fun noThanksForBareOkOrGeneric() {
         assertFalse(hasThanks(s("אקעי")))
         assertFalse(hasThanks(s("lol that's funny")))
-        assertEquals(listOf("👍", "אקעי", "איך וועל דיר צוריק רופן"), s("מארגן איז א נייער טאג"))
-        assertEquals(listOf("👍", "OK", "I'll call you back"), s("the weather is cold today"))
+        assertEquals(listOf("👍", "אקעי", "שיין"), s("מארגן איז א נייער טאג"))
+        assertEquals(listOf("👍", "OK", "Sounds good"), s("the weather is cold today"))
     }
 
     // ── language ──
@@ -146,7 +146,7 @@ class SmartRepliesTest {
     }
     @Test fun emojiAndEmpty() {
         assertEquals(listOf("👍", "❤️", "😂"), s(""))
-        assertEquals(listOf("👍", "❤️", "😂"), s("😂😂"))
+        assertEquals(listOf("😂", "🤣", "😄"), s("😂😂"))
         assertEquals(Kind.FUNNY, kind("😂 גוט"))
         assertEquals(Kind.LOCATION_PLACE, kind("🙂 ביסטו אין שול???"))
     }
@@ -169,5 +169,39 @@ class SmartRepliesTest {
             assertEquals("duplicates for '$m': $r", r.size, r.toSet().size)
             assertEquals(r, s(m))
         }
+    }
+
+    @Test fun thumbsDownGetsConcernNotLaughs() {
+        val r = SmartReplies.chips("👎", true)
+        assertFalse(r.contains("😂")); assertFalse(r.contains("❤️"))
+        assertTrue(r.contains("וואס איז?"))
+        assertTrue(SmartReplies.chips("👎", false).contains("What's wrong?"))
+    }
+
+    @Test fun noChipsWithoutAFittingReply() {
+        assertEquals(emptyList<String>(), SmartReplies.chips("the weather is cold today", false))
+        assertEquals(emptyList<String>(), SmartReplies.chips("מארגן איז א נייער טאג", true))
+        assertEquals(emptyList<String>(), SmartReplies.chips("", true))                // photo / voice note alone
+        assertEquals(emptyList<String>(), SmartReplies.chips("🙃", false))             // emoji with no obvious answer
+        assertEquals(emptyList<String>(), SmartReplies.chips("ok", false))
+    }
+
+    @Test fun chipsWhenTheyFit() {
+        assertTrue(SmartReplies.chips("ביסטו אין שטוב?", true).isNotEmpty())
+        assertTrue(SmartReplies.chips("are you home?", false).isNotEmpty())
+        assertTrue(SmartReplies.chips("גוט שבת", true).isNotEmpty())
+        assertTrue(SmartReplies.chips("thank you so much!", false).isNotEmpty())
+        assertTrue(SmartReplies.chips("ביסטו אין שטוב?", true).all { r -> r.none { it in 'a'..'z' } }) // Yiddish answers
+    }
+
+    @Test fun chatLanguageDetection() {
+        assertEquals(true, SmartReplies.isYiddish(listOf("וואו ביסטו", "ok")))
+        assertEquals(false, SmartReplies.isYiddish(listOf("where are you")))
+        assertEquals(null, SmartReplies.isYiddish(listOf("👍", "")))
+    }
+
+    @Test fun genericNeverOffersCallBack() {
+        assertFalse(s("the weather is cold today").contains("I'll call you back"))
+        assertFalse(s("מארגן איז א נייער טאג").contains("איך וועל דיר צוריק רופן"))
     }
 }

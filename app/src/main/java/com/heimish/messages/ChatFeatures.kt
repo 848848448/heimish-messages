@@ -176,12 +176,15 @@ fun CopyCodeChip(code: String, modifier: Modifier = Modifier) {
 
 /** Smart replies under the last incoming message (on-device rules, Yiddish-aware). */
 @Composable
-fun SmartReplyRow(last: Message, onSend: (String) -> Unit) {
+fun SmartReplyRow(last: Message, recent: List<Message> = emptyList(), onSend: (String) -> Unit) {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE) }
     val code = remember(last.id, last.body) { if (prefs.getBoolean("otp_chip", true)) Otp.find(last.body) else null }
-    val replies = remember(last.id, last.body) {
-        if (!prefs.getBoolean("smart_replies", true) || code != null || Reactions.parse(last.body) != null) emptyList() else SmartReplies.suggest(last.body)
+    // the chat's language (Hebrew letters or Latin), for a message that is only emoji
+    val chatYi = remember(last.id, last.date, recent.size) { SmartReplies.isYiddish(recent.takeLast(12).map { it.body }.filter { it.isNotBlank() }) }
+    val replies = remember(last.id, last.date, last.body, last.mediaMime, last.pendingMms, chatYi) {
+        if (!prefs.getBoolean("smart_replies", true) || code != null || last.pendingMms || Reactions.parse(last.body) != null) emptyList()
+        else SmartReplies.chips(last.body, chatYi)
     }
     // a one-time code already has its "Copy code" chip under the bubble; no reply chips for it
     if (replies.isEmpty()) return

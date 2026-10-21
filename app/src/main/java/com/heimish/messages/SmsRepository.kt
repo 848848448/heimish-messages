@@ -426,7 +426,7 @@ object SmsRepository {
                 else -> "file"
             }
             val partUri = ctx.contentResolver.insert(Uri.parse("content://mms/$mmsId/part"), ContentValues().apply {
-                put("mid", mmsId); put("ct", mimeType); put("name", "$ext.${mimeType.substringAfter("/").take(4)}"); put("cl", "$ext.${mimeType.substringAfter("/").take(4)}")
+                put("mid", mmsId); put("ct", mimeType); put("name", partFileName(mimeType)); put("cl", partFileName(mimeType))
             })
             if (partUri != null) ctx.contentResolver.openOutputStream(partUri)?.use { it.write(bytes) }
         }
@@ -486,6 +486,15 @@ object SmsRepository {
         }.getOrElse { e -> Log.e("SmsRepo", "sendGroupText: ${e.message}"); false }
     }
 
+    /** File name for an outgoing part, with the extension receivers expect (a voice note as "voice.m4a", not "media.mp4",
+     *  so phones don't take it for a video). */
+    internal fun partFileName(mime: String): String {
+        val m = mime.lowercase().substringBefore(';').trim()
+        val ext = MmsMedia.extFor(m).let { if (it == "bin") m.substringAfter('/').filter { c -> c.isLetterOrDigit() }.take(4).ifBlank { "bin" } else it }
+        val base = when { m.startsWith("audio/") -> "voice"; m.startsWith("video/") -> "video"; m.startsWith("image/") -> "image"; else -> "file" }
+        return "$base.$ext"
+    }
+
     private fun buildSendReqPdu(address: String, mediaBytes: ByteArray, mimeType: String, caption: String, textOnly: Boolean = false): ByteArray {
         val out = java.io.ByteArrayOutputStream()
 
@@ -525,7 +534,7 @@ object SmsRepository {
         val mediaPartHeaders = java.io.ByteArrayOutputStream()
         mediaPartHeaders.write(mimeType.toByteArray()); mediaPartHeaders.write(0x00)
         // Content-Location, so receivers (iPhones especially) get a file name
-        mediaPartHeaders.write(0x8E); mediaPartHeaders.write(("media." + mimeType.substringAfter("/").substringBefore(";").take(4)).toByteArray()); mediaPartHeaders.write(0x00)
+        mediaPartHeaders.write(0x8E); mediaPartHeaders.write(partFileName(mimeType).toByteArray()); mediaPartHeaders.write(0x00)
         writeUintVar(out, mediaPartHeaders.size())
         writeUintVar(out, mediaBytes.size)
         out.write(mediaPartHeaders.toByteArray())
@@ -786,7 +795,7 @@ object SmsRepository {
                     val low = ct.lowercase()
                     if (low == "text/plain" || low == "application/smil" || low.isEmpty()) continue
                     val nm = c.getString(2) ?: c.getString(3)
-                    out += Uri.parse("content://mms/part/${c.getLong(0)}") to (audioMimeFor(ct, nm) ?: low)
+                    out += Uri.parse("content://mms/part/${c.getLong(0)}") to (mediaMimeFor(ct, nm) ?: low)
                 }
             }
         }
@@ -818,11 +827,10 @@ object SmsRepository {
                         val mid = c.getLong(iMid); val partId = c.getLong(iId); val ct = c.getString(iCt) ?: ""
                         seenParts.add(mid)
                         val nm = (if (iCl >= 0) c.getString(iCl) else null) ?: (if (iName >= 0) c.getString(iName) else null)
-                        val aud = audioMimeFor(ct, nm)
+                        val med = mediaMimeFor(ct, nm)
                         when {
-                            ct == "text/plain" -> text[mid] = c.getString(iText) ?: ""
-                            aud != null -> media[mid] = Uri.parse("content://mms/part/$partId") to aud
-                            ct.startsWith("image/") || ct.startsWith("video/") -> media[mid] = Uri.parse("content://mms/part/$partId") to ct
+                            ct.lowercase().startsWith("text/plain") -> { if (text[mid].isNullOrBlank()) text[mid] = c.getString(iText) ?: "" }
+                            med != null -> { val prev = media[mid]; if (prev == null || prev.second.startsWith("image/") || !med.startsWith("image/")) media[mid] = Uri.parse("content://mms/part/$partId") to med }
                         }
                     }
                 }
@@ -861,16 +869,12 @@ object SmsRepository {
                     val partId = c.getLong(iId)
                     val ct     = c.getString(iCt) ?: ""
                     val nm     = (if (iCl >= 0) c.getString(iCl) else null) ?: (if (iName >= 0) c.getString(iName) else null)
-                    val aud    = audioMimeFor(ct, nm)
+                    val med    = mediaMimeFor(ct, nm) // voice notes / videos from any app: amr, 3gp, m4a, ogg, mp4...
                     when {
-                        ct == "text/plain" -> text = c.getString(iText) ?: ""
-                        aud != null -> { // voice notes from any app: amr, 3gp, m4a, ogg...
+                        ct.lowercase().startsWith("text/plain") -> { if (text.isBlank()) text = c.getString(iText) ?: "" }
+                        med != null -> if (mediaMime == null || mediaMime!!.startsWith("image/") || !med.startsWith("image/")) {
                             mediaUri = Uri.parse("content://mms/part/$partId")
-                            mediaMime = aud
-                        }
-                        ct.startsWith("image/") || ct.startsWith("video/") -> {
-                            mediaUri = Uri.parse("content://mms/part/$partId")
-                            mediaMime = ct
+                            mediaMime = med
                         }
                     }
                 }

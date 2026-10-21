@@ -456,10 +456,12 @@ object MmsIncoming {
             var n = 0
             for (p in m.parts.sortedBy { if (it.isSmil) 1 else 0 }) {
                 n++
+                val ct = runCatching { MmsMedia.fixPartType(p.contentType, p.name ?: p.fileName ?: p.contentLocation, p.data) }.getOrDefault(p.contentType)
+                if (ct != p.contentType) MmsLog.log(ctx, "part type ${p.contentType} -> $ct (from its bytes)")
                 val cv = ContentValues().apply {
                     put("mid", id)
                     put("seq", if (p.isSmil) -1 else 0)
-                    put("ct", p.contentType)
+                    put("ct", ct)
                     (p.name ?: p.fileName ?: p.contentLocation)?.let { put("name", it) }
                     p.fileName?.let { put("fn", it) }
                     p.contentId?.let { put("cid", "<$it>") }
@@ -469,7 +471,7 @@ object MmsIncoming {
                 }
                 val partUri = runCatching { cr.insert(Uri.parse("content://mms/$id/part"), cv) }
                     .onFailure { Log.e(TAG, "part ${p.contentType}: ${it.message}"); MmsLog.err(ctx, "part insert ${p.contentType}", it) }.getOrNull()
-                MmsLog.log(ctx, "part ${p.contentType} (${p.data.size} bytes) -> ${partUri ?: "NOT inserted"}")
+                MmsLog.log(ctx, "part $ct (${p.data.size} bytes${if (p.isText) "" else ", head " + MmsLog.hex(p.data.copyOf(minOf(12, p.data.size)), 12)}) -> ${partUri ?: "NOT inserted"}")
                 if (partUri == null) continue
                 if (!p.isText) runCatching { cr.openOutputStream(partUri)?.use { it.write(p.data) } ?: MmsLog.log(ctx, "ERROR no output stream for $partUri") }
                     .onFailure { Log.e(TAG, "part data ${p.contentType}: ${it.message}"); MmsLog.err(ctx, "part data ${p.contentType}", it) }
