@@ -178,6 +178,8 @@ class PackageReplacedReceiver : android.content.BroadcastReceiver() {
         ScheduledSendReceiver.rearmAll(ctx)
         RemindReceiver.rearmAll(ctx)
         runCatching { AutoBackup.schedule(ctx) }
+        // Download picture/group messages that are still waiting (e.g. from before this update)
+        Thread { runCatching { MmsIncoming.retryPending(ctx.applicationContext, force = true) } }.start()
         val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         runCatching { ctx.startActivity(open) }
         Notifications.showSimple(ctx, "Message updated", "Now on version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})", 7777)

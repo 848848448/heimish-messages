@@ -105,6 +105,8 @@ class MainActivity : ComponentActivity() {
         Thread {
             OtpCleaner.clean(applicationContext)
             TrashStore.maintainIfDue(applicationContext)
+            // Picture/group messages that are not downloaded yet: try again
+            runCatching { MmsIncoming.retryPending(applicationContext) }
             // Alarms are gone after a force stop; re-setting them is cheap and idempotent
             ScheduledSendReceiver.rearmAll(applicationContext)
             RemindReceiver.rearmAll(applicationContext)

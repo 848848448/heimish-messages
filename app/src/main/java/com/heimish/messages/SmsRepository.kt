@@ -286,15 +286,20 @@ object SmsRepository {
         // MMS
         ctx.contentResolver.query(
             Uri.parse("content://mms"),
-            arrayOf("_id", "date", "msg_box"),
+            arrayOf("_id", "date", "msg_box", "m_type"),
             "thread_id = ?", arrayOf(threadId.toString()),
             "date DESC LIMIT " + (limit * 3 / 8)
         )?.use { c ->
             val iId   = c.getColumnIndex("_id")
             val iDate = c.getColumnIndex("date")
             val iBox  = c.getColumnIndex("msg_box")
+            val iType = c.getColumnIndex("m_type")
             val rows = ArrayList<Triple<Long, Long, Int>>()
-            while (c.moveToNext()) rows.add(Triple(c.getLong(iId), c.getLong(iDate) * 1000L, c.getInt(iBox)))
+            val notDownloaded = HashSet<Long>()
+            while (c.moveToNext()) {
+                rows.add(Triple(c.getLong(iId), c.getLong(iDate) * 1000L, c.getInt(iBox)))
+                if (iType >= 0 && c.getInt(iType) == 130) notDownloaded.add(c.getLong(iId))
+            }
             // Parts and senders for every MMS in one query each (was two queries per MMS: a group chat with 300 MMS
             // took 600 provider round trips before the chat could show), plus a memory cache (MMS content never changes).
             val info = mmsInfo(ctx, rows.map { it.first })
@@ -303,7 +308,7 @@ object SmsRepository {
                 val (parts, mmsAddr) = info[mmsId] ?: (mmsParts(ctx, mmsId) to mmsSenderAddress(ctx, mmsId))
                 out.add(Message(
                     id       = mmsId + 1_000_000L,
-                    body     = parts.text,
+                    body     = if (mmsId in notDownloaded) "📩 Multimedia message — downloading…" else parts.text,
                     date     = date,
                     incoming = incoming,
                     isMms    = true,
@@ -786,6 +791,9 @@ object SmsRepository {
     data class MmsParts(val text: String, val mediaUri: Uri?, val mediaMime: String?)
 
     private val mmsCache = android.util.LruCache<Long, Pair<MmsParts, String?>>(3000)
+
+    /** Drops a cached MMS (an incoming one is read while its parts are still being written). */
+    fun forgetMms(mmsId: Long) { mmsCache.remove(mmsId) }
 
     /** Parts + sender for many MMS at once (batched IN queries), cached in memory. Missing ids fall back to per-message reads. */
     private fun mmsInfo(ctx: Context, ids: List<Long>): Map<Long, Pair<MmsParts, String?>> {
