@@ -167,7 +167,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                         var bub by remember { mutableStateOf(ConvNotif.bubbleOn(ctx, tid)) }
                         val appOn = hp(ctx).getBoolean("bubbles", true)
                         val sysOff = Build.VERSION.SDK_INT >= 31 && runCatching { (ctx.getSystemService(android.app.NotificationManager::class.java)).bubblePreference == android.app.NotificationManager.BUBBLE_PREFERENCE_NONE }.getOrDefault(false)
-                        DRow(Ms.Bubble, "Bubble this conversation", when { !appOn -> "Turned off in Settings › Notifications"; sysOff -> "Bubbles are off in Android settings, tap to change"; else -> "Shows new messages as a floating chat head" },
+                        DRow(Ms.Bubble, "Bubble this conversation", when { !appOn -> "Turned off in Settings › Notifications"; sysOff -> "Bubbles are off in Android settings"; else -> "Shows new messages as a floating chat head" },
                             trailing = { Switch(bub && appOn, { bub = it; ConvNotif.setBubble(ctx, tid, it) }, enabled = appOn && !sysOff) }) {
                             if (sysOff) runCatching { ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)) }
                             else if (appOn) { bub = !bub; ConvNotif.setBubble(ctx, tid, bub) }
@@ -215,7 +215,7 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                     DRow(Ms.Delete, "Delete conversation", color = Red) { dialog = "delete" }
                 }
                 DCard {
-                    if (isGroup) DRow(Ms.Block, "Block a member", "Tap a person above to block them", enabled = false) {}
+                    if (isGroup) {}
                     else if (blocked) DRow(Ms.Block, "Unblock", "You'll get calls and texts from ${c.displayName} again") { dialog = "unblock" }
                     else DRow(Ms.Block, "Block & report spam", color = Red) { dialog = "block" }
                 }
@@ -364,7 +364,7 @@ fun ConvNotificationsPage(c: Conversation, title: String, onClose: () -> Unit) {
                     Text("Show notifications", fontSize = 18.sp, color = if (on) OnTonal else TextPrimary, modifier = Modifier.weight(1f))
                     Switch(on, { if (it) Mute.clear(ctx, tid) else Mute.setFor(ctx, tid, 0); tick++ })
                 }
-                if (snooze?.startsWith("Snoozed") == true) Text(snooze + " · tap the switch to wake it", fontSize = 13.sp, color = TextSecond, modifier = Modifier.padding(horizontal = 32.dp))
+                if (snooze?.startsWith("Snoozed") == true) Text(snooze, fontSize = 13.sp, color = TextSecond, modifier = Modifier.padding(horizontal = 32.dp))
                 if (on) {
                     DHeader("Behavior")
                     DCard {
