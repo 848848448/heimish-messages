@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.LruCache
+import com.heimish.messages.qcelp.QcelpTranscoder
 import java.io.File
 
 /**
@@ -27,8 +28,11 @@ object MmsMedia {
     /** A playable local file for [uri] (a content://mms/part/... or file:// URI); null when it can't be read.
      *  The copy is checked against the part's current size every time: a copy made while the part was still being
      *  written (the chat refreshes as soon as the part row exists), or left from a deleted message whose part number was
-     *  reused, is made again instead of being played truncated or wrong. */
-    fun localFile(ctx: Context, uri: Uri, mime: String?): File? {
+     *  reused, is made again instead of being played truncated or wrong.
+     *  A Verizon .qcp (QCELP) voice note comes back as its decoded WAV. Blocking; call off the main thread. */
+    fun localFile(ctx: Context, uri: Uri, mime: String?): File? = localCopy(ctx, uri, mime)?.let { QcelpTranscoder.playable(ctx, it, mime) }
+
+    private fun localCopy(ctx: Context, uri: Uri, mime: String?): File? {
         if (uri.scheme == "file") return uri.path?.let { File(it) }?.takeIf { it.exists() && it.length() > 0 }
         val dir = File(ctx.cacheDir, "media_open").apply { mkdirs() }
         val base = "mms_" + uri.toString().hashCode().toUInt().toString(16)
