@@ -10,14 +10,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** The chat's photo viewer: every photo in the chat, opened at the tapped one (swipe for the others). */
+/** True for a message the full-screen viewer shows: a photo, or a video (a voice note labelled video/3gpp stays out once
+ *  its file says it has no picture). */
+internal fun isViewerMedia(m: Message): Boolean {
+    val u = m.imageUri ?: return false
+    val mime = m.mediaMime ?: return true
+    if (mime.startsWith("image/")) return true
+    if (!mime.startsWith("video/")) return false
+    val p = MmsMedia.cachedProbe(u) ?: return true
+    return p.hasVideo || !p.hasAudio
+}
+
+/** The chat's media viewer: every photo and video in the chat, opened at the tapped one (swipe for the others). */
 @Composable
 fun ChatPhotoViewer(msgs: List<Message>, startKey: String, isGroupChat: Boolean, chatName: String, onClose: () -> Unit, onReacted: () -> Unit) {
-    val photos = remember(msgs) { msgs.filter { it.imageUri != null && (it.mediaMime == null || it.mediaMime.startsWith("image/")) } }
+    val photos = remember(msgs, startKey) { msgs.filter { isViewerMedia(it) || msgKey(it) == startKey && it.imageUri != null } }
     val items = remember(photos, isGroupChat, chatName) {
         photos.map { m ->
             val who = if (!m.incoming) "You" else if (isGroupChat) (m.address?.let { a -> SmsRepository.peekContactName(a)?.first ?: a } ?: "") else chatName
-            ViewerItem(m.imageUri!!, who, m.date, msgKey(m), m.incoming, m.address)
+            ViewerItem(m.imageUri!!, who, m.date, msgKey(m), m.incoming, m.address, m.mediaMime?.takeIf { it.startsWith("video/") })
         }
     }
     val start = remember(startKey) { photos.indexOfFirst { msgKey(it) == startKey }.coerceAtLeast(0) }

@@ -473,6 +473,11 @@ fun Avatar(name: String, address: String, size: Dp, fontSize: TextUnit, tapToVie
             value = u
         }
     }
+    // A group without its own picture: the members' photos together, like Google Messages
+    if (photo == null && address.contains(";")) {
+        val members = remember(address) { address.split(";").map { it.trim() }.filter { it.isNotBlank() } }
+        if (members.size > 1) { GroupAvatar(members, size); return }
+    }
     val seed = address.ifBlank { name }
     var viewing by remember { mutableStateOf(false) }
     val canView = photo != null && tapToView && LocalAvatarTap.current

@@ -153,10 +153,20 @@ object GroupInfo {
         PhotoCache.map.remove(address); PhotoCache.miss.remove(address)
         if (src == null) { hp(ctx).edit().remove("gicon_$tid").apply(); return true }
         return runCatching {
-            val bytes = ctx.contentResolver.openInputStream(src)?.use { it.readBytes() } ?: return false
-            val bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return false
-            val s = 512f / maxOf(bm.width, bm.height)
-            val out = if (s < 1f) Bitmap.createScaledBitmap(bm, (bm.width * s).toInt(), (bm.height * s).toInt(), true) else bm
+            // decoded upright (camera photos carry their rotation), then cut to the centred square the round picture shows
+            val bm: Bitmap = (if (android.os.Build.VERSION.SDK_INT >= 28) runCatching {
+                android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(ctx.contentResolver, src)) { d, info, _ ->
+                    d.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                    val m = maxOf(info.size.width, info.size.height)
+                    if (m > 2048) { val k = 2048f / m; d.setTargetSize((info.size.width * k).toInt().coerceAtLeast(1), (info.size.height * k).toInt().coerceAtLeast(1)) }
+                }
+            }.getOrNull() else null) ?: run {
+                val bytes = ctx.contentResolver.openInputStream(src)?.use { it.readBytes() } ?: return false
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return false
+            }
+            val side = minOf(bm.width, bm.height)
+            val sq = Bitmap.createBitmap(bm, (bm.width - side) / 2, (bm.height - side) / 2, side, side)
+            val out = if (side > 512) Bitmap.createScaledBitmap(sq, 512, 512, true) else sq
             val dir = java.io.File(ctx.filesDir, "group_icons").apply { mkdirs() }
             val f = java.io.File(dir, "${tid}_${System.currentTimeMillis()}.jpg")
             f.outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 90, it) }

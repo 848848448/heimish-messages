@@ -567,11 +567,12 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = Brand, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary), modifier = Modifier.fillMaxWidth())
                     } else Row(Modifier.clickable { showDetails = true }, verticalAlignment = Alignment.CenterVertically) {
                         val members = remember(address) { SmsRepository.splitRecipients(address).filter { it.isNotBlank() } }
-                        if (members.size > 1) GroupAvatar(members, 40.dp) else Avatar(conversation.displayName, address, 40.dp, 17.sp)
+                        // a group: its own picture when one was set in Details, else the members' photos together
+                        key(showDetails) { if (members.size > 1) Avatar(conversation.displayName, address, 40.dp, 17.sp, tapToView = false) else Avatar(conversation.displayName, address, 40.dp, 17.sp) }
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            // a group, like Google Messages: first names only, one line, and "4 people" under it
-                            val title = if (members.size > 1) remember(address, conversation.displayName) { groupFirstNames(ctx, members) } else conversation.displayName
+                            // a group, like Google Messages: its own name when one was set, else first names only, one line, and "4 people" under it
+                            val title = if (members.size > 1) remember(address, conversation.displayName, showDetails) { GroupInfo.name(ctx, conversation.threadId) ?: groupFirstNames(ctx, members) } else conversation.displayName
                             Text(title, fontWeight = FontWeight.Normal, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextPrimary, style = listTextStyle())
                             if (members.size > 1) Text("${members.size} people", fontSize = 12.sp, color = TextHint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }

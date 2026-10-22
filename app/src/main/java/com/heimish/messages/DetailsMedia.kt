@@ -182,7 +182,7 @@ fun MediaDialog(msgs: List<Message>, startTab: Int = 0, onClose: () -> Unit) {
                     else HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
                         when (tabs[page].first) {
                             "Photos" -> if (photos.isEmpty()) EmptyMedia(Ms.Image, "No photos in this conversation yet") else MediaGrid(photos, photoGrid) { viewing = it }
-                            "Videos" -> if (videos.isEmpty()) EmptyMedia(Ms.Videocam, "No videos in this conversation yet") else MediaGrid(videos, videoGrid) { MediaRepo.open(ctx, it) }
+                            "Videos" -> if (videos.isEmpty()) EmptyMedia(Ms.Videocam, "No videos in this conversation yet") else MediaGrid(videos, videoGrid) { viewing = it }
                             "Links" -> if (links.isEmpty()) EmptyMedia(Ms.Link, "No links in this conversation yet") else LinkList(links, linkListState, onLong = { linkMenu = it })
                             else -> FileList(files, fileListState)
                         }
@@ -193,8 +193,10 @@ fun MediaDialog(msgs: List<Message>, startTab: Int = 0, onClose: () -> Unit) {
     }
     viewing?.let { v ->
         // Swipe through all the chat's photos from here too
-        val vItems = remember(photos) { photos.map { p -> ViewerItem(p.uri, if (p.incoming) (p.sender?.let { s -> SmsRepository.peekContactName(s)?.first ?: s } ?: "") else "You", p.date, incoming = p.incoming, address = p.sender) } }
-        PhotoViewer(vItems, photos.indexOf(v).coerceAtLeast(0), onClose = { viewing = null })
+        // (videos open in the same viewer, swiping through the chat's videos)
+        val list = if (v.mime.startsWith("video/")) videos else photos
+        val vItems = remember(list) { list.map { p -> ViewerItem(p.uri, if (p.incoming) (p.sender?.let { s -> SmsRepository.peekContactName(s)?.first ?: s } ?: "") else "You", p.date, incoming = p.incoming, address = p.sender, mime = p.mime.takeIf { it.startsWith("video/") }) } }
+        PhotoViewer(vItems, list.indexOf(v).coerceAtLeast(0), onClose = { viewing = null })
     }
     linkMenu?.let { l ->
         AlertDialog(onDismissRequest = { linkMenu = null }, containerColor = Surf,

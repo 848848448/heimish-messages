@@ -224,11 +224,40 @@ object VoicePlayer {
     var playing by mutableStateOf(false); private set
     var preparing by mutableStateOf(false); private set
     var speed by mutableFloatStateOf(1f); private set
-    private var mp: MediaPlayer? = null
+    /** Lengths the player found for notes whose length couldn't be read up front (shown in the bubble afterwards). */
+    val knownDurations = mutableStateMapOf<String, Long>()
+    private var eng: Engine? = null
     private var focusAm: AudioManager? = null
 
-    fun position(): Long = runCatching { mp?.currentPosition?.toLong() ?: 0L }.getOrDefault(0L)
-    fun duration(): Long = runCatching { mp?.duration?.toLong() ?: 0L }.getOrDefault(0L)
+    /** One way of playing a file: the phone's own MediaPlayer, or the built-in ExoPlayer (own AMR/3GP/MP4/Ogg readers). */
+    private interface Engine {
+        val name: String
+        fun start(); fun pause(); fun seekTo(ms: Long); fun position(): Long; fun duration(): Long; fun setSpeed(s: Float); fun release()
+    }
+
+    private class MpEngine(val p: MediaPlayer, override val name: String) : Engine {
+        override fun start() = p.start()
+        override fun pause() = p.pause()
+        override fun seekTo(ms: Long) = p.seekTo(ms.toInt())
+        override fun position() = p.currentPosition.toLong()
+        override fun duration() = p.duration.toLong()
+        override fun setSpeed(s: Float) { if (s != 1f || p.playbackParams.speed != 1f) p.playbackParams = p.playbackParams.setSpeed(s) }
+        override fun release() { runCatching { p.stop() }; p.release() }
+    }
+
+    private class ExoEngine(val p: androidx.media3.exoplayer.ExoPlayer) : Engine {
+        override val name = "ExoPlayer"
+        override fun start() = p.play()
+        override fun pause() = p.pause()
+        override fun seekTo(ms: Long) = p.seekTo(ms)
+        override fun position() = p.currentPosition
+        override fun duration() = p.duration.takeIf { it > 0 } ?: 0L
+        override fun setSpeed(s: Float) = p.setPlaybackSpeed(s)
+        override fun release() = p.release()
+    }
+
+    fun position(): Long = runCatching { eng?.position() ?: 0L }.getOrDefault(0L)
+    fun duration(): Long = runCatching { eng?.duration() ?: 0L }.getOrDefault(0L)
 
     fun loadSpeed(ctx: Context) { speed = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getFloat("voice_speed", 1f) }
 
@@ -238,13 +267,17 @@ object VoicePlayer {
         if (playing) applySpeed()
     }
 
-    private fun applySpeed() { runCatching { mp?.let { it.playbackParams = it.playbackParams.setSpeed(speed) } } }
+    private fun applySpeed() { runCatching { eng?.setSpeed(speed) } }
 
-    /** Play (or resume) [uri]; starts at [startFraction] of the note when given. */
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var playToken = 0
+
+    /** Play (or resume) [uri]; starts at [startFraction] of the note when given. Tries the phone's player on a private
+     *  copy, then the built-in player on the same copy, then the phone's player straight from the message store. */
     fun play(ctx: Context, key: String, uri: Uri, startFraction: Float? = null, mime: String? = null) {
-        if (currentKey == key && mp != null && !preparing) {
+        if (currentKey == key && eng != null && !preparing) {
             startFraction?.let { f -> seekTo(f) }
-            runCatching { mp?.start(); applySpeed(); playing = true }
+            runCatching { eng?.start(); applySpeed(); playing = true }.onFailure { MmsLog.err(ctx, "voice resume", it) }
             requestFocus(ctx)
             return
         }
@@ -253,52 +286,90 @@ object VoicePlayer {
         val app = ctx.applicationContext
         val token = ++playToken
         Thread {
-            val f = runCatching { MmsMedia.localFile(app, uri, mime) }.getOrNull()
-            main.post { if (token == playToken && currentKey == key) start(ctx, key, uri, f, startFraction, mime, token, useFile = f != null) }
+            val f = runCatching { MmsMedia.localFile(app, uri, mime) }.onFailure { MmsLog.err(app, "voice copy $uri", it) }.getOrNull()
+            MmsLog.log(app, "voice play $uri mime=$mime file=${f?.name ?: "NONE"} ${f?.length() ?: 0} bytes head=${MmsMedia.headHex(f)} sniffed=${f?.let { MmsMedia.sniffFile(it) }}")
+            main.post { if (token == playToken && currentKey == key) start(ctx, key, uri, f, startFraction, mime, token, 0) }
         }.start()
     }
 
-    private val main = android.os.Handler(android.os.Looper.getMainLooper())
-    private var playToken = 0
-
-    private fun start(ctx: Context, key: String, uri: Uri, f: File?, startFraction: Float?, mime: String?, token: Int, useFile: Boolean) {
-        val p = MediaPlayer()
-        mp = p
-        fun fallbackOrFail(what: Int, extra: Int) {
-            MmsMedia.logPlayError(ctx, "voice", uri, mime, what, extra, f)
-            runCatching { p.release() }
-            if (mp !== p) return
-            mp = null
-            if (useFile) start(ctx, key, uri, f, startFraction, mime, token, useFile = false) // second try: straight from the message store
-            else { stop(); Toast.makeText(ctx, "Can't play this audio", Toast.LENGTH_SHORT).show() }
+    /** [step] 0 = MediaPlayer on the copy, 1 = ExoPlayer on the copy, 2 = MediaPlayer on the message store; then give up. */
+    private fun start(ctx: Context, key: String, uri: Uri, f: File?, startFraction: Float?, mime: String?, token: Int, step: Int) {
+        if (token != playToken || currentKey != key) return
+        val s = if (f == null && step < 2) 2 else step
+        if (s > 2) {
+            stop()
+            MmsLog.log(ctx, "ERROR voice: no player could play $uri (mime=$mime)")
+            Toast.makeText(ctx, "Can't play this audio", Toast.LENGTH_SHORT).show()
+            return
         }
+        fun next(why: String) {
+            MmsLog.log(ctx, "ERROR voice step $s failed: $why mime=$mime file=${f?.name} ${f?.length() ?: 0} bytes head=${MmsMedia.headHex(f)}")
+            val e = eng; eng = null
+            runCatching { e?.release() }
+            if (token == playToken && currentKey == key) start(ctx, key, uri, f, startFraction, mime, token, s + 1)
+        }
+        fun onReady(e: Engine) {
+            if (eng !== e || token != playToken) return
+            preparing = false
+            val d = runCatching { e.duration() }.getOrDefault(0L)
+            if (d > 0) knownDurations[key] = d
+            startFraction?.let { fr -> if (d > 0) runCatching { e.seekTo((d * fr).toLong()) } }
+            runCatching { e.start(); applySpeed() }.onFailure { next("start: ${it.message}"); return }
+            playing = true
+            requestFocus(ctx)
+            VoicePlayedStore.markPlayed(ctx, key)
+            MmsLog.log(ctx, "voice playing with ${e.name} (${d} ms)")
+        }
+        fun onDone(e: Engine) {
+            if (eng !== e) return
+            playing = false; currentKey = null; releaseFocus()
+            runCatching { e.release() }; eng = null
+        }
+        if (s == 1) {
+            runCatching {
+                val p = androidx.media3.exoplayer.ExoPlayer.Builder(ctx.applicationContext).build()
+                val e = ExoEngine(p)
+                eng = e
+                p.setAudioAttributes(androidx.media3.common.AudioAttributes.Builder().setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_SPEECH).build(), false)
+                var readied = false
+                p.addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        if (state == androidx.media3.common.Player.STATE_READY && !readied) { readied = true; onReady(e) }
+                        if (state == androidx.media3.common.Player.STATE_ENDED) onDone(e)
+                    }
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) { if (eng === e) next("ExoPlayer ${error.errorCodeName} ${error.message}") }
+                })
+                p.setMediaItem(androidx.media3.common.MediaItem.fromUri(Uri.fromFile(f!!)))
+                p.playWhenReady = false
+                p.prepare()
+                main.postDelayed({ if (eng === e && preparing) next("ExoPlayer did not get ready in 8 s") }, 8000)
+            }.onFailure { next("ExoPlayer setup ${it.javaClass.simpleName}: ${it.message}") }
+            return
+        }
+        val p = MediaPlayer()
+        val e = MpEngine(p, if (s == 0) "MediaPlayer (copy)" else "MediaPlayer (message store)")
+        eng = e
         runCatching {
             p.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-            if (useFile && f != null) p.setDataSource(f.absolutePath) else p.setDataSource(ctx.applicationContext, uri)
-            p.setOnPreparedListener {
-                if (mp !== p) return@setOnPreparedListener
-                preparing = false
-                startFraction?.let { fr -> runCatching { p.seekTo((p.duration * fr).toInt()) } }
-                runCatching { p.start(); applySpeed() }
-                playing = true
-                requestFocus(ctx)
-                VoicePlayedStore.markPlayed(ctx, key)
-            }
-            p.setOnCompletionListener { if (mp === p) { playing = false; runCatching { p.seekTo(0) }; currentKey = null; releaseFocus(); runCatching { p.release() }; mp = null } }
-            p.setOnErrorListener { _, what, extra -> if (mp === p) fallbackOrFail(what, extra); true }
+            if (s == 0) java.io.FileInputStream(f!!).use { p.setDataSource(it.fd) } else p.setDataSource(ctx.applicationContext, uri)
+            p.setOnPreparedListener { onReady(e) }
+            p.setOnCompletionListener { onDone(e) }
+            p.setOnErrorListener { _, what, extra -> if (eng === e) next("${e.name} what=$what extra=$extra"); true }
             p.prepareAsync()
-        }.onFailure { e -> MmsLog.err(ctx, "voice play setup", e); fallbackOrFail(-1, -1) }
+            main.postDelayed({ if (eng === e && preparing) next("${e.name} did not get ready in 8 s") }, 8000)
+        }.onFailure { next("${e.name} setup ${it.javaClass.simpleName}: ${it.message}") }
     }
 
-    fun pause() { runCatching { mp?.pause() }; playing = false; releaseFocus() }
+    fun pause() { runCatching { eng?.pause() }; playing = false; releaseFocus() }
 
-    fun seekTo(f: Float) { mp?.let { p -> runCatching { p.seekTo((p.duration * f.coerceIn(0f, 1f)).toInt()) } } }
+    fun seekTo(f: Float) { eng?.let { e -> runCatching { e.seekTo((e.duration() * f.coerceIn(0f, 1f)).toLong()) } } }
 
     fun stop() {
         playToken++
-        val p = mp
-        mp = null; playing = false; preparing = false; currentKey = null
-        runCatching { p?.stop() }; runCatching { p?.release() }
+        val e = eng
+        eng = null; playing = false; preparing = false; currentKey = null
+        runCatching { e?.release() }
         releaseFocus()
     }
 
@@ -322,19 +393,19 @@ fun VoiceNoteBubble(m: Message, uri: Uri, isIn: Boolean, textColor: Color, subCo
     var played by remember(key) { mutableStateOf(!isIn || VoicePlayedStore.isPlayed(ctx, key)) }
     val isCurrent = VoicePlayer.currentKey == key
     val isPlaying = isCurrent && VoicePlayer.playing
+    val totalMs = info?.durationMs?.takeIf { it > 0 } ?: VoicePlayer.knownDurations[key] ?: 0L
     var progress by remember(key) { mutableFloatStateOf(0f) }
     var posMs by remember(key) { mutableLongStateOf(0L) }
     LaunchedEffect(isCurrent, isPlaying) {
         if (isPlaying) played = true
         while (isActive && isCurrent && VoicePlayer.playing) {
-            val d = VoicePlayer.duration().takeIf { it > 0 } ?: info?.durationMs ?: 0L
+            val d = VoicePlayer.duration().takeIf { it > 0 } ?: totalMs
             posMs = VoicePlayer.position()
             progress = if (d > 0) (posMs.toFloat() / d).coerceIn(0f, 1f) else 0f
             delay(40)
         }
         if (!isCurrent) { progress = 0f; posMs = 0L } // finished or another note took over
     }
-    val totalMs = info?.durationMs ?: 0L
     val placeholderBars = remember(key) { VoiceWave.pseudo(key.hashCode().toLong()).map { it * 0.4f }.toFloatArray() }
     val accent = if (isIn) Brand else textColor
     val unplayedDot = Color(0xFF1E88E5)

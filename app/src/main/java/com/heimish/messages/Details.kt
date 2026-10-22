@@ -104,6 +104,23 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
             if (GroupInfo.setIcon(ctx, tid, u, c.address)) iconTick++ else Toast.makeText(ctx, "Couldn't use that picture", Toast.LENGTH_SHORT).show()
         }
     }
+    // Take a new group photo with the camera (the app declares CAMERA, so the camera app only opens once it's granted)
+    val camFile = remember { java.io.File(ctx.cacheDir, "group_photo_capture.jpg") }
+    val takeIcon = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok && camFile.length() > 0) {
+            if (GroupInfo.setIcon(ctx, tid, Uri.fromFile(camFile), c.address)) iconTick++ else Toast.makeText(ctx, "Couldn't use that picture", Toast.LENGTH_SHORT).show()
+        }
+        camFile.delete()
+    }
+    fun launchCamera() = runCatching {
+        camFile.delete()
+        takeIcon.launch(androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", camFile))
+    }.onFailure { Toast.makeText(ctx, "No camera app found", Toast.LENGTH_SHORT).show() }
+    val camPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) launchCamera() }
+    fun takeGroupPhoto() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) launchCamera()
+        else camPerm.launch(android.Manifest.permission.CAMERA)
+    }
     fun addPeople() = runCatching { pickPerson.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)) }.onFailure { Toast.makeText(ctx, "No contacts app found", Toast.LENGTH_SHORT).show() }
 
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
@@ -262,10 +279,21 @@ fun ChatDetailsDialog(c: Conversation, msgs: List<Message>, onClose: () -> Unit,
                 confirmButton = { TextButton({ GroupInfo.setName(ctx, tid, t); groupName = GroupInfo.name(ctx, tid); dialog = null }) { Text("Save", color = Brand) } },
                 dismissButton = { TextButton({ if (groupName != null) { GroupInfo.setName(ctx, tid, null); groupName = null }; dialog = null }) { Text(if (groupName != null) "Remove name" else "Cancel", color = Brand) } })
         }
-        "icon" -> AlertDialog(onDismissRequest = { dialog = null }, containerColor = Surf, title = { Text("Group icon") },
-            text = { Text("Only you see this name and picture. SMS and MMS groups don't share them.", color = TextSecond) },
-            confirmButton = { TextButton({ dialog = null; runCatching { pickIcon.launch("image/*") } }) { Text("Choose photo", color = Brand) } },
-            dismissButton = { if (GroupInfo.iconUri(ctx, tid) != null) TextButton({ GroupInfo.setIcon(ctx, tid, null, c.address); iconTick++; dialog = null }) { Text("Remove", color = Brand) } })
+        "icon" -> AlertDialog(onDismissRequest = { dialog = null }, containerColor = Surf, title = { Text("Group photo") },
+            text = {
+                Column {
+                    @Composable fun Choice(icon: ImageVector, label: String, click: () -> Unit) {
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { dialog = null; click() }.padding(horizontal = 8.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(icon, null, tint = TextSecond); Spacer(Modifier.width(16.dp)); Text(label, color = TextPrimary, fontSize = 16.sp)
+                        }
+                    }
+                    Choice(Ms.Image, "Choose from gallery") { runCatching { pickIcon.launch("image/*") } }
+                    Choice(Ms.PhotoCamera, "Take photo") { takeGroupPhoto() }
+                    if (GroupInfo.iconUri(ctx, tid) != null) Choice(Ms.Delete, "Remove photo") { GroupInfo.setIcon(ctx, tid, null, c.address); iconTick++ }
+                }
+            },
+            confirmButton = { TextButton({ dialog = null }) { Text("Cancel", color = Brand) } })
     }
 }
 
