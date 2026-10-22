@@ -100,7 +100,8 @@ internal fun forwardPhoto(ctx: Context, uri: Uri): Boolean {
 
 /** One photo the full-screen viewer can show. [key] identifies the message for reactions. */
 @Immutable
-data class ViewerItem(val uri: Uri, val title: String = "", val date: Long = 0L, val reactKey: String? = null, val incoming: Boolean = true, val address: String? = null)
+data class ViewerItem(val uri: Uri, val title: String = "", val date: Long = 0L, val reactKey: String? = null, val incoming: Boolean = true, val address: String? = null,
+                      val mime: String? = null)
 
 /** Single-photo entry point (gallery peek, older callers): the same viewer with one page. */
 @Composable
@@ -224,18 +225,19 @@ fun PhotoViewer(items: List<ViewerItem>, startIndex: Int, onClose: () -> Unit, o
                 val item = items[page]
                 val zoom = remember(page) { zoomOf(page) }
                 val isCur = page == pager.currentPage
+                val video = item.isVideo
                 Box(Modifier.fillMaxSize()
-                    .pointerInput(page) {
+                    .pointerInput(page, video) {
                         detectTapGestures(
                             onTap = { chrome = !chrome; hint = false },
-                            onDoubleTap = { p -> scope.launch { zoom.toggle(p, size) } })
+                            onDoubleTap = if (video) null else { p -> scope.launch { zoom.toggle(p, size) } })
                     }
-                    .pointerInput(page) {
+                    .pointerInput(page, video) {
                         val slop = viewConfiguration.touchSlop
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             if (closing) return@awaitEachGesture
-                            var mode = if (zoom.zoomed) MODE_ZOOM else MODE_NONE
+                            var mode = if (zoom.zoomed && !video) MODE_ZOOM else MODE_NONE
                             var id = down.id
                             var total = Offset.Zero
                             val vt = VelocityTracker()
@@ -251,7 +253,7 @@ fun PhotoViewer(items: List<ViewerItem>, startIndex: Int, onClose: () -> Unit, o
                                     dragBy(c.positionChange()); c.consume()
                                     continue
                                 }
-                                if (pressed >= 2) mode = MODE_ZOOM
+                                if (pressed >= 2 && !video) mode = MODE_ZOOM
                                 if (mode == MODE_ZOOM) {
                                     val z = ev.calculateZoom(); val pan = ev.calculatePan()
                                     if (z != 1f || pan != Offset.Zero) zoom.transform(z, pan, ev.calculateCentroid(useCurrent = true), size)
@@ -274,7 +276,16 @@ fun PhotoViewer(items: List<ViewerItem>, startIndex: Int, onClose: () -> Unit, o
                             }
                         }
                     }) {
-                    AsyncImage(item.uri, "Photo", Modifier.fillMaxSize().graphicsLayer {
+                    if (video) VideoPage(item, isCur, chrome && !dragging,
+                        bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + (if (item.reactKey != null) 84.dp else 18.dp),
+                        layer = Modifier.graphicsLayer {
+                            val p = if (isCur) progress() else 0f
+                            val s = 1f - p * 0.32f
+                            scaleX = s; scaleY = s
+                            translationX = if (isCur) dragX else 0f
+                            translationY = if (isCur) dragY else 0f
+                        })
+                    else AsyncImage(item.uri, "Photo", Modifier.fillMaxSize().graphicsLayer {
                         val p = if (isCur) progress() else 0f
                         val s = zoom.scale * (1f - p * 0.32f)
                         scaleX = s; scaleY = s
@@ -303,8 +314,8 @@ fun PhotoViewer(items: List<ViewerItem>, startIndex: Int, onClose: () -> Unit, o
                         if (sub.isNotEmpty()) Text(sub, color = white.copy(.75f), fontSize = 12.sp, maxLines = 1)
                     }
                     if (showForward) IconButton({ if (forwardPhoto(ctx, cur.uri)) onClose() }) { Icon(Ms.Forward, "Forward", tint = white) }
-                    IconButton({ sharePhoto(ctx, cur.uri) }) { Icon(Ms.Share, "Share", tint = white) }
-                    IconButton({ savePhoto(ctx, cur.uri) }) { Icon(Ms.Download, "Save", tint = white) }
+                    IconButton({ shareMedia(ctx, cur) }) { Icon(Ms.Share, "Share", tint = white) }
+                    IconButton({ saveMedia(ctx, cur) }) { Icon(Ms.Download, "Save", tint = white) }
                     if (onDelete != null) Box {
                         IconButton({ menu = true }) { Icon(Ms.MoreVert, "More", tint = white) }
                         DropdownMenu(menu, { menu = false }) {

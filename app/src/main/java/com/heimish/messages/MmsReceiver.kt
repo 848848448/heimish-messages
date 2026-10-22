@@ -368,6 +368,7 @@ object MmsIncoming {
                 if (exp in 1 until now) continue
                 if (e.optInt("attempts") >= MAX_ATTEMPTS) continue
                 if (now - e.optLong("last") < 60_000L) continue // a download is probably running
+                e.put("last", now) // claimed by this sweep: a second sweep started at the same moment leaves it alone
                 todo.add(e)
             }
             save(ctx, q)
