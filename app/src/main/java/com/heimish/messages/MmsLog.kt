@@ -55,9 +55,17 @@ object MmsLog {
     fun read(ctx: Context): String = runCatching {
         synchronized(lock) {
             val f = file(ctx)
-            if (!f.exists()) "" else f.readLines().takeLast(KEEP).joinToString("\n")
+            if (!f.exists()) "" else newestFirst(f.readLines().takeLast(KEEP)).joinToString("\n")
         }
     }.getOrDefault("")
+
+    /** Entries newest first (an entry's indented continuation lines stay under it), so a paste that gets cut off keeps
+     *  what happened last. */
+    fun newestFirst(lines: List<String>): List<String> {
+        val entries = ArrayList<MutableList<String>>()
+        for (l in lines) if (l.startsWith("    ") && entries.isNotEmpty()) entries.last().add(l) else entries.add(mutableListOf(l))
+        return entries.asReversed().flatten()
+    }
 
     fun clear(ctx: Context) { runCatching { synchronized(lock) { file(ctx).delete() } } }
 
@@ -143,7 +151,9 @@ object MmsLog {
         runCatching {
             val tm = app.getSystemService(TelephonyManager::class.java)
             @Suppress("MissingPermission")
-            val data = if (Build.VERSION.SDK_INT >= 26) runCatching { tm?.isDataEnabled?.toString() ?: "unknown" }.getOrElse { "unknown (${it.javaClass.simpleName})" } else "n/a"
+            // the phone's own mobile-data switch, readable without any permission (isDataEnabled throws on some phones)
+            val data = runCatching { when (android.provider.Settings.Global.getInt(app.contentResolver, "mobile_data", -1)) { 1 -> "yes"; 0 -> "NO"; else -> null } }.getOrNull()
+                ?: if (Build.VERSION.SDK_INT >= 26) runCatching { tm?.isDataEnabled?.let { if (it) "yes" else "NO" } ?: "unknown" }.getOrElse { "unknown" } else "unknown"
             val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
             val caps = runCatching { cm?.getNetworkCapabilities(cm.activeNetwork) }.getOrNull()
             val net = when {

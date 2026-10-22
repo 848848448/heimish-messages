@@ -24,24 +24,55 @@ object MmsMedia {
     fun extFor(mime: String): String = MediaTypes.extFor(mime)
     fun fixPartType(ct: String, name: String?, data: ByteArray): String = MediaTypes.fixPartType(ct, name, data)
 
-    /** A playable local file for [uri] (a content://mms/part/... or file:// URI); null when it can't be read. */
+    /** A playable local file for [uri] (a content://mms/part/... or file:// URI); null when it can't be read.
+     *  The copy is checked against the part's current size every time: a copy made while the part was still being
+     *  written (the chat refreshes as soon as the part row exists), or left from a deleted message whose part number was
+     *  reused, is made again instead of being played truncated or wrong. */
     fun localFile(ctx: Context, uri: Uri, mime: String?): File? {
         if (uri.scheme == "file") return uri.path?.let { File(it) }?.takeIf { it.exists() && it.length() > 0 }
         val dir = File(ctx.cacheDir, "media_open").apply { mkdirs() }
         val base = "mms_" + uri.toString().hashCode().toUInt().toString(16)
+        val srcSize = runCatching { ctx.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } }.getOrNull() ?: -1L
         synchronized(lock) {
-            dir.listFiles { f -> f.name.startsWith("$base.") && f.length() > 0 }?.firstOrNull()?.let { it.setLastModified(System.currentTimeMillis()); return it }
+            val cached = dir.listFiles { f -> f.name.startsWith("$base.") && !f.name.endsWith(".tmp") && f.length() > 0 }?.firstOrNull()
+            if (cached != null) {
+                if (srcSize <= 0L || cached.length() == srcSize || cached.length() == srcSize + 6 || cached.length() == srcSize + 9) { cached.setLastModified(System.currentTimeMillis()); return cached }
+                MmsLog.log(ctx, "media copy ${cached.name} is ${cached.length()} bytes but the part is $srcSize now: copying again")
+                cached.delete(); probes.remove(uri.toString()); thumbs.remove(uri.toString())
+            }
             val tmp = File(dir, "$base.tmp")
             val n = runCatching { ctx.contentResolver.openInputStream(uri)?.use { i -> tmp.outputStream().use { o -> i.copyTo(o) } } }
                 .onFailure { MmsLog.err(ctx, "media read $uri", it) }.getOrNull()
-            if (n == null || n <= 0L) { tmp.delete(); MmsLog.log(ctx, "ERROR media $uri ($mime) is empty or unreadable"); return null }
-            val head = ByteArray(16).also { b -> runCatching { tmp.inputStream().use { it.read(b) } } }
-            val real = sniffMime(head) ?: mime ?: ""
+            val info = partInfo(ctx, uri)
+            if (n == null || n <= 0L) { tmp.delete(); MmsLog.log(ctx, "ERROR media $uri ($mime) is empty or unreadable: copied ${n ?: "nothing"}, part size $srcSize, $info"); return null }
+            var head = ByteArray(16).also { b -> runCatching { tmp.inputStream().use { it.read(b) } } }
+            MediaTypes.missingAmrHeader(mime, head.copyOf(minOf(16, n.toInt())))?.let { hdr ->
+                runCatching {
+                    val fixed = File(dir, "$base.fix")
+                    fixed.outputStream().use { o -> o.write(hdr.toByteArray(Charsets.ISO_8859_1)); tmp.inputStream().use { it.copyTo(o) } }
+                    tmp.delete(); fixed.renameTo(tmp)
+                    head = ByteArray(16).also { b -> tmp.inputStream().use { it.read(b) } }
+                    MmsLog.log(ctx, "media $uri: AMR without its header, added ${hdr.trim()}")
+                }
+            }
+            val sniffed = sniffMime(head)
+            val real = sniffed ?: mime ?: ""
             val out = File(dir, "$base.${extFor(real)}")
-            if (!tmp.renameTo(out)) { tmp.delete(); return null }
+            if (!tmp.renameTo(out)) { tmp.delete(); MmsLog.log(ctx, "ERROR media copy rename failed for $uri"); return null }
+            MmsLog.log(ctx, "media copy $uri $info mime=$mime: $n bytes (part size $srcSize) head=${MmsLog.hex(head.copyOf(minOf(16, n.toInt())), 16)} sniffed=${sniffed ?: "unknown"} -> ${out.name}")
             return out
         }
     }
+
+    /** The part's stored content type and name, for the log. */
+    private fun partInfo(ctx: Context, uri: Uri): String = runCatching {
+        ctx.contentResolver.query(uri, arrayOf("ct", "name", "cl"), null, null, null)?.use { c ->
+            if (c.moveToFirst()) "ct=${c.getString(0)} name=${c.getString(1) ?: c.getString(2)}" else "part row missing"
+        } ?: "no part row"
+    }.getOrElse { "part info: ${it.message}" }
+
+    /** The format of a local file from its first bytes. */
+    fun sniffFile(f: File): String? = runCatching { val b = ByteArray(16); val n = f.inputStream().use { it.read(b) }; sniffMime(b.copyOf(maxOf(n, 0))) }.getOrNull()
 
     fun headHex(f: File?): String = runCatching { val b = ByteArray(16); val n = f!!.inputStream().use { it.read(b) }; MmsLog.hex(b.copyOf(maxOf(n, 0)), 16) }.getOrDefault("-")
 
@@ -136,6 +167,21 @@ object MediaTypes {
         if (c.startsWith("text/") || c == "application/smil") return ct
         if (mediaMimeFor(ct, name) != null && c != "application/octet-stream") return ct
         return sniffMime(data.copyOf(minOf(16, data.size))) ?: mediaMimeFor(ct, name) ?: ct
+    }
+
+    /** The storage header to put in front of AMR audio sent as bare frames (no "#!AMR" line; some phones and carriers
+     *  do this and no player opens it without the header), or null when the data already has one or isn't AMR. Pure. */
+    fun missingAmrHeader(mime: String?, head: ByteArray): String? {
+        val c = (mime ?: "").lowercase().substringBefore(';').trim()
+        if (head.isEmpty() || sniffMime(head) != null) return null
+        val b = head[0].toInt() and 0xFF
+        if (b and 0x83 != 0) return null           // frame header: padding bit, 4-bit frame type, quality bit, 2 padding bits
+        val ft = (b shr 3) and 0x0F
+        return when (c) {
+            "audio/amr", "audio/x-amr" -> if (ft <= 8 || ft == 15) "#!AMR\n" else null
+            "audio/amr-wb", "audio/x-amr-wb" -> if (ft <= 9 || ft == 15) "#!AMR-WB\n" else null
+            else -> null
+        }
     }
 
     /** Extension for a cache copy, so every player recognises the container. */
