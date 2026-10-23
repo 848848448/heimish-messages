@@ -124,7 +124,11 @@ class MainActivity : ComponentActivity() {
             RemindReceiver.rearmAll(applicationContext)
             runCatching { AutoBackup.schedule(applicationContext) }
         }.start()
-        if (savedInstanceState == null) IntentRouter.pending = intent
+        // A notification tap can arrive WITH a restored state (the process was killed in the background): Android
+        // redelivers the tap's intent and savedInstanceState is not null, and dropping it here landed the user on the
+        // conversation list instead of the chat. The handled marker stops config-change recreations (same intent
+        // object) from navigating again.
+        if (savedInstanceState == null || !intent.getBooleanExtra("heimish_handled", false)) IntentRouter.pending = intent
         // Edge-to-edge: the app draws under the bars and lays itself out with WindowInsets. The keyboard (adjustResize) only
         // shrinks the content area, so the top bar stays pinned and the compose bar rides on the keyboard, like Google Messages.
         // (Before, the window was panned up under the keyboard, which pushed the chat's top bar off the screen.)
@@ -294,6 +298,7 @@ fun AppRoot(isDefault: Boolean, onRequestDefault: () -> Unit) {
     LaunchedEffect(pendingIntent) {
         val i = pendingIntent ?: return@LaunchedEffect
         IntentRouter.pending = null
+        i.putExtra("heimish_handled", true)
         // Forward started in the floating chat bubble: the picker opens here, on top of wherever the app was
         if (i.getBooleanExtra("open_forward", false)) {
             if (ForwardState.payload != null && stack.last() !is Screen.Forward) stack = stack + Screen.Forward
