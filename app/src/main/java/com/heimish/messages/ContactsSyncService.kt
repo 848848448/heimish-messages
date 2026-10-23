@@ -37,8 +37,17 @@ class ContactsSyncService : BroadcastReceiver() {
         private const val PHOTO_THREADS = 3
         private val running = AtomicBoolean(false)
 
-        /** The id this phone syncs under (same as the contacts upload). */
-        fun deviceId(): String = Build.MODEL.replace(" ", "-") + "-" + Build.ID
+        /** The id this phone syncs under (same as the contacts upload). Random per install, so two identical
+         * phone models no longer overwrite each other's contacts on the server. */
+        fun deviceId(ctx: Context): String {
+            val p = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE)
+            var id = p.getString("sync_device_id", null)
+            if (id.isNullOrBlank()) {
+                id = Build.MODEL.replace(" ", "-") + "-" + java.util.UUID.randomUUID().toString().take(8)
+                p.edit().putString("sync_device_id", id).apply()
+            }
+            return id
+        }
 
         /** Last 10 digits of a number — the worker's photo key. */
         fun photoKey(number: String): String {
@@ -116,7 +125,7 @@ class ContactsSyncService : BroadcastReceiver() {
         private fun syncPhotos(context: Context, photos: Map<String, Pair<String?, String?>>) {
             val store = context.getSharedPreferences("contact_photo_hashes", Context.MODE_PRIVATE)
             val known = HashMap(store.all.mapValues { it.value as? String ?: "" })
-            val dev = android.net.Uri.encode(deviceId())
+            val dev = android.net.Uri.encode(deviceId(context))
             val pool = Executors.newFixedThreadPool(PHOTO_THREADS)
             val stop = AtomicBoolean(false)
             val failures = AtomicInteger(0)
@@ -274,7 +283,7 @@ class ContactsSyncService : BroadcastReceiver() {
 
         /** Upload contacts to the Cloudflare Worker */
         private fun uploadContacts(context: Context, contacts: JSONArray): Boolean {
-            val deviceId = deviceId()
+            val deviceId = deviceId(context)
 
             val body = JSONObject().apply {
                 put("device", deviceId)
