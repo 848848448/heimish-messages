@@ -849,9 +849,19 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
             ChatBubbleExtras(remoteReactions, if (showSearch) searchQuery.trim() else "", currentHit, flashKey, replyVer, onJump = { k -> jumpReq = k to true })
         }
         CompositionLocalProvider(LocalChatExtras provides bubbleExtras) {
+        Column(Modifier.fillMaxSize()) {
+        // Pinned bar stays fixed under the header (Google Messages style): not a list item, so it
+        // never floats with the bottom-aligned content and never scrolls away.
+        if (pins.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).clickable { ChatJump.request(conversation.threadId, msgKey(pins.last())) }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Ms.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (pins.size > 1) { Spacer(Modifier.width(8.dp)); Text(pins.size.toString(), color = OnTonal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            }
+        }
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp).graphicsLayer { alpha = if (positioned) 1f else 0f },
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp).graphicsLayer { alpha = if (positioned) 1f else 0f },
             // Newest message at the bottom, laid out from the bottom up: the chat opens already at the newest message on the
             // first frame (no scroll down), and when the keyboard opens or a photo loads the bottom stays put.
             reverseLayout = true,
@@ -901,18 +911,12 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                     }
                 }
             }
-            if (pins.isNotEmpty()) item(key = "pinned_banner", contentType = "pins") {
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).clickable { ChatJump.request(conversation.threadId, msgKey(pins.last())) }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Ms.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                    Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    if (pins.size > 1) { Spacer(Modifier.width(8.dp)); Text(pins.size.toString(), color = OnTonal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-                }
-            }
             if (hasOlder && !showSearch) item(key = "load_older", contentType = "older") {
                 Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                     TextButton({ loadingOlder = true; msgLimit += 800; reload() }) { Text("Load older messages", color = Brand) }
                 }
             }
+        }
         }
         }
         // Jump to the newest message when scrolled up (Google Messages' round arrow button); "↓ N new" when texts arrived meanwhile
@@ -965,4 +969,3 @@ internal val PanelEnter: EnterTransition =
 internal val PanelExit: ExitTransition =
     shrinkVertically(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing), shrinkTowards = Alignment.Top) +
         fadeOut(androidx.compose.animation.core.tween(120))
-
