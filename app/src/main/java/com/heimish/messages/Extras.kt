@@ -95,14 +95,16 @@ class MessageWidget : AppWidgetProvider() {
             try {
                 val convs = runCatching { SmsRepository.loadConversations(ctx) }.getOrDefault(emptyList())
                 val unread = convs.sumOf { it.unreadCount }
+                // App lock on: the widget shows no names or messages until the app is unlocked
+                val locked = ctx.getSharedPreferences("heimish_prefs", Context.MODE_PRIVATE).getBoolean("app_lock", false)
                 val open = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 for (id in ids) {
                     val rv = RemoteViews(ctx.packageName, R.layout.widget_messages)
-                    rv.setTextViewText(R.id.w_title, if (unread > 0) "Message · $unread unread" else "Message")
+                    rv.setTextViewText(R.id.w_title, if (locked) "Message · Locked" else if (unread > 0) "Message · $unread unread" else "Message")
                     val rows = intArrayOf(R.id.w_row1, R.id.w_row2, R.id.w_row3)
                     for (i in rows.indices) {
                         val c = convs.getOrNull(i)
-                        rv.setTextViewText(rows[i], if (c == null) "" else (c.displayName + ": " + c.snippet.replace('\n', ' ')))
+                        rv.setTextViewText(rows[i], if (c == null || locked) "" else (c.displayName + ": " + c.snippet.replace('\n', ' ')))
                     }
                     rv.setOnClickPendingIntent(R.id.w_root, open)
                     mgr.updateAppWidget(id, rv)
