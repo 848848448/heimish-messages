@@ -422,8 +422,10 @@ fun SwipeableConvRow(c: Conversation, pinned: Boolean, onOpen: (Conversation) ->
                 val draft = DraftStore.get(ctx, c.threadId)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (pinned) { Icon(Ms.PushPinFill, "Pinned", tint = TextSecond, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(4.dp)) }
+                    // Group titles (family groups have long name lists) get two lines; one-on-one stays one line.
+                    // Timestamp and unread badge keep their positions on the right of the first line.
                     Text(c.displayName, fontWeight = if (c.unread) FontWeight.Bold else FontWeight.Medium, fontSize = 16.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary, style = listTextStyle())
+                        maxLines = if (c.address.contains(";")) 2 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), color = TextPrimary, style = listTextStyle())
                     Spacer(Modifier.width(8.dp))
                     Text(shortTime(c.date), fontSize = 12.sp,
                         color = if (c.unread) Brand else TextSecond,
