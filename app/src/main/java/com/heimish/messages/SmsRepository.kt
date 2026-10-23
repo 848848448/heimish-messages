@@ -137,8 +137,10 @@ object SmsRepository {
                 val addr = members.joinToString(";")
                 val name = if (members.size > 1) members.joinToString(", ") { cachedContactName(ctx, it) ?: it } else (cachedContactName(ctx, addr) ?: addr)
                 var snippet = if (iSn >= 0) c.getString(iSn) ?: "" else ""
-                if (snippet.isBlank() && iAtt >= 0 && c.getInt(iAtt) == 1) snippet = "📷 Photo"
+                // Blank body: read the last MMS's real parts so the list says Photo / Video / Voice message
+                // (it used to say "Photo" for every kind of attachment)
                 if (snippet.isBlank()) snippet = mmsSnippetForThread(ctx, thread)
+                if (snippet.isBlank() && iAtt >= 0 && c.getInt(iAtt) == 1) snippet = "📷 Photo"
                 val uc = unreadCounts[thread] ?: 0
                 val t = lastType[thread]
                 out.add(Conversation(threadId = thread, address = addr, displayName = name, snippet = snippet, date = c.getLong(iDate),
@@ -754,8 +756,12 @@ object SmsRepository {
 
     private fun mmsSnippet(ctx: Context, mmsId: Long): String {
         var text = ""
-        var hasMedia = false
+        var hasImage = false
+        var hasVideo = false
         var hasAudio = false
+        var hasGif = false
+        var hasCard = false
+        var hasOther = false
         runCatching {
             ctx.contentResolver.query(
                 Uri.parse("content://mms/$mmsId/part"),
@@ -766,24 +772,40 @@ object SmsRepository {
                 val iCl   = c.getColumnIndex("cl")
                 val iName = c.getColumnIndex("name")
                 while (c.moveToNext()) {
-                    val ct = c.getString(iCt) ?: ""
-                    val nm = (if (iCl >= 0) c.getString(iCl) else null) ?: (if (iName >= 0) c.getString(iName) else null)
+                    val ct = (c.getString(iCt) ?: "").lowercase()
+                    val nm = ((if (iCl >= 0) c.getString(iCl) else null) ?: (if (iName >= 0) c.getString(iName) else null))?.lowercase()
                     when {
                         ct == "text/plain" -> text = c.getString(iText) ?: ""
-                        audioMimeFor(ct, nm) != null -> { hasMedia = true; hasAudio = true }
-                        ct.startsWith("image/") || ct.startsWith("video/") -> hasMedia = true
+                        ct == "application/smil" -> { }
+                        audioMimeFor(ct, nm) != null -> hasAudio = true
+                        ct == "image/gif" || nm?.endsWith(".gif") == true -> { hasGif = true; hasImage = true }
+                        ct.startsWith("image/") -> hasImage = true
+                        ct.startsWith("video/") -> hasVideo = true
+                        ct.contains("vcard") || ct.contains("x-vcard") || nm?.endsWith(".vcf") == true -> hasCard = true
+                        ct.isNotBlank() -> hasOther = true
                     }
                 }
             }
         }
+        // Same labels Google Messages shows in the list for the same content
+        val label = when {
+            hasAudio -> "🎤 Voice message"
+            hasVideo -> "🎥 Video"
+            hasGif -> "📷 GIF"
+            hasImage -> "📷 Photo"
+            hasCard -> "📎 Contact card"
+            hasOther -> "📎 Attachment"
+            else -> ""
+        }
+        val icon = label.substringBefore(' ')
         return when {
-            hasAudio && text.isBlank() -> "🎤 Voice message"
-            text.isNotBlank() && hasMedia -> "📎 $text"
+            text.isNotBlank() && label.isNotBlank() -> "$icon $text"
             text.isNotBlank() -> text
-            hasMedia -> "📷 MMS"
+            label.isNotBlank() -> label
             else -> "MMS"
         }
     }
+
 
     /** Every attachment of one MMS, in order (photos, videos, voice notes, contact cards, files), for forwarding. Text and layout parts are skipped. */
     fun mmsAttachments(ctx: Context, mmsRowId: Long): List<Pair<Uri, String>> {
