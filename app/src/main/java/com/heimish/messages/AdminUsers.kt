@@ -138,7 +138,7 @@ object InstallReporter {
             put("sdk", Build.VERSION.SDK_INT)
             put("versionCode", BuildConfig.BUILD_NUMBER)
             put("versionName", versionName())
-            put("device", ContactsSyncService.deviceId().take(80))
+            put("device", ContactsSyncService.deviceId(ctx).take(80))
         }.toString().toByteArray()
         val conn = java.net.URL("${BuildConfig.WORKER_URL}/install/$id").openConnection() as java.net.HttpURLConnection
         try {
