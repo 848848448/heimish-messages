@@ -902,9 +902,10 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                 }
             }
             if (pins.isNotEmpty()) item(key = "pinned_banner", contentType = "pins") {
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(Tonal).clickable { ChatJump.request(conversation.threadId, msgKey(pins.last())) }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Ms.PushPin, null, tint = OnTonal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                    Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(pins.last().body.ifBlank { "(media)" }, color = OnTonal, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (pins.size > 1) { Spacer(Modifier.width(8.dp)); Text(pins.size.toString(), color = OnTonal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                 }
             }
             if (hasOlder && !showSearch) item(key = "load_older", contentType = "older") {
@@ -964,5 +965,4 @@ internal val PanelEnter: EnterTransition =
 internal val PanelExit: ExitTransition =
     shrinkVertically(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing), shrinkTowards = Alignment.Top) +
         fadeOut(androidx.compose.animation.core.tween(120))
-
 
