@@ -842,6 +842,16 @@ fun ThreadScreen(conversation: Conversation, forwardTarget: Boolean = false, onF
                 val it0 = l.visibleItemsInfo.firstOrNull { it.index == target }
                 val vp = l.viewportEndOffset - l.viewportStartOffset
                 if (it0 != null && vp > 0) listState.scrollBy(-((vp - it0.size) / 2f).coerceAtLeast(0f))
+                // Near a content edge the centering above clamps and can leave the target
+                // partially out of view (pinned-bar jump to the oldest message of a short
+                // thread): nudge the settled position so the whole bubble is visible.
+                val l2 = listState.layoutInfo
+                val it1 = l2.visibleItemsInfo.firstOrNull { it.index == target }
+                if (it1 != null) {
+                    val m = with(density) { 12.dp.toPx() }
+                    if (it1.offset < l2.viewportStartOffset + m) listState.scrollBy(it1.offset - l2.viewportStartOffset - m)
+                    else if (it1.offset + it1.size > l2.viewportEndOffset - m) listState.scrollBy(it1.offset + it1.size - l2.viewportEndOffset + m)
+                }
             }
             if (doFlash) { flashKey = k; delay(1600); if (flashKey == k) flashKey = null }
         }
