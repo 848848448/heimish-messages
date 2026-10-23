@@ -2,9 +2,9 @@ name: QA emulator
 on:
   workflow_dispatch:
   push:
-    paths: ['.github/workflows/qa.yml']
+    paths: ['.github/workflows/qa.yml', 'qa/**']
 permissions:
-  contents: write
+  contents: read
 jobs:
   qa:
     runs-on: ubuntu-latest
@@ -13,137 +13,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
-      - name: Write QA scripts
-        run: |
-          mkdir -p qa
-          cat > qa/tap.py <<'QAEOF'
-          #!/usr/bin/env python3
-          # usage: tap.py "text"  -> taps first node whose text/desc contains it (case-insens). exit 1 if missing.
-          import subprocess,sys,re,xml.etree.ElementTree as ET
-          def dump():
-              subprocess.run(["adb","shell","uiautomator","dump","/sdcard/u.xml"],capture_output=True)
-              x=subprocess.run(["adb","exec-out","cat","/sdcard/u.xml"],capture_output=True,text=True).stdout
-              return ET.fromstring(x[x.find("<"):])
-          def nodes(r):
-              for n in r.iter("node"):
-                  m=re.findall(r"\d+",n.get("bounds",""))
-                  if len(m)==4:
-                      yield n,[int(i) for i in m]
-          if __name__=="__main__":
-              q=sys.argv[1].lower(); idx=int(sys.argv[2]) if len(sys.argv)>2 else 0
-              hits=[(n,b) for n,b in nodes(dump()) if q in (n.get("text","")+" "+n.get("content-desc","")).lower()]
-              if len(hits)<=idx: print("MISSING",q); sys.exit(1)
-              b=hits[idx][1]; subprocess.run(["adb","shell","input","tap",str((b[0]+b[2])//2),str((b[1]+b[3])//2)]); print("tapped",q)
-          QAEOF
-          cat > qa/dump.py <<'QAEOF'
-          import sys; sys.path.insert(0,"qa")
-          from tap import dump,nodes
-          for n,b in nodes(dump()):
-              t=(n.get("text") or n.get("content-desc") or "")
-              if t or n.get("clickable")=="true": print(b,n.get("class","").split(".")[-1],repr(t),"click" if n.get("clickable")=="true" else "")
-          QAEOF
-          cat > qa/qa.sh <<'QAEOF'
-          #!/bin/bash
-          # QA harness: runs on emulator in CI. Never exits non-zero; collects evidence into qa/out.
-          P=com.heimish.messages
-          O=qa/out; mkdir -p $O
-          sh(){ adb shell "$@"; }
-          shot(){ sleep 1.5; adb exec-out screencap -p > $O/$1.png; python3 qa/dump.py > $O/$1.txt 2>&1; }
-          tap(){ python3 qa/tap.py "$@" || echo "!! could not tap $*" >> $O/problems.txt; sleep 1; }
-          xy(){ sh input tap $1 $2; sleep 1; }
-          back(){ sh input keyevent KEYCODE_BACK; sleep 1; }
-          adb install -r app/build/outputs/apk/debug/app-debug.apk > $O/install.txt 2>&1
-          for p in READ_SMS SEND_SMS RECEIVE_SMS RECEIVE_MMS READ_CONTACTS WRITE_CONTACTS POST_NOTIFICATIONS CAMERA RECORD_AUDIO READ_MEDIA_IMAGES; do sh pm grant $P android.permission.$p; done
-          sh cmd role add-role-holder --user 0 android.app.role.SMS $P > $O/role.txt 2>&1
-          sh cmd role get-role-holders --user 0 android.app.role.SMS >> $O/role.txt 2>&1
-          sh settings put global window_animation_scale 0
-          # contacts
-          for n in "Moshe Katz:5551110001" "Chaya Weiss:5551110002"; do
-            name=${n%%:*}; num=${n##*:}
-            sh content insert --uri content://com.android.contacts/raw_contacts --bind account_type:s:com.test --bind account_name:s:t >/dev/null
-            id=$(sh content query --uri content://com.android.contacts/raw_contacts --projection _id | tail -1 | sed 's/.*_id=//')
-            sh content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:$id --bind mimetype:s:vnd.android.cursor.item/name --bind "'data1:s:$name'"
-            sh content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:$id --bind mimetype:s:vnd.android.cursor.item/phone_v2 --bind data1:s:$num --bind data2:i:2
-          done
-          adb logcat -c
-          # incoming SMS through the real receive path
-          adb emu sms send 5551110001 "Hey, are we still on for Shabbos dinner?"; sleep 2
-          adb emu sms send 5551110002 "Mazel tov! Just heard the news"; sleep 2
-          adb emu sms send 5551110002 "Call me when you can"; sleep 2
-          adb emu sms send 7185550123 "Your verification code is 482913"; sleep 2
-          adb emu sms send 5551110001 "Also bring the folding chairs please, there is a long line of people coming and I want to make sure everybody has a seat at the table"; sleep 2
-          for i in $(seq 1 12); do adb emu sms send 5551110003 "Message number $i in a long thread"; sleep 1; done
-          fresh(){ sh am force-stop $P; sh am start -n $P/.MainActivity >/dev/null; sleep 3; }
-          opent(){ { python3 qa/tap.py Moshe || python3 qa/tap.py 5551110001; }; sleep 1.5; }
-          menu(){ xy 1007 213; }
-          fresh; shot 01_list
-          sh dumpsys notification --noredact 2>/dev/null | grep -E 'pkg=com.heimish|android.title|android.text' | head -20 > $O/notifications.txt
-          sh dumpsys gfxinfo $P reset >/dev/null
-          for i in 1 2 3 4 5; do sh input swipe 540 1800 540 600 150; sh input swipe 540 600 540 1800 150; done
-          sh dumpsys gfxinfo $P > $O/gfx_list.txt
-          fresh; opent; shot 02_thread
-          sh dumpsys gfxinfo $P reset >/dev/null
-          for i in 1 2 3; do sh input swipe 540 500 540 1700 120; sh input swipe 540 1700 540 500 120; done
-          sh dumpsys gfxinfo $P > $O/gfx_thread.txt
-          sh input tap 540 2250; sh input text "Testing%sa%smessage"; shot 03_typing
-          python3 qa/tap.py Send || xy 1000 2250 ; sleep 2; shot 04_sent
-          sh input swipe 300 1500 300 1500 700; shot 05_bubble_menu
-          fresh; opent; xy 1040 150; shot 06_thread_menu_a
-          fresh; opent; xy 130 2240; shot 07_attach_menu
-          fresh; opent; xy 1000 2240; shot 07b_emoji_or_img
-          fresh; opent; tap "Search in chat" ; shot 07c_thread_search
-          fresh; menu; shot 08_list_menu
-          fresh; tap "Start chat"; shot 09_new_chat; sh input text "555"; shot 09b_new_chat_typed
-          fresh; sh input tap 540 380; sh input text "Chaya"; shot 10_search_results
-          fresh; menu; tap "Settings"; shot 12_settings
-          for s2 in "Notifications" "Protection" "Swipe" "Advanced" "Theme" "Chat bubbles" "Text size" "Automatic previews" "About"; do fresh; menu; tap "Settings"; tap "$s2" && shot "13_sub_$s2"; done
-          fresh; menu; tap "Archived"; shot 14_archived
-          fresh; menu; tap "Starred"; shot 15_starred
-          fresh; menu; tap "Scheduled"; shot 16_scheduled
-          fresh; menu; tap "Admin"; shot 17_admin
-          fresh; sh input swipe 900 600 200 600 200; shot 18_swipe_row
-          fresh; sh input swipe 600 600 600 600 800; shot 19_row_longpress
-          cmd_night(){ sh cmd uimode night $1; sleep 2; }
-          cmd_night yes; fresh; shot 20_dark_list; opent; shot 21_dark_thread; back; menu; tap Settings; shot 22_dark_settings; cmd_night no
-          adb logcat -d > $O/logcat_full.txt
-          grep -E 'FATAL EXCEPTION|ANR in|AndroidRuntime|Skipped [0-9]+ frames|Choreographer|StrictMode|Exception' $O/logcat_full.txt | grep -i -E "heimish|FATAL|ANR|Skipped|StrictMode" | head -80 > $O/logcat_problems.txt
-          adb logcat -d -s HM:* > $O/hm_log.txt
-          sh dumpsys meminfo $P | head -30 > $O/meminfo.txt
-          cat > $O/summary.txt <<S
-          gfx list: $(grep -E 'Total frames|Janky frames|50th|90th|95th|99th' $O/gfx_list.txt | tr '\n' ' ')
-          gfx thread: $(grep -E 'Total frames|Janky frames|50th|90th|95th|99th' $O/gfx_thread.txt | tr '\n' ' ')
-          S
-          # b187 checks: populated numeric dataset
-          for n in $(seq 1 25); do adb emu sms send 1718555$(printf %04d $n) "Order $n shipped, track at https://example.com/t/$n"; sleep 0.5; done
-          adb emu sms send 18005551234 "50% off sale today only. Reply STOP to opt out"; sleep 1
-          adb emu sms send 5559990001 "."; sleep 1; adb emu sms send 5559990001 "ok"; sleep 1; adb emu sms send 5559990001 "see you at 8, bring the kids and the folding chairs please"; sleep 2
-          fresh; shot 30_list_populated
-          sh input tap 540 1000; sleep 1; shot 31_back_check
-          fresh; python3 qa/tap.py 5559990001; sleep 2; shot 32_short_bubbles
-          sh input tap 540 2240; sh input text "hello%sthere"; xy 540 2240; shot 33_compose
-          xy 1040 150; python3 qa/tap.py "Schedule send"; sleep 1; shot 34_schedule_quick
-          back; fresh; python3 qa/tap.py "Transactions"; sleep 1; shot 35_category
-          fresh; sh input tap 540 520; shot 36_update_row_or_status
-          # b191 checks
-          fresh; python3 qa/tap.py 5559990001; sleep 2; xy 1040 150; shot 40_thread_menu
-          python3 qa/tap.py "Details"; sleep 1.5; shot 41_details
-          fresh; python3 qa/tap.py 5559990001; sleep 2; sh input tap 540 2240; sh input text "hello%sthere"; sleep 1; back; sleep 1; xy 1040 150; python3 qa/tap.py "Schedule send"; sleep 1.5; shot 42_schedule_quick
-          back; sleep 1; back; sleep 1; back; sleep 2; shot 45_list_draft
-          fresh; sh input swipe 540 700 540 700 900; sleep 1; python3 qa/tap.py "Select"; sleep 1; sh input tap 540 900; sleep 1; shot 44_multi_select
-          fresh; python3 qa/tap.py "Transactions"; sleep 1; shot 46_transactions
-          fresh; sh input swipe 540 700 540 700 900; sleep 1; python3 qa/tap.py "Mark as unread"; sleep 2; shot 47_marked_unread
-          fresh; python3 qa/tap.py 5559990001; sleep 2; xy 400 210; sleep 1; shot 50_details_header
-          sh input swipe 540 1500 540 500 250; shot 51_details_scrolled
-          back; sleep 1; back; sleep 1; fresh; python3 qa/tap.py 5559990001; sleep 2; xy 1040 210; shot 52_menu_short
-          python3 qa/tap.py More; sleep 1; shot 53_menu_more
-          fresh; python3 qa/tap.py Unknown; sleep 1; shot 54_unknown_tab
-          fresh; python3 qa/tap.py 5559990001; sleep 2; sh input swipe 300 1000 300 1000 900; sleep 1; shot 55a_msg_menu; python3 qa/tap.py Pin; sleep 1; shot 55_pinned
-          cmd_night yes; fresh; python3 qa/tap.py 5559990001; sleep 2; xy 400 210; sleep 1; shot 56_dark_details; cmd_night no
-          fresh; menu; tap Settings; sh input swipe 540 1800 540 300 250; sleep 1; shot 57_settings_bottom; tap About; sleep 1; shot 58_about; tap "Check for updates"; sleep 6; shot 59_about_checked
-          fresh; menu; tap Settings; tap Protection; shot 60_protection
-          (cd $O && zip -qr ../../qa-out.zip . ) 
-          exit 0
-          QAEOF
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -168,18 +37,10 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: bash qa/qa.sh
-      - name: Publish evidence
+      - name: Upload evidence
         if: always()
-        uses: softprops/action-gh-release@v2
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: qa-b${{ github.run_number }}
-          name: "QA evidence ${{ github.run_number }}"
-          prerelease: true
-          make_latest: false
-          files: qa-out.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-# run 1792520106
-# run 1792527513
-# run 1792528413
-# run 2
+          name: qa-evidence
+          path: qa/out/
+          if-no-files-found: warn
