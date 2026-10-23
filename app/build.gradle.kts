@@ -53,6 +53,13 @@ android {
                 proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             }
         }
+        // QA variant: production debug plus the QA-only fixture screen (src/qa). The public
+        // release stays the plain debug APK; the emulator gate runs its suite on app-qa.apk
+        // and smoke-checks the exact public artifact at the end.
+        create("qa") {
+            initWith(getByName("debug"))
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
