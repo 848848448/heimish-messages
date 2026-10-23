@@ -12,7 +12,10 @@ for _ in range(3):
     if not bad: break
     tgt=None
     for n,b in ns:
-        if (n.get("text","") or "") in ("Wait","Close app","OK"): tgt=b; break
+        if (n.get("text","") or "")=="Wait": tgt=b; break
+    if tgt is None:
+        for n,b in ns:
+            if (n.get("text","") or "")=="OK": tgt=b; break
     if tgt is None: break
     subprocess.run(["adb","shell","input","tap",str((tgt[0]+tgt[2])//2),str((tgt[1]+tgt[3])//2)])
     print("dismissed system dialog")
