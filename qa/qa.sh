@@ -17,9 +17,13 @@ assert_count(){ # assert_count <shot> <text> <min-occurrences>
 adb install -r app/build/outputs/apk/debug/app-debug.apk > $O/install.txt 2>&1
 grep -q Success $O/install.txt || echo "FATAL: apk install failed" >> $O/gate_fails.txt
 for p in READ_SMS SEND_SMS RECEIVE_SMS RECEIVE_MMS READ_CONTACTS WRITE_CONTACTS POST_NOTIFICATIONS CAMERA RECORD_AUDIO READ_MEDIA_IMAGES; do sh pm grant $P android.permission.$p; done
-sh cmd role add-role-holder --user 0 android.app.role.SMS $P > $O/role.txt 2>&1
-sh cmd role get-role-holders --user 0 android.app.role.SMS >> $O/role.txt 2>&1
-grep -q $P $O/role.txt || echo "FATAL: default SMS role not held" >> $O/gate_fails.txt
+for i in 1 2 3; do
+  sh cmd role add-role-holder --user 0 android.app.role.SMS $P > $O/role.txt 2>&1
+  sh cmd role get-role-holders --user 0 android.app.role.SMS >> $O/role.txt 2>&1
+  grep -q $P $O/role.txt && break
+  echo "role attempt $i failed: $(tail -1 $O/role.txt)" >> $O/problems.txt; sleep 5
+done
+grep -q $P $O/role.txt || echo "FATAL: default SMS role not held after 3 attempts" >> $O/gate_fails.txt
 sh settings put global window_animation_scale 0
 # contacts
 for n in "Moshe Katz:5551110001" "Chaya Weiss:5551110002"; do
@@ -38,11 +42,16 @@ adb emu sms send 7185550123 "Your verification code is 482913"; sleep 2
 adb emu sms send 5551110001 "Also bring the folding chairs please, there is a long line of people coming and I want to make sure everybody has a seat at the table"; sleep 2
 for i in $(seq 1 12); do adb emu sms send 5551110003 "Message number $i in a long thread"; sleep 1; done
 fresh(){ sh am force-stop $P; sh am start -n $P/.MainActivity >/dev/null; sleep 3; python3 qa/dismiss.py >/dev/null 2>&1; }
-opent(){ { python3 qa/dismiss.py >/dev/null 2>&1; python3 qa/tap.py Moshe || python3 qa/tap.py 5551110001; }; sleep 1.5; }
+opent(){ for i in 1 2 3; do
+  python3 qa/dismiss.py >/dev/null 2>&1
+  python3 qa/tap.py Moshe && break
+  python3 qa/tap.py 5551110001 && break
+  sleep 2
+done; sleep 1.5; }
 menu(){ xy 1007 213; }
 fresh; shot 01_list
 assert 01_list "Messages"
-assert 01_list "Start chat"
+assert 01_list "New chat"
 sh dumpsys notification --noredact 2>/dev/null | grep -E 'pkg=com.heimish|android.title|android.text' | head -20 > $O/notifications.txt
 sh dumpsys gfxinfo $P reset >/dev/null
 for i in 1 2 3 4 5; do sh input swipe 540 1800 540 600 150; sh input swipe 540 600 540 1800 150; done
@@ -61,7 +70,7 @@ fresh; opent; xy 130 2240; shot 07_attach_menu
 fresh; opent; xy 1000 2240; shot 07b_emoji_or_img
 fresh; opent; tap "Search in chat" ; shot 07c_thread_search
 fresh; menu; shot 08_list_menu
-fresh; tap "Start chat"; shot 09_new_chat; sh input text "555"; shot 09b_new_chat_typed
+fresh; tap "New chat"; shot 09_new_chat; sh input text "555"; shot 09b_new_chat_typed
 assert 09_new_chat "To:"
 fresh; sh input tap 540 380; sh input text "Chaya"; shot 10_search_results
 fresh; menu; tap "Settings"; shot 12_settings
