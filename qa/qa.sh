@@ -151,6 +151,40 @@ if python3 qa/mms_fixture.py > $O/mms_fixture.txt 2>&1 && grep -q FIXTURE_OK $O/
 else
   echo "MMS fixture unavailable; per-type labels remain code-verified only" >> $O/problems.txt
 fi
+# QA-only list fixture: real rows, synthetic models (nothing written to the
+# provider). Asserts two-line group titles (EN + RTL), timestamps and unread badges.
+# On builds without the fixture activity it is skipped with an advisory instead.
+sh am start -n $P/.QaFixtureActivity >/dev/null 2>&1; sleep 3
+python3 qa/dump.py > /tmp/fix_probe.txt 2>/dev/null
+if grep -q "QA list fixture" /tmp/fix_probe.txt; then
+  shot 70_fixture_light; assert 70_fixture_light "Yankel Friedman"
+  python3 qa/fixture_check.py $O/70_fixture_light.txt || echo "ASSERT FAIL: fixture wrap/alignment (70_fixture_light): $(python3 qa/fixture_check.py $O/70_fixture_light.txt 2>&1)" >> $O/assert_fails.txt
+  sh settings put system font_scale 1.3; sleep 1
+  sh am start -n $P/.QaFixtureActivity >/dev/null 2>&1; sleep 2
+  shot 71_fixture_largefont; assert 71_fixture_largefont "Yankel Friedman"
+  python3 qa/fixture_check.py $O/71_fixture_largefont.txt || echo "ASSERT FAIL: fixture wrap/alignment (71_fixture_largefont): $(python3 qa/fixture_check.py $O/71_fixture_largefont.txt 2>&1)" >> $O/assert_fails.txt
+  sh settings put system font_scale 1.0; sleep 1
+  cmd_night yes; sh am start -n $P/.QaFixtureActivity >/dev/null 2>&1; sleep 2
+  shot 72_fixture_dark; assert 72_fixture_dark "Yankel Friedman"
+  cmd_night no; back; sleep 1
+else
+  echo "!! QA list fixture activity unavailable on this build; fixture shots skipped" >> $O/problems.txt
+fi
+# Pin behavior in a real long thread: the banner tap jumps to the pinned message
+# (asserted: bubble appears next to the banner text), the banner stays fixed while
+# the list scrolls, and keyboard open/close leaves it in place. Screenshots are the
+# visual evidence; assert_count on 62_pin_jump is the executed jump assertion.
+fresh; python3 qa/tap.py 5551110003; sleep 2
+for i in 1 2 3 4 5 6; do sh input swipe 540 500 540 1700 120; done; sleep 1
+python3 qa/lp.py "Message number 1 in a long thread" && sleep 1 && python3 qa/tap.py Pin || echo "!! could not pin message 1" >> $O/problems.txt
+sleep 1.5
+fresh; python3 qa/tap.py 5551110003; sleep 2
+shot 62_pin_banner_long
+python3 qa/tap.py "Message number 1 in a long thread" && sleep 2 || echo "!! could not tap pin banner" >> $O/problems.txt
+shot 62_pin_jump; assert_count 62_pin_jump "Message number 1 in a long thread" 2
+sh input swipe 540 1700 540 500 120; sleep 1; shot 63_pin_scrolled; assert 63_pin_scrolled "Message number 1 in a long thread"
+sh input tap 540 2240; sleep 2; shot 64_pin_keyboard; assert 64_pin_keyboard "Message number 1 in a long thread"
+sh input keyevent KEYCODE_BACK; sleep 1.5; shot 65_pin_keyboard_closed; assert 65_pin_keyboard_closed "Message number 1 in a long thread"
 # Crash/ANR gate: scoped to the app under test; system-process noise (e.g. Pixel
 # Launcher ANRs, contacts provider StrictMode) is evidence, not a failure.
 adb logcat -d > $O/logcat_full.txt
