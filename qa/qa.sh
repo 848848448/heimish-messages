@@ -157,12 +157,10 @@ else
 fi
 # QA-only list fixture: real rows, synthetic models (nothing written to the
 # provider). Asserts two-line group titles (EN + RTL), timestamps and unread badges.
-# On builds without the fixture activity it is skipped with an advisory instead.
-sh am start -n $P/.QaFixtureActivity >/dev/null 2>&1; sleep 3
+# On the qa variant the fixture MUST launch and render (fixture_start.txt kept as
+# evidence of the shell invocation); on a production-only run it is advisory-skipped.
+sh am start -n $P/.QaFixtureActivity > $O/fixture_start.txt 2>&1; sleep 3
 python3 qa/dump.py > /tmp/fix_probe.txt 2>/dev/null
-if sh pm dump $P 2>/dev/null | grep -q QaFixtureActivity && ! grep -q "QA list fixture" /tmp/fix_probe.txt; then
-  echo "ASSERT FAIL: fixture activity present in package but did not render" >> $O/assert_fails.txt
-fi
 if grep -q "QA list fixture" /tmp/fix_probe.txt; then
   shot 70_fixture_light; assert 70_fixture_light "Yankel Friedman"
   python3 qa/fixture_check.py $O/70_fixture_light.txt || echo "ASSERT FAIL: fixture wrap/alignment (70_fixture_light): $(python3 qa/fixture_check.py $O/70_fixture_light.txt 2>&1)" >> $O/assert_fails.txt
@@ -174,6 +172,8 @@ if grep -q "QA list fixture" /tmp/fix_probe.txt; then
   cmd_night yes; sh am start -n $P/.QaFixtureActivity >/dev/null 2>&1; sleep 2
   shot 72_fixture_dark; assert 72_fixture_dark "Yankel Friedman"
   cmd_night no; back; sleep 1
+elif [ "$APK" != "$PROD" ]; then
+  echo "ASSERT FAIL: fixture activity did not launch/render on the qa variant (fixture_start.txt)" >> $O/assert_fails.txt
 else
   echo "!! QA list fixture activity unavailable on this build; fixture shots skipped" >> $O/problems.txt
 fi
@@ -181,6 +181,9 @@ fi
 # (asserted: bubble appears next to the banner text), the banner stays fixed while
 # the list scrolls, and keyboard open/close leaves it in place. Screenshots are the
 # visual evidence; assert_count on 62_pin_jump is the executed jump assertion.
+# The long thread is seeded first and later fixtures bury it below the fold; bump it
+# back to the top row before opening (run 39930565756 failed here on a buried row).
+adb emu sms send 5551110003 "Message number 13 in a long thread"; sleep 2
 fresh; python3 qa/tap.py 5551110003; sleep 2
 for i in 1 2 3 4 5 6; do sh input swipe 540 500 540 1700 120; done; sleep 1
 python3 qa/lp.py "Message number 1 in a long thread" && sleep 1 && python3 qa/tap.py Pin || echo "!! could not pin message 1" >> $O/problems.txt
@@ -197,7 +200,8 @@ sh input keyevent KEYCODE_BACK; sleep 1.5; shot 65_pin_keyboard_closed; assert 6
 if [ "$APK" != "$PROD" ]; then
   adb install -r $PROD > $O/install_prod.txt 2>&1
   grep -q Success $O/install_prod.txt || echo "FATAL: production apk install failed" >> $O/gate_fails.txt
-  sh pm dump $P 2>/dev/null | grep -q QaFixtureActivity && echo "ASSERT FAIL: fixture activity leaked into production apk" >> $O/assert_fails.txt
+  sh am start -n $P/.QaFixtureActivity > $O/prod_fixture_absence.txt 2>&1
+  grep -qi "does not exist\|Unable to find\|Error" $O/prod_fixture_absence.txt || echo "ASSERT FAIL: fixture activity resolves in the production apk (prod_fixture_absence.txt)" >> $O/assert_fails.txt
   fresh; shot 80_prod_smoke; assert 80_prod_smoke "Messages"; assert 80_prod_smoke "New chat"
 fi
 # Crash/ANR gate: scoped to the app under test; system-process noise (e.g. Pixel
