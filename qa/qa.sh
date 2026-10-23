@@ -83,7 +83,21 @@ fresh; menu; tap "Admin"; shot 17_admin
 # Swipe/long-press affordance shots use a sacrificial conversation: a committing
 # swipe (swipe-to-archive) must never touch conversations later asserts depend on.
 adb emu sms send 5554447777 "swipe affordance test row"; sleep 2
-fresh; sh input swipe 900 600 200 600 200; shot 18_swipe_row
+# The swipe gesture only runs after the sacrificial row is verified inside the
+# swipe band (first row, y 444-645); otherwise it is skipped and recorded, never
+# allowed to hit a real conversation. No assertion is weakened: if the row never
+# lands, problems.txt says so and the shot shows the plain list.
+fresh
+sac_ok=""
+for i in 1 2 3 4 5 6; do
+  python3 qa/dump.py > /tmp/sac_dump.txt 2>/dev/null
+  sac_y=$(grep "swipe affordance test row" /tmp/sac_dump.txt | head -1 | sed -E 's/^\[[0-9]+, ([0-9]+),.*/\1/')
+  case "$sac_y" in ''|*[!0-9]*) ;; *) [ "$sac_y" -ge 444 ] && [ "$sac_y" -le 645 ] && sac_ok=1 && break;; esac
+  sleep 2
+done
+if [ -n "$sac_ok" ]; then sh input swipe 900 600 200 600 200
+else echo "!! sacrificial row not at swipe position; swipe gesture skipped" >> $O/problems.txt; fi
+shot 18_swipe_row
 fresh; sh input swipe 600 600 600 600 800; shot 19_row_longpress
 cmd_night(){ sh cmd uimode night $1; sleep 2; }
 cmd_night yes; fresh; shot 20_dark_list; opent; shot 21_dark_thread; back; menu; tap Settings; shot 22_dark_settings; cmd_night no
