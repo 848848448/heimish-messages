@@ -27,7 +27,7 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private fun handle(context: Context, address: String, body: String, sentAt: Long, subId: Int) {
-        val blocked = BlockedStore.isBlocked(context, address)
+        val blocked = Blocker.isBlocked(context, address)
         val spam = !blocked && (SpamFilter.isSpam(context, address, body) || (SmsRepository.getContactName(context, address) == null && KeywordStore.matches(context, body)))
 
         val values = ContentValues().apply {
