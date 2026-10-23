@@ -315,7 +315,7 @@ fun MessageActionsOverlay(
                 Toast.makeText(ctx, "I'll remind you " + TimeMenu.label(at), Toast.LENGTH_SHORT).show()
             }
         })
-        if (MsgPinStore.has(ctx, key)) add(LongPressAction(Ms.PushPin, "Unpin") { MsgPinStore.toggle(ctx, key); onChanged(); onDismiss() })
+        add(LongPressAction(Ms.PushPin, if (MsgPinStore.has(ctx, key)) "Unpin" else "Pin") { MsgPinStore.toggle(ctx, key); onChanged(); onDismiss() })
         add(LongPressAction(Ms.Delete, "Delete") { onDelete(); onDismiss() })
         add(LongPressAction(Ms.Checklist, "Select more") { onSelect(); onDismiss() })
         add(LongPressAction(Ms.Info, "Info") { onDetails(); onDismiss() })
