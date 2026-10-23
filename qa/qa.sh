@@ -14,7 +14,11 @@ assert_count(){ # assert_count <shot> <text> <min-occurrences>
   n=$(grep -oi -- "$2" $O/$1.txt 2>/dev/null | wc -l)
   [ "$n" -ge "$3" ] || echo "ASSERT FAIL: screen $1 has $n x '$2', want >= $3" >> $O/assert_fails.txt
 }
-adb install -r app/build/outputs/apk/debug/app-debug.apk > $O/install.txt 2>&1
+# The suite runs on the QA variant when it was built (app-qa.apk = public build plus
+# the QA-only fixture screen); otherwise on the exact public artifact.
+PROD=app/build/outputs/apk/debug/app-debug.apk; QAAPK=app/build/outputs/apk/qa/app-qa.apk
+APK=$PROD; [ -f "$QAAPK" ] && APK=$QAAPK
+adb install -r $APK > $O/install.txt 2>&1
 grep -q Success $O/install.txt || echo "FATAL: apk install failed" >> $O/gate_fails.txt
 for p in READ_SMS SEND_SMS RECEIVE_SMS RECEIVE_MMS READ_CONTACTS WRITE_CONTACTS POST_NOTIFICATIONS CAMERA RECORD_AUDIO READ_MEDIA_IMAGES; do sh pm grant $P android.permission.$p; done
 for i in 1 2 3; do
@@ -156,6 +160,9 @@ fi
 # On builds without the fixture activity it is skipped with an advisory instead.
 sh am start -n $P/.QaFixtureActivity >/dev/null 2>&1; sleep 3
 python3 qa/dump.py > /tmp/fix_probe.txt 2>/dev/null
+if sh pm dump $P 2>/dev/null | grep -q QaFixtureActivity && ! grep -q "QA list fixture" /tmp/fix_probe.txt; then
+  echo "ASSERT FAIL: fixture activity present in package but did not render" >> $O/assert_fails.txt
+fi
 if grep -q "QA list fixture" /tmp/fix_probe.txt; then
   shot 70_fixture_light; assert 70_fixture_light "Yankel Friedman"
   python3 qa/fixture_check.py $O/70_fixture_light.txt || echo "ASSERT FAIL: fixture wrap/alignment (70_fixture_light): $(python3 qa/fixture_check.py $O/70_fixture_light.txt 2>&1)" >> $O/assert_fails.txt
@@ -185,6 +192,14 @@ shot 62_pin_jump; assert_count 62_pin_jump "Message number 1 in a long thread" 2
 sh input swipe 540 1700 540 500 120; sleep 1; shot 63_pin_scrolled; assert 63_pin_scrolled "Message number 1 in a long thread"
 sh input tap 540 2240; sleep 2; shot 64_pin_keyboard; assert 64_pin_keyboard "Message number 1 in a long thread"
 sh input keyevent KEYCODE_BACK; sleep 1.5; shot 65_pin_keyboard_closed; assert 65_pin_keyboard_closed "Message number 1 in a long thread"
+# Production-APK smoke: when the suite ran on the QA variant, prove the exact public
+# artifact installs, launches clean, and does NOT contain the fixture activity.
+if [ "$APK" != "$PROD" ]; then
+  adb install -r $PROD > $O/install_prod.txt 2>&1
+  grep -q Success $O/install_prod.txt || echo "FATAL: production apk install failed" >> $O/gate_fails.txt
+  sh pm dump $P 2>/dev/null | grep -q QaFixtureActivity && echo "ASSERT FAIL: fixture activity leaked into production apk" >> $O/assert_fails.txt
+  fresh; shot 80_prod_smoke; assert 80_prod_smoke "Messages"; assert 80_prod_smoke "New chat"
+fi
 # Crash/ANR gate: scoped to the app under test; system-process noise (e.g. Pixel
 # Launcher ANRs, contacts provider StrictMode) is evidence, not a failure.
 adb logcat -d > $O/logcat_full.txt
