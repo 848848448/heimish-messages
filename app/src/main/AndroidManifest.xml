@@ -82,10 +82,6 @@
             </intent-filter>
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
-        <!-- QA-only fixture screen; not exported, no launcher entry, adb shell only -->
-        <activity
-            android:name=".QaFixtureActivity"
-            android:exported="false" />
 
         <!-- Receives incoming SMS when set as the default SMS app -->
         <receiver
