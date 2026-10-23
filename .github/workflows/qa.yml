@@ -27,7 +27,7 @@ jobs:
           KEY_ALIAS: message
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
           HEIMISH_WORKER_URL: ${{ vars.HEIMISH_WORKER_URL }}
-        run: chmod +x ./gradlew && ./gradlew assembleDebug --no-daemon
+        run: chmod +x ./gradlew && ./gradlew assembleDebug assembleQa --no-daemon
       - name: Emulator QA
         uses: reactivecircus/android-emulator-runner@v2
         with:
