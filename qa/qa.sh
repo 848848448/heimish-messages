@@ -80,6 +80,9 @@ fresh; menu; tap "Archived"; shot 14_archived
 fresh; menu; tap "Starred"; shot 15_starred
 fresh; menu; tap "Scheduled"; shot 16_scheduled
 fresh; menu; tap "Admin"; shot 17_admin
+# Swipe/long-press affordance shots use a sacrificial conversation: a committing
+# swipe (swipe-to-archive) must never touch conversations later asserts depend on.
+adb emu sms send 5554447777 "swipe affordance test row"; sleep 2
 fresh; sh input swipe 900 600 200 600 200; shot 18_swipe_row
 fresh; sh input swipe 600 600 600 600 800; shot 19_row_longpress
 cmd_night(){ sh cmd uimode night $1; sleep 2; }
