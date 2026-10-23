@@ -552,7 +552,7 @@ object MmsIncoming {
             }
         }
         val markRead = { runCatching { cr.update(Uri.parse("content://mms/$mmsId"), ContentValues().apply { put("read", 1); put("seen", 1) }, null, null) } }
-        if (BlockedStore.isBlocked(ctx, addr)) { MmsLog.log(ctx, "notify: sender $addr is blocked — silent"); markRead(); return }
+        if (Blocker.isBlocked(ctx, addr)) { MmsLog.log(ctx, "notify: sender $addr is blocked — silent"); markRead(); return }
         if (SpamFilter.isSpam(ctx, addr, text) || (text.isNotBlank() && SmsRepository.getContactName(ctx, addr) == null && KeywordStore.matches(ctx, text))) {
             MmsLog.log(ctx, "notify: spam filter matched $addr — moved to spam"); markRead(); SpamStore.add(ctx, threadId); return
         }
